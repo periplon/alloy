@@ -19,6 +19,7 @@ pub mod mcp;
 pub mod metrics;
 pub mod ontology;
 pub mod processing;
+pub mod query;
 pub mod search;
 pub mod sources;
 pub mod storage;
@@ -69,6 +70,10 @@ pub use ontology::extraction::{
 pub use ontology::{
     DocumentRef, EmbeddedOntologyStore, Entity, EntityFilter, EntityType, EntityUpdate,
     OntologyStats, OntologyStore, RelationType, Relationship, RelationshipFilter,
+};
+pub use query::{
+    CalendarIntent, ClassificationResult, ExtractedParams, GtdIntent, IntentClassifier,
+    KnowledgeIntent, QueryExecutor, QueryIntent, QueryMode, QueryStats, UnifiedQueryResult,
 };
 pub use web::{create_web_ui_router, WebUiConfig};
 pub use webhooks::{

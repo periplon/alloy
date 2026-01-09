@@ -19,6 +19,7 @@ use crate::acl::{
 use crate::auth::AuthContext;
 use crate::config::Config;
 use crate::coordinator::{IndexCoordinator, IndexProgress};
+use crate::mcp::query_tools::{NlQueryStats, QueryParams, QueryResponse};
 use crate::mcp::tools::{
     AclConfigInfo, AclEntryInfo, AddWebhookResponse, BackupInfo, CacheConfigInfo,
     CheckDuplicateResponse, CheckPermissionResponse, ClearCacheResponse,
@@ -37,6 +38,7 @@ use crate::mcp::tools::{
     VersioningStatsResponse, VisualizationPoint, WebhookDeliveryInfo, WebhookInfo,
 };
 use crate::metrics::get_metrics;
+use crate::query::{IntentClassifier, QueryMode};
 use crate::search::{HybridQuery, SearchFilter};
 use crate::sources::parse_s3_uri;
 use crate::webhooks::{
@@ -3873,6 +3875,519 @@ impl AlloyServer {
         Ok(CallToolResult::success(vec![Content::text(
             serde_json::to_string_pretty(&response).unwrap(),
         )]))
+    }
+
+    /// Natural language query interface for GTD, calendar, knowledge, and search.
+    #[tool(
+        description = "Unified natural language query interface. Automatically routes to GTD (tasks/projects), Calendar, Knowledge Graph, or Document Search based on query intent. Examples: 'What are my @phone tasks?', 'What's on my calendar this week?', 'Who can help with AWS?', 'Show me stalled projects'."
+    )]
+    async fn query(
+        &self,
+        Parameters(params): Parameters<QueryParams>,
+    ) -> Result<CallToolResult, McpError> {
+        use crate::query::QueryIntent;
+        use std::time::Instant;
+
+        let start = Instant::now();
+
+        // Get coordinator and subsystems
+        self.ensure_coordinator().await?;
+        let state = self.state.read().await;
+        let coordinator = state.coordinator.as_ref().unwrap();
+        let ontology_store = coordinator.ontology_store();
+        let embedder = coordinator.embedder();
+
+        // Classify the query
+        let classifier = IntentClassifier::new();
+        let mode = params.mode.map(QueryMode::from).unwrap_or(QueryMode::Auto);
+        let classification = match mode {
+            QueryMode::Auto => classifier.classify(&params.query),
+            _ => classifier.classify_with_mode(&params.query, mode),
+        };
+
+        let limit = params.limit.unwrap_or(20);
+        let intent = classification.intent.clone();
+
+        // Execute based on intent
+        let result: Result<(String, serde_json::Value), String> = match &intent {
+            QueryIntent::Gtd(gtd_intent) => {
+                self.execute_gtd_query(gtd_intent, &classification, ontology_store.clone(), limit)
+                    .await
+            }
+            QueryIntent::Calendar(cal_intent) => {
+                self.execute_calendar_query(cal_intent, &classification, ontology_store.clone())
+                    .await
+            }
+            QueryIntent::Knowledge(know_intent) => {
+                self.execute_knowledge_query(
+                    know_intent,
+                    &classification,
+                    ontology_store.clone(),
+                    embedder.clone(),
+                    limit,
+                )
+                .await
+            }
+            QueryIntent::Search => {
+                self.execute_search_query(&params.query, coordinator, limit)
+                    .await
+            }
+            QueryIntent::Unknown => {
+                Err("Could not understand your query. Try being more specific.".to_string())
+            }
+        };
+
+        let elapsed = start.elapsed().as_millis() as u64;
+
+        let response = match result {
+            Ok((answer, data)) => QueryResponse {
+                success: true,
+                interpreted_as: intent.detailed_name(),
+                confidence: classification.confidence,
+                answer,
+                data,
+                suggestions: classification
+                    .alternatives
+                    .into_iter()
+                    .map(|(i, c)| format!("{} ({:.0}%)", i.display_name(), c * 100.0))
+                    .collect(),
+                stats: NlQueryStats {
+                    classification_time_ms: 0,
+                    execution_time_ms: elapsed,
+                    total_time_ms: elapsed,
+                    subsystem: intent.display_name().to_string(),
+                },
+                message: "Query executed successfully".to_string(),
+            },
+            Err(e) => QueryResponse::error(e),
+        };
+
+        Ok(CallToolResult::success(vec![Content::text(
+            serde_json::to_string_pretty(&response).unwrap(),
+        )]))
+    }
+
+    /// Execute GTD queries.
+    async fn execute_gtd_query(
+        &self,
+        intent: &crate::query::GtdIntent,
+        classification: &crate::query::ClassificationResult,
+        ontology_store: Arc<RwLock<crate::ontology::EmbeddedOntologyStore>>,
+        limit: usize,
+    ) -> Result<(String, serde_json::Value), String> {
+        use crate::gtd::{
+            ProjectFilter, ProjectManager, ProjectStatus, RecommendParams, SomedayFilter,
+            SomedayManager, TaskFilter, TaskManager, TaskStatus, WaitingFilter, WaitingManager,
+        };
+        use crate::query::GtdIntent;
+
+        let task_mgr = TaskManager::new(ontology_store.clone());
+        let project_mgr = ProjectManager::new(ontology_store.clone());
+        let waiting_mgr = WaitingManager::new(ontology_store.clone());
+        let someday_mgr = SomedayManager::new(ontology_store.clone());
+
+        match intent {
+            GtdIntent::ListTasks => {
+                let filter = TaskFilter {
+                    limit,
+                    ..Default::default()
+                };
+                let tasks = task_mgr.list(filter).await.map_err(|e| e.to_string())?;
+                let count = tasks.len();
+                Ok((
+                    format!("Found {} tasks", count),
+                    serde_json::to_value(&tasks).unwrap_or_default(),
+                ))
+            }
+            GtdIntent::TasksByContext { context } => {
+                let filter = TaskFilter {
+                    contexts: vec![context.clone()],
+                    status: Some(TaskStatus::Next),
+                    limit,
+                    ..Default::default()
+                };
+                let tasks = task_mgr.list(filter).await.map_err(|e| e.to_string())?;
+                let count = tasks.len();
+                Ok((
+                    format!("Found {} tasks with context @{}", count, context),
+                    serde_json::to_value(&tasks).unwrap_or_default(),
+                ))
+            }
+            GtdIntent::QuickWins => {
+                let tasks = task_mgr.get_quick_wins().await.map_err(|e| e.to_string())?;
+                let count = tasks.len();
+                Ok((
+                    format!("Found {} quick wins (low effort, high priority)", count),
+                    serde_json::to_value(&tasks).unwrap_or_default(),
+                ))
+            }
+            GtdIntent::OverdueTasks => {
+                let tasks = task_mgr.get_overdue().await.map_err(|e| e.to_string())?;
+                let count = tasks.len();
+                Ok((
+                    format!("Found {} overdue tasks", count),
+                    serde_json::to_value(&tasks).unwrap_or_default(),
+                ))
+            }
+            GtdIntent::RecommendTasks | GtdIntent::WhatNow => {
+                let context = classification.extracted_params.contexts.first().cloned();
+                let params = RecommendParams {
+                    current_context: context,
+                    energy_level: None,
+                    time_available: None,
+                    focus_area: None,
+                    limit,
+                };
+                let recommendations = task_mgr
+                    .recommend(params)
+                    .await
+                    .map_err(|e| e.to_string())?;
+                let count = recommendations.len();
+                Ok((
+                    format!("Recommending {} tasks based on current context", count),
+                    serde_json::to_value(&recommendations).unwrap_or_default(),
+                ))
+            }
+            GtdIntent::ListProjects => {
+                let filter = ProjectFilter {
+                    limit,
+                    ..Default::default()
+                };
+                let projects = project_mgr.list(filter).await.map_err(|e| e.to_string())?;
+                let count = projects.len();
+                Ok((
+                    format!("Found {} projects", count),
+                    serde_json::to_value(&projects).unwrap_or_default(),
+                ))
+            }
+            GtdIntent::StalledProjects => {
+                let projects = project_mgr
+                    .get_stalled(7)
+                    .await
+                    .map_err(|e| e.to_string())?;
+                let count = projects.len();
+                Ok((
+                    format!("Found {} stalled projects (no activity in 7+ days)", count),
+                    serde_json::to_value(&projects).unwrap_or_default(),
+                ))
+            }
+            GtdIntent::ProjectsWithoutNextAction => {
+                let projects = project_mgr
+                    .get_without_next_action()
+                    .await
+                    .map_err(|e| e.to_string())?;
+                let count = projects.len();
+                Ok((
+                    format!("Found {} projects without a next action", count),
+                    serde_json::to_value(&projects).unwrap_or_default(),
+                ))
+            }
+            GtdIntent::ProjectHealth => {
+                // Return all active projects with their health status
+                let filter = ProjectFilter {
+                    status: Some(ProjectStatus::Active),
+                    limit,
+                    ..Default::default()
+                };
+                let projects = project_mgr.list(filter).await.map_err(|e| e.to_string())?;
+                let count = projects.len();
+                Ok((
+                    format!("Showing health status for {} active projects", count),
+                    serde_json::to_value(&projects).unwrap_or_default(),
+                ))
+            }
+            GtdIntent::ListWaiting => {
+                let filter = WaitingFilter {
+                    limit,
+                    ..Default::default()
+                };
+                let waiting = waiting_mgr.list(filter).await.map_err(|e| e.to_string())?;
+                let count = waiting.len();
+                Ok((
+                    format!("Found {} waiting-for items", count),
+                    serde_json::to_value(&waiting).unwrap_or_default(),
+                ))
+            }
+            GtdIntent::OverdueWaiting => {
+                let waiting = waiting_mgr.get_overdue().await.map_err(|e| e.to_string())?;
+                let count = waiting.len();
+                Ok((
+                    format!("Found {} overdue waiting-for items", count),
+                    serde_json::to_value(&waiting).unwrap_or_default(),
+                ))
+            }
+            GtdIntent::WaitingForPerson { person } => {
+                let filter = WaitingFilter {
+                    delegated_to: Some(person.clone()),
+                    limit,
+                    ..Default::default()
+                };
+                let waiting = waiting_mgr.list(filter).await.map_err(|e| e.to_string())?;
+                let count = waiting.len();
+                Ok((
+                    format!("Found {} items waiting on {}", count, person),
+                    serde_json::to_value(&waiting).unwrap_or_default(),
+                ))
+            }
+            GtdIntent::ListSomeday => {
+                let filter = SomedayFilter {
+                    limit,
+                    ..Default::default()
+                };
+                let items = someday_mgr.list(filter).await.map_err(|e| e.to_string())?;
+                let count = items.len();
+                Ok((
+                    format!("Found {} someday/maybe items", count),
+                    serde_json::to_value(&items).unwrap_or_default(),
+                ))
+            }
+            GtdIntent::WeeklyReview | GtdIntent::DailyReview | GtdIntent::General => {
+                // For reviews, provide a summary
+                let tasks = task_mgr
+                    .list(TaskFilter {
+                        limit: 10,
+                        ..Default::default()
+                    })
+                    .await
+                    .map_err(|e| e.to_string())?;
+                let projects = project_mgr
+                    .list(ProjectFilter {
+                        status: Some(ProjectStatus::Active),
+                        limit: 10,
+                        ..Default::default()
+                    })
+                    .await
+                    .map_err(|e| e.to_string())?;
+
+                let summary = serde_json::json!({
+                    "tasks_count": tasks.len(),
+                    "active_projects_count": projects.len(),
+                    "recent_tasks": tasks,
+                    "active_projects": projects,
+                });
+
+                Ok((
+                    format!(
+                        "GTD Summary: {} tasks, {} active projects",
+                        tasks.len(),
+                        projects.len()
+                    ),
+                    summary,
+                ))
+            }
+        }
+    }
+
+    /// Execute calendar queries.
+    async fn execute_calendar_query(
+        &self,
+        intent: &crate::query::CalendarIntent,
+        _classification: &crate::query::ClassificationResult,
+        ontology_store: Arc<RwLock<crate::ontology::EmbeddedOntologyStore>>,
+    ) -> Result<(String, serde_json::Value), String> {
+        use crate::calendar::CalendarManager;
+        use crate::query::CalendarIntent;
+
+        let manager = CalendarManager::new(ontology_store);
+
+        match intent {
+            CalendarIntent::Today => {
+                let events = manager.today().await.map_err(|e| e.to_string())?;
+                let count = events.len();
+                Ok((
+                    format!("Found {} events for today", count),
+                    serde_json::to_value(&events).unwrap_or_default(),
+                ))
+            }
+            CalendarIntent::ThisWeek => {
+                let events = manager.this_week().await.map_err(|e| e.to_string())?;
+                let count = events.len();
+                Ok((
+                    format!("Found {} events this week", count),
+                    serde_json::to_value(&events).unwrap_or_default(),
+                ))
+            }
+            CalendarIntent::Upcoming { days } => {
+                let days = days.map(|d| d as i64).unwrap_or(30);
+                let events = manager
+                    .upcoming(Some(days))
+                    .await
+                    .map_err(|e| e.to_string())?;
+                let count = events.len();
+                Ok((
+                    format!("Found {} upcoming events", count),
+                    serde_json::to_value(&events).unwrap_or_default(),
+                ))
+            }
+            CalendarIntent::Conflicts => {
+                // Get upcoming events and check for conflicts
+                let events = manager
+                    .upcoming(Some(14))
+                    .await
+                    .map_err(|e| e.to_string())?;
+                let conflicts = manager.detect_conflicts(&events);
+                let count = conflicts.len();
+                Ok((
+                    format!("Found {} scheduling conflicts in next 2 weeks", count),
+                    serde_json::to_value(&conflicts).unwrap_or_default(),
+                ))
+            }
+            CalendarIntent::FreeTime => {
+                // Use upcoming events to show calendar summary for now
+                let events = manager.today().await.map_err(|e| e.to_string())?;
+                let count = events.len();
+                Ok((
+                    format!(
+                        "Today has {} events. Use calendar tools for detailed free time analysis.",
+                        count
+                    ),
+                    serde_json::to_value(&events).unwrap_or_default(),
+                ))
+            }
+            CalendarIntent::SpecificDate { date_expr } => {
+                // For now, just show today - date parsing would need more work
+                let events = manager.today().await.map_err(|e| e.to_string())?;
+                let count = events.len();
+                Ok((
+                    format!("Found {} events for '{}' (showing today)", count, date_expr),
+                    serde_json::to_value(&events).unwrap_or_default(),
+                ))
+            }
+            CalendarIntent::EventsWithPerson { person } => {
+                // Show upcoming events - filtering by person would need more work
+                let events = manager
+                    .upcoming(Some(14))
+                    .await
+                    .map_err(|e| e.to_string())?;
+                let count = events.len();
+                Ok((
+                    format!(
+                        "Found {} upcoming events (filter by '{}' not implemented)",
+                        count, person
+                    ),
+                    serde_json::to_value(&events).unwrap_or_default(),
+                ))
+            }
+            CalendarIntent::General => {
+                let events = manager.this_week().await.map_err(|e| e.to_string())?;
+                let count = events.len();
+                Ok((
+                    format!("Found {} events this week", count),
+                    serde_json::to_value(&events).unwrap_or_default(),
+                ))
+            }
+        }
+    }
+
+    /// Execute knowledge graph queries.
+    async fn execute_knowledge_query(
+        &self,
+        intent: &crate::query::KnowledgeIntent,
+        _classification: &crate::query::ClassificationResult,
+        ontology_store: Arc<RwLock<crate::ontology::EmbeddedOntologyStore>>,
+        embedder: Arc<dyn crate::embedding::EmbeddingProvider>,
+        limit: usize,
+    ) -> Result<(String, serde_json::Value), String> {
+        use crate::knowledge::KnowledgeQueryEngine;
+        use crate::query::KnowledgeIntent;
+
+        let engine = KnowledgeQueryEngine::new(ontology_store, embedder);
+
+        match intent {
+            KnowledgeIntent::WhatDoIKnowAbout { topic } => {
+                let result = engine
+                    .summarize_topic(topic, limit)
+                    .await
+                    .map_err(|e| e.to_string())?;
+                Ok((
+                    format!("Knowledge summary for '{}'", topic),
+                    serde_json::to_value(&result).unwrap_or_default(),
+                ))
+            }
+            KnowledgeIntent::FindExpert { topic } => {
+                let experts = engine
+                    .find_experts(topic, limit)
+                    .await
+                    .map_err(|e| e.to_string())?;
+                let count = experts.len();
+                Ok((
+                    format!("Found {} experts on '{}'", count, topic),
+                    serde_json::to_value(&experts).unwrap_or_default(),
+                ))
+            }
+            KnowledgeIntent::WhoWorksWith { person } => {
+                let result = engine
+                    .traverse_relationships(person, None, 2)
+                    .await
+                    .map_err(|e| e.to_string())?;
+                Ok((
+                    format!("Found people working with '{}'", person),
+                    serde_json::to_value(&result).unwrap_or_default(),
+                ))
+            }
+            KnowledgeIntent::TopicSummary { topic } => {
+                let result = engine
+                    .summarize_topic(topic, limit)
+                    .await
+                    .map_err(|e| e.to_string())?;
+                Ok((
+                    format!("Topic summary for '{}'", topic),
+                    serde_json::to_value(&result).unwrap_or_default(),
+                ))
+            }
+            KnowledgeIntent::EntityLookup { name } => {
+                let result = engine
+                    .traverse_relationships(name, None, 1)
+                    .await
+                    .map_err(|e| e.to_string())?;
+                Ok((
+                    format!("Entity lookup for '{}'", name),
+                    serde_json::to_value(&result).unwrap_or_default(),
+                ))
+            }
+            KnowledgeIntent::RelationshipQuery { from } => {
+                let result = engine
+                    .traverse_relationships(from, None, 2)
+                    .await
+                    .map_err(|e| e.to_string())?;
+                Ok((
+                    format!("Relationships from '{}'", from),
+                    serde_json::to_value(&result).unwrap_or_default(),
+                ))
+            }
+            KnowledgeIntent::General { query } => {
+                // Use topic summary as fallback
+                let result = engine
+                    .summarize_topic(query, limit)
+                    .await
+                    .map_err(|e| e.to_string())?;
+                Ok((
+                    format!("Search results for '{}'", query),
+                    serde_json::to_value(&result).unwrap_or_default(),
+                ))
+            }
+        }
+    }
+
+    /// Execute document search queries.
+    async fn execute_search_query(
+        &self,
+        query: &str,
+        coordinator: &IndexCoordinator,
+        limit: usize,
+    ) -> Result<(String, serde_json::Value), String> {
+        let search_query = HybridQuery::new(query).limit(limit);
+
+        match coordinator.search(search_query).await {
+            Ok(response) => {
+                let count = response.results.len();
+                Ok((
+                    format!("Found {} matching documents", count),
+                    serde_json::to_value(&response.results).unwrap_or_default(),
+                ))
+            }
+            Err(e) => Err(format!("Search failed: {}", e)),
+        }
     }
 }
 
