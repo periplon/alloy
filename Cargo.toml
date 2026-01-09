@@ -101,6 +101,10 @@ sha2 = "0.10"
 # Text diff for versioning
 similar = "2"
 
+# Compression for versioning
+flate2 = "1"
+zstd = "0.13"
+
 # Prometheus metrics
 prometheus = "0.13"
 

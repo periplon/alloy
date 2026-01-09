@@ -275,6 +275,9 @@ mod tests {
             change_type: ChangeType::ContentModified,
             size_bytes: 100,
             content_hash: format!("hash{}", num),
+            chunk_count: 0,
+            tags: Vec::new(),
+            compression: Default::default(),
         }
     }
 

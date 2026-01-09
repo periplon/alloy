@@ -590,6 +590,8 @@ pub struct VersioningConfig {
     pub storage: String,
     /// Store full version every N versions (0 = always full).
     pub delta_threshold: usize,
+    /// Compression method for version content: "none", "gzip", or "zstd".
+    pub compression: VersionCompressionType,
     /// Retention policy settings.
     pub retention: VersionRetentionConfig,
 }
@@ -600,9 +602,23 @@ impl Default for VersioningConfig {
             enabled: false,
             storage: "memory".to_string(),
             delta_threshold: 10,
+            compression: VersionCompressionType::default(),
             retention: VersionRetentionConfig::default(),
         }
     }
+}
+
+/// Compression type for version storage.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "lowercase")]
+pub enum VersionCompressionType {
+    /// No compression (fastest, largest storage).
+    #[default]
+    None,
+    /// Gzip compression (good compression, moderate speed).
+    Gzip,
+    /// Zstd compression (best ratio/speed balance, recommended).
+    Zstd,
 }
 
 /// Version retention policy configuration.

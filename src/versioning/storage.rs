@@ -1,7 +1,7 @@
 //! Version storage backends.
 //!
 //! Provides storage for document version history with support for
-//! full content storage and delta compression.
+//! full content storage, delta compression, and optional zstd compression.
 
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
@@ -55,6 +55,74 @@ pub enum DeltaOperation {
     },
 }
 
+/// Chunk-level versioning for embeddings.
+/// Tracks individual chunks within a document version.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ChunkVersion {
+    /// Unique chunk identifier.
+    pub chunk_id: String,
+    /// SHA-256 hash of chunk content.
+    pub content_hash: String,
+    /// SHA-256 hash of chunk embedding.
+    pub embedding_hash: String,
+    /// Position of chunk in document (0-indexed).
+    pub position: usize,
+    /// Byte offset in the original document.
+    pub byte_offset: usize,
+    /// Byte length of the chunk.
+    pub byte_length: usize,
+}
+
+impl ChunkVersion {
+    /// Create a new chunk version.
+    pub fn new(
+        chunk_id: String,
+        content: &str,
+        embedding: &[f32],
+        position: usize,
+        byte_offset: usize,
+        byte_length: usize,
+    ) -> Self {
+        Self {
+            chunk_id,
+            content_hash: Self::hash_content(content),
+            embedding_hash: Self::hash_embedding(embedding),
+            position,
+            byte_offset,
+            byte_length,
+        }
+    }
+
+    /// Compute SHA-256 hash of content.
+    pub fn hash_content(content: &str) -> String {
+        let mut hasher = Sha256::new();
+        hasher.update(content.as_bytes());
+        format!("{:x}", hasher.finalize())
+    }
+
+    /// Compute SHA-256 hash of embedding.
+    pub fn hash_embedding(embedding: &[f32]) -> String {
+        let mut hasher = Sha256::new();
+        for f in embedding {
+            hasher.update(f.to_le_bytes());
+        }
+        format!("{:x}", hasher.finalize())
+    }
+}
+
+/// Compression method for version storage.
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Default)]
+#[serde(rename_all = "lowercase")]
+pub enum CompressionMethod {
+    /// No compression.
+    #[default]
+    None,
+    /// Gzip compression.
+    Gzip,
+    /// Zstd compression (recommended for best ratio/speed).
+    Zstd,
+}
+
 /// A specific version of a document.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct DocumentVersion {
@@ -72,10 +140,22 @@ pub struct DocumentVersion {
     pub change_type: ChangeType,
     /// SHA-256 hash of the content.
     pub content_hash: String,
+    /// SHA-256 hash of the metadata (for detecting metadata-only changes).
+    #[serde(default)]
+    pub metadata_hash: Option<String>,
     /// How the content is stored.
     pub storage: VersionStorageType,
     /// Size of content in bytes.
     pub size_bytes: usize,
+    /// Chunk-level version information (for tracking embedding changes).
+    #[serde(default)]
+    pub chunks: Option<Vec<ChunkVersion>>,
+    /// Compression method used for stored content.
+    #[serde(default)]
+    pub compression: CompressionMethod,
+    /// Optional tags for the version (e.g., "release", "milestone").
+    #[serde(default)]
+    pub tags: Vec<String>,
 }
 
 impl DocumentVersion {
@@ -84,6 +164,92 @@ impl DocumentVersion {
         let mut hasher = Sha256::new();
         hasher.update(content.as_bytes());
         format!("{:x}", hasher.finalize())
+    }
+
+    /// Compute SHA-256 hash of metadata.
+    pub fn compute_metadata_hash(metadata: &serde_json::Value) -> String {
+        let mut hasher = Sha256::new();
+        // Serialize metadata in a canonical way
+        let json = serde_json::to_string(metadata).unwrap_or_default();
+        hasher.update(json.as_bytes());
+        format!("{:x}", hasher.finalize())
+    }
+
+    /// Get the number of chunks in this version.
+    pub fn chunk_count(&self) -> usize {
+        self.chunks.as_ref().map(|c| c.len()).unwrap_or(0)
+    }
+
+    /// Check if this version has chunk information.
+    pub fn has_chunks(&self) -> bool {
+        self.chunks.as_ref().map(|c| !c.is_empty()).unwrap_or(false)
+    }
+
+    /// Add a tag to this version.
+    pub fn add_tag(&mut self, tag: impl Into<String>) {
+        let tag = tag.into();
+        if !self.tags.contains(&tag) {
+            self.tags.push(tag);
+        }
+    }
+
+    /// Check if version has a specific tag.
+    pub fn has_tag(&self, tag: &str) -> bool {
+        self.tags.iter().any(|t| t == tag)
+    }
+}
+
+/// Compression utilities for version content.
+pub mod compression {
+    use super::CompressionMethod;
+    use std::io::{Read, Write};
+
+    /// Compress content using the specified method.
+    pub fn compress(content: &[u8], method: CompressionMethod) -> crate::error::Result<Vec<u8>> {
+        match method {
+            CompressionMethod::None => Ok(content.to_vec()),
+            CompressionMethod::Gzip => {
+                use flate2::write::GzEncoder;
+                use flate2::Compression;
+                let mut encoder = GzEncoder::new(Vec::new(), Compression::default());
+                encoder.write_all(content)?;
+                Ok(encoder.finish()?)
+            }
+            CompressionMethod::Zstd => {
+                // Use zstd compression level 3 (good balance of speed/ratio)
+                let compressed = zstd::encode_all(content, 3)?;
+                Ok(compressed)
+            }
+        }
+    }
+
+    /// Decompress content using the specified method.
+    pub fn decompress(
+        data: &[u8],
+        method: CompressionMethod,
+    ) -> crate::error::Result<Vec<u8>> {
+        match method {
+            CompressionMethod::None => Ok(data.to_vec()),
+            CompressionMethod::Gzip => {
+                use flate2::read::GzDecoder;
+                let mut decoder = GzDecoder::new(data);
+                let mut decompressed = Vec::new();
+                decoder.read_to_end(&mut decompressed)?;
+                Ok(decompressed)
+            }
+            CompressionMethod::Zstd => {
+                let decompressed = zstd::decode_all(data)?;
+                Ok(decompressed)
+            }
+        }
+    }
+
+    /// Get the compression ratio (original_size / compressed_size).
+    pub fn compression_ratio(original_size: usize, compressed_size: usize) -> f64 {
+        if compressed_size == 0 {
+            return 1.0;
+        }
+        original_size as f64 / compressed_size as f64
     }
 }
 
@@ -104,6 +270,15 @@ pub struct VersionMetadata {
     pub size_bytes: usize,
     /// Content hash.
     pub content_hash: String,
+    /// Number of chunks in this version.
+    #[serde(default)]
+    pub chunk_count: usize,
+    /// Tags associated with this version.
+    #[serde(default)]
+    pub tags: Vec<String>,
+    /// Compression method used.
+    #[serde(default)]
+    pub compression: CompressionMethod,
 }
 
 impl From<&DocumentVersion> for VersionMetadata {
@@ -116,6 +291,9 @@ impl From<&DocumentVersion> for VersionMetadata {
             change_type: v.change_type.clone(),
             size_bytes: v.size_bytes,
             content_hash: v.content_hash.clone(),
+            chunk_count: v.chunk_count(),
+            tags: v.tags.clone(),
+            compression: v.compression,
         }
     }
 }
@@ -665,23 +843,35 @@ impl VersionStorage for FileVersionStorage {
 mod tests {
     use super::*;
 
+    fn create_test_version(id: &str, doc_id: &str, num: u64, content: &str) -> DocumentVersion {
+        DocumentVersion {
+            version_id: id.to_string(),
+            document_id: doc_id.to_string(),
+            version_number: num,
+            timestamp: Utc::now(),
+            author: None,
+            change_type: if num == 1 {
+                ChangeType::Created
+            } else {
+                ChangeType::ContentModified
+            },
+            content_hash: DocumentVersion::compute_hash(content),
+            metadata_hash: None,
+            storage: VersionStorageType::Full {
+                content: content.to_string(),
+            },
+            size_bytes: content.len(),
+            chunks: None,
+            compression: CompressionMethod::None,
+            tags: Vec::new(),
+        }
+    }
+
     #[tokio::test]
     async fn test_in_memory_storage() {
         let storage = InMemoryVersionStorage::new();
 
-        let version = DocumentVersion {
-            version_id: "v1".to_string(),
-            document_id: "doc1".to_string(),
-            version_number: 1,
-            timestamp: Utc::now(),
-            author: Some("test".to_string()),
-            change_type: ChangeType::Created,
-            content_hash: "abc123".to_string(),
-            storage: VersionStorageType::Full {
-                content: "Hello, World!".to_string(),
-            },
-            size_bytes: 13,
-        };
+        let version = create_test_version("v1", "doc1", 1, "Hello, World!");
 
         storage.store_version(version).await.unwrap();
 
@@ -697,19 +887,12 @@ mod tests {
         let storage = InMemoryVersionStorage::new();
 
         for i in 1..=3 {
-            let version = DocumentVersion {
-                version_id: format!("v{}", i),
-                document_id: "doc1".to_string(),
-                version_number: i,
-                timestamp: Utc::now(),
-                author: None,
-                change_type: ChangeType::ContentModified,
-                content_hash: format!("hash{}", i),
-                storage: VersionStorageType::Full {
-                    content: format!("Content v{}", i),
-                },
-                size_bytes: 10,
-            };
+            let version = create_test_version(
+                &format!("v{}", i),
+                "doc1",
+                i,
+                &format!("Content v{}", i),
+            );
             storage.store_version(version).await.unwrap();
         }
 
@@ -723,19 +906,7 @@ mod tests {
         let storage = InMemoryVersionStorage::new();
 
         // Store base version
-        let v1 = DocumentVersion {
-            version_id: "v1".to_string(),
-            document_id: "doc1".to_string(),
-            version_number: 1,
-            timestamp: Utc::now(),
-            author: None,
-            change_type: ChangeType::Created,
-            content_hash: "hash1".to_string(),
-            storage: VersionStorageType::Full {
-                content: "Hello, World!".to_string(),
-            },
-            size_bytes: 13,
-        };
+        let v1 = create_test_version("v1", "doc1", 1, "Hello, World!");
         storage.store_version(v1).await.unwrap();
 
         // Store delta version
@@ -747,6 +918,7 @@ mod tests {
             author: None,
             change_type: ChangeType::ContentModified,
             content_hash: "hash2".to_string(),
+            metadata_hash: None,
             storage: VersionStorageType::Delta {
                 base_version: "v1".to_string(),
                 operations: vec![DeltaOperation::Replace {
@@ -756,6 +928,9 @@ mod tests {
                 }],
             },
             size_bytes: 12,
+            chunks: None,
+            compression: CompressionMethod::None,
+            tags: Vec::new(),
         };
         storage.store_version(v2).await.unwrap();
 
@@ -770,23 +945,75 @@ mod tests {
             .await
             .unwrap();
 
-        let version = DocumentVersion {
-            version_id: "v1".to_string(),
-            document_id: "doc1".to_string(),
-            version_number: 1,
-            timestamp: Utc::now(),
-            author: Some("test".to_string()),
-            change_type: ChangeType::Created,
-            content_hash: "abc123".to_string(),
-            storage: VersionStorageType::Full {
-                content: "Test content".to_string(),
-            },
-            size_bytes: 12,
-        };
+        let version = create_test_version("v1", "doc1", 1, "Test content");
 
         storage.store_version(version).await.unwrap();
 
         let content = storage.reconstruct_content("v1").await.unwrap();
         assert_eq!(content, "Test content");
+    }
+
+    #[tokio::test]
+    async fn test_chunk_version() {
+        let chunk = ChunkVersion::new(
+            "chunk1".to_string(),
+            "Test chunk content",
+            &[0.1, 0.2, 0.3, 0.4],
+            0,
+            0,
+            18,
+        );
+
+        assert_eq!(chunk.position, 0);
+        assert!(!chunk.content_hash.is_empty());
+        assert!(!chunk.embedding_hash.is_empty());
+    }
+
+    #[tokio::test]
+    async fn test_compression() {
+        let original = b"Hello, World! This is test content for compression testing.";
+
+        // Test gzip compression
+        let compressed = compression::compress(original, CompressionMethod::Gzip).unwrap();
+        let decompressed = compression::decompress(&compressed, CompressionMethod::Gzip).unwrap();
+        assert_eq!(original.as_slice(), decompressed.as_slice());
+
+        // Test zstd compression
+        let compressed = compression::compress(original, CompressionMethod::Zstd).unwrap();
+        let decompressed = compression::decompress(&compressed, CompressionMethod::Zstd).unwrap();
+        assert_eq!(original.as_slice(), decompressed.as_slice());
+
+        // Test no compression
+        let compressed = compression::compress(original, CompressionMethod::None).unwrap();
+        assert_eq!(original.as_slice(), compressed.as_slice());
+    }
+
+    #[test]
+    fn test_document_version_helpers() {
+        let mut version = create_test_version("v1", "doc1", 1, "Test content");
+
+        // Test tag management
+        assert!(!version.has_tag("important"));
+        version.add_tag("important");
+        assert!(version.has_tag("important"));
+
+        // Test duplicate tag prevention
+        version.add_tag("important");
+        assert_eq!(version.tags.len(), 1);
+
+        // Test chunk count
+        assert_eq!(version.chunk_count(), 0);
+        assert!(!version.has_chunks());
+
+        version.chunks = Some(vec![ChunkVersion {
+            chunk_id: "c1".to_string(),
+            content_hash: "hash".to_string(),
+            embedding_hash: "ehash".to_string(),
+            position: 0,
+            byte_offset: 0,
+            byte_length: 10,
+        }]);
+        assert_eq!(version.chunk_count(), 1);
+        assert!(version.has_chunks());
     }
 }

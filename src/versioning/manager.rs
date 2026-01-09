@@ -126,8 +126,12 @@ impl VersionManager {
             author,
             change_type,
             content_hash,
+            metadata_hash: None,
             storage: storage_type,
             size_bytes: content.len(),
+            chunks: None,
+            compression: Default::default(),
+            tags: Vec::new(),
         };
 
         self.storage.store_version(version.clone()).await?;
@@ -189,10 +193,14 @@ impl VersionManager {
             author,
             change_type: ChangeType::Deleted,
             content_hash: "deleted".to_string(),
+            metadata_hash: None,
             storage: VersionStorageType::Full {
                 content: String::new(),
             },
             size_bytes: 0,
+            chunks: None,
+            compression: Default::default(),
+            tags: Vec::new(),
         };
 
         self.storage.store_version(version.clone()).await?;
@@ -310,8 +318,12 @@ impl VersionManager {
                 from_version: version_id.to_string(),
             },
             content_hash: DocumentVersion::compute_hash(&content),
+            metadata_hash: old_version.metadata_hash.clone(),
             storage: VersionStorageType::Full { content },
             size_bytes: old_version.size_bytes,
+            chunks: old_version.chunks.clone(),
+            compression: Default::default(),
+            tags: vec!["restored".to_string()],
         };
 
         self.storage.store_version(version.clone()).await?;
