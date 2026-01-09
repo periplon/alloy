@@ -67,6 +67,10 @@ pub struct SearchFilter {
     pub modified_before: Option<DateTime<Utc>>,
     /// Custom metadata filters (key-value pairs).
     pub metadata: HashMap<String, String>,
+    /// Filter by user access (for ACL enforcement).
+    pub acl_user: Option<String>,
+    /// Filter by role access (for ACL enforcement).
+    pub acl_roles: Option<Vec<String>>,
 }
 
 impl SearchFilter {
@@ -119,6 +123,20 @@ impl SearchFilter {
             && self.modified_after.is_none()
             && self.modified_before.is_none()
             && self.metadata.is_empty()
+            && self.acl_user.is_none()
+            && self.acl_roles.is_none()
+    }
+
+    /// Set ACL user filter.
+    pub fn acl_user(mut self, user: impl Into<String>) -> Self {
+        self.acl_user = Some(user.into());
+        self
+    }
+
+    /// Set ACL roles filter.
+    pub fn acl_roles(mut self, roles: Vec<String>) -> Self {
+        self.acl_roles = Some(roles);
+        self
     }
 }
 
@@ -436,6 +454,8 @@ impl HybridSearcher for HybridSearchOrchestrator {
             vector_weight,
             source_id: query.filter.source_id.clone(),
             file_types: query.filter.file_types.clone(),
+            acl_user: query.filter.acl_user.clone(),
+            acl_roles: query.filter.acl_roles.clone(),
         };
 
         // Execute search via storage backend

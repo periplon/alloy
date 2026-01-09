@@ -59,6 +59,12 @@ pub struct SearchQuery {
     pub source_id: Option<String>,
     /// File type filter
     pub file_types: Vec<String>,
+    /// ACL user filter (filter by user access)
+    #[serde(default)]
+    pub acl_user: Option<String>,
+    /// ACL roles filter (filter by role access)
+    #[serde(default)]
+    pub acl_roles: Option<Vec<String>>,
 }
 
 /// Search result from storage.

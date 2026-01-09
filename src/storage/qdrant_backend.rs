@@ -663,6 +663,8 @@ mod tests {
             vector_weight: 1.0,
             source_id: None,
             file_types: vec![],
+            acl_user: None,
+            acl_roles: None,
         };
 
         let results = storage.search(query).await.unwrap();

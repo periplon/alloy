@@ -12,22 +12,23 @@ use rmcp::{
 use serde::{Deserialize, Serialize};
 use tokio::sync::RwLock;
 
-use crate::acl::{AclEntry, AclResolver, AclStorage, DocumentAcl, MemoryAclStorage, Permission, Principal};
+use crate::acl::{
+    AclEntry, AclResolver, AclStorage, DocumentAcl, MemoryAclStorage, Permission, Principal,
+};
 use crate::auth::AuthContext;
 use crate::config::Config;
 use crate::coordinator::{IndexCoordinator, IndexProgress};
 use crate::mcp::tools::{
-    AclConfigInfo, AclEntryInfo, BackupInfo, CacheConfigInfo,
-    CheckDuplicateResponse, CheckPermissionResponse, ClearCacheResponse,
-    ClearDeduplicationResponse, ClusterDocumentsResponse, ClusterInfo, ClusterMetrics,
-    ConfigureResponse, CreateBackupResponse, DeduplicationStatsResponse, DeleteDocumentAclResponse,
-    DiffStatsInfo, DiffVersionsResponse, DocumentDetails, ExportDocumentsResponse,
-    GetAclStatsResponse, GetCacheStatsResponse, GetDocumentAclResponse, GetDocumentHistoryResponse,
-    GetMetricsResponse, GetVersionContentResponse, ImportDocumentsResponse, IndexPathResponse,
-    IndexStats, ListBackupsResponse, ListSourcesResponse, RemoveSourceResponse,
-    RestoreBackupResponse, RestoreVersionResponse, RoleInfo, SearchResponse, SearchResult,
-    SetDocumentAclResponse, SourceInfo, VersionInfo, VersioningRetentionInfo,
-    VersioningStatsResponse,
+    AclConfigInfo, AclEntryInfo, BackupInfo, CacheConfigInfo, CheckDuplicateResponse,
+    CheckPermissionResponse, ClearCacheResponse, ClearDeduplicationResponse,
+    ClusterDocumentsResponse, ClusterInfo, ClusterMetrics, ConfigureResponse, CreateBackupResponse,
+    DeduplicationStatsResponse, DeleteDocumentAclResponse, DiffStatsInfo, DiffVersionsResponse,
+    DocumentDetails, ExportDocumentsResponse, GetAclStatsResponse, GetCacheStatsResponse,
+    GetDocumentAclResponse, GetDocumentHistoryResponse, GetMetricsResponse,
+    GetVersionContentResponse, ImportDocumentsResponse, IndexPathResponse, IndexStats,
+    ListBackupsResponse, ListSourcesResponse, RemoveSourceResponse, RestoreBackupResponse,
+    RestoreVersionResponse, RoleInfo, SearchResponse, SearchResult, SetDocumentAclResponse,
+    SourceInfo, VersionInfo, VersioningRetentionInfo, VersioningStatsResponse,
 };
 use crate::metrics::get_metrics;
 use crate::search::{HybridQuery, SearchFilter};
@@ -567,8 +568,8 @@ impl AlloyServer {
         let coordinator = state.coordinator.as_ref().unwrap();
 
         // Check ACL permissions if enabled
-        let acl_enabled = state.config.security.acl.enabled
-            && state.config.security.acl.enforce_on_get;
+        let acl_enabled =
+            state.config.security.acl.enabled && state.config.security.acl.enforce_on_get;
 
         if acl_enabled {
             // For now, use an anonymous context for ACL checks
@@ -680,8 +681,8 @@ impl AlloyServer {
         let coordinator = state.coordinator.as_ref().unwrap();
 
         // Check ACL permissions if enabled - require admin for source removal
-        let acl_enabled = state.config.security.acl.enabled
-            && state.config.security.acl.enforce_on_delete;
+        let acl_enabled =
+            state.config.security.acl.enabled && state.config.security.acl.enforce_on_delete;
 
         if acl_enabled {
             // For now, use an anonymous context for ACL checks
@@ -689,8 +690,7 @@ impl AlloyServer {
             let auth_ctx = AuthContext::anonymous();
 
             // Check source-level ACL
-            if let Ok(Some(source_acl)) =
-                state.acl_storage.get_source_acl(&params.source_id).await
+            if let Ok(Some(source_acl)) = state.acl_storage.get_source_acl(&params.source_id).await
             {
                 // Only owner can delete a source
                 let is_owner = auth_ctx
@@ -1727,7 +1727,11 @@ impl AlloyServer {
             )]));
         }
 
-        match state.acl_storage.get_document_acl(&params.document_id).await {
+        match state
+            .acl_storage
+            .get_document_acl(&params.document_id)
+            .await
+        {
             Ok(Some(acl)) => {
                 let entries: Vec<AclEntryInfo> = acl
                     .entries
@@ -1863,7 +1867,7 @@ impl AlloyServer {
 
             if permissions.is_empty() {
                 return Ok(CallToolResult::success(vec![Content::text(
-                    "No valid permissions found. Valid permissions: read, write, delete, admin"
+                    "No valid permissions found. Valid permissions: read, write, delete, admin",
                 )]));
             }
 
@@ -2013,7 +2017,11 @@ impl AlloyServer {
             .list_document_acls(1000, 0)
             .await
             .unwrap_or_default();
-        let source_acls = state.acl_storage.list_source_acls().await.unwrap_or_default();
+        let source_acls = state
+            .acl_storage
+            .list_source_acls()
+            .await
+            .unwrap_or_default();
 
         let roles: Vec<RoleInfo> = config
             .roles

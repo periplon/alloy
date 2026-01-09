@@ -426,6 +426,8 @@ mod tests {
             vector_weight: 0.0, // Full-text only
             source_id: None,
             file_types: vec![],
+            acl_user: None,
+            acl_roles: None,
         };
 
         let results = storage.search(query).await.unwrap();
@@ -471,6 +473,8 @@ mod tests {
             vector_weight: 0.5, // 50/50 hybrid
             source_id: None,
             file_types: vec![],
+            acl_user: None,
+            acl_roles: None,
         };
 
         let results = storage.search(query).await.unwrap();
