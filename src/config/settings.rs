@@ -16,6 +16,7 @@ pub struct Config {
     pub indexing: IndexingConfig,
     pub operations: OperationsConfig,
     pub security: SecurityConfig,
+    pub integration: IntegrationConfig,
 }
 
 impl Config {
@@ -875,6 +876,108 @@ pub struct RoleDefinition {
     pub inherits_from: Vec<String>,
     /// Direct permissions granted to this role.
     pub permissions: Vec<String>,
+}
+
+// ============================================================================
+// Integration Configuration
+// ============================================================================
+
+/// Integration configuration (webhooks, REST API, Web UI).
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[serde(default)]
+pub struct IntegrationConfig {
+    /// Webhook configuration.
+    pub webhooks: WebhooksConfig,
+    /// REST API configuration.
+    pub rest_api: RestApiConfig,
+    /// Web UI configuration.
+    pub web_ui: WebUiConfig,
+}
+
+/// Webhooks configuration.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(default)]
+pub struct WebhooksConfig {
+    /// Enable webhooks.
+    pub enabled: bool,
+    /// Configured webhooks.
+    #[serde(default)]
+    pub endpoints: Vec<WebhookEndpointConfig>,
+    /// Maximum retries for failed webhook deliveries.
+    pub max_retries: usize,
+    /// Timeout in seconds for webhook requests.
+    pub timeout_secs: u64,
+}
+
+impl Default for WebhooksConfig {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            endpoints: Vec::new(),
+            max_retries: 3,
+            timeout_secs: 30,
+        }
+    }
+}
+
+/// Individual webhook endpoint configuration.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct WebhookEndpointConfig {
+    /// Target URL for webhook payloads.
+    pub url: String,
+    /// Events to subscribe to.
+    pub events: Vec<String>,
+    /// Secret for HMAC signature.
+    #[serde(default)]
+    pub secret: Option<String>,
+    /// Optional description.
+    #[serde(default)]
+    pub description: Option<String>,
+}
+
+/// REST API configuration.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(default)]
+pub struct RestApiConfig {
+    /// Enable REST API.
+    pub enabled: bool,
+    /// API prefix.
+    pub prefix: String,
+    /// Enable CORS.
+    pub enable_cors: bool,
+    /// Allowed CORS origins.
+    #[serde(default)]
+    pub cors_origins: Vec<String>,
+}
+
+impl Default for RestApiConfig {
+    fn default() -> Self {
+        Self {
+            enabled: true,
+            prefix: "/api/v1".to_string(),
+            enable_cors: true,
+            cors_origins: vec!["*".to_string()],
+        }
+    }
+}
+
+/// Web UI configuration.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(default)]
+pub struct WebUiConfig {
+    /// Enable web UI.
+    pub enabled: bool,
+    /// Path prefix for web UI.
+    pub path_prefix: String,
+}
+
+impl Default for WebUiConfig {
+    fn default() -> Self {
+        Self {
+            enabled: true,
+            path_prefix: "/ui".to_string(),
+        }
+    }
 }
 
 #[cfg(test)]

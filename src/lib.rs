@@ -4,6 +4,7 @@
 //! combining vector similarity and full-text matching.
 
 pub mod acl;
+pub mod api;
 pub mod auth;
 pub mod backup;
 pub mod cache;
@@ -18,11 +19,14 @@ pub mod search;
 pub mod sources;
 pub mod storage;
 pub mod versioning;
+pub mod web;
+pub mod webhooks;
 
 pub use acl::{
     AclEntry, AclQueryFilter, AclResolver, AclStorage, DocumentAcl, MemoryAclStorage, Permission,
     Principal, SourceAcl,
 };
+pub use api::{create_rest_router, ApiState, RestApiConfig};
 pub use auth::{AuthContext, AuthLayer, AuthMiddleware, Authenticator};
 pub use backup::{BackupManager, BackupResult, ExportFormat, ExportOptions, RestoreResult};
 pub use cache::{CacheStats, CachedEmbedder, QueryCache};
@@ -31,3 +35,9 @@ pub use coordinator::{IndexCoordinator, IndexCoordinatorBuilder, IndexProgress, 
 pub use error::{AclError, AlloyError, AuthError, Result};
 pub use mcp::{run_server, AlloyServer};
 pub use metrics::{get_metrics, HealthCheck, HealthState, HealthStatus, Metrics, MetricsSnapshot};
+pub use web::{create_web_ui_router, WebUiConfig};
+pub use webhooks::{
+    create_dispatcher, DocumentDeletedData, DocumentIndexedData, IndexErrorData,
+    SharedWebhookDispatcher, SourceAddedData, SourceRemovedData, WebhookConfig,
+    WebhookDeliveryResult, WebhookDispatcher, WebhookEvent, WebhookPayload, WebhookStats,
+};

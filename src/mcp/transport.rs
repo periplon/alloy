@@ -16,10 +16,13 @@ use rmcp::ServiceExt;
 use tower::ServiceBuilder;
 use tracing::info;
 
+use crate::api::{create_rest_router, RestApiConfig};
 use crate::auth::{AuthLayer, Authenticator};
 use crate::config::{Config, TransportType};
+use crate::coordinator::IndexCoordinator;
 use crate::mcp::AlloyServer;
 use crate::metrics::{get_metrics, HealthCheck, HealthState, HealthStatus, ReadinessStatus};
+use crate::web::{create_web_ui_router, WebUiConfig};
 
 /// Run the MCP server with stdio transport.
 pub async fn run_stdio(server: AlloyServer) -> Result<()> {
@@ -57,6 +60,22 @@ pub async fn run_http(config: Config, port: u16) -> Result<()> {
         info!("Authentication disabled");
     }
 
+    // Create shared coordinator for REST API (if enabled)
+    let coordinator = if config.integration.rest_api.enabled {
+        match IndexCoordinator::new(config.clone()).await {
+            Ok(c) => {
+                info!("REST API enabled at {}", config.integration.rest_api.prefix);
+                Some(Arc::new(c))
+            }
+            Err(e) => {
+                tracing::warn!("Failed to create coordinator for REST API: {}", e);
+                None
+            }
+        }
+    } else {
+        None
+    };
+
     // We need to clone config for the factory closure
     let config_for_factory = config.clone();
 
@@ -71,27 +90,49 @@ pub async fn run_http(config: Config, port: u16) -> Result<()> {
         http_config,
     );
 
-    // Apply auth middleware if enabled
+    // Build base routes
+    let mut app = Router::new()
+        .route("/health", axum::routing::get(health_handler))
+        .route("/ready", axum::routing::get(readiness_handler))
+        .route("/metrics", axum::routing::get(metrics_handler))
+        .route("/", axum::routing::get(root_handler))
+        .route("/auth/status", axum::routing::get(auth_status_handler));
+
+    // Add REST API routes if enabled and coordinator is available
+    if let Some(coord) = coordinator {
+        let rest_config = RestApiConfig {
+            enable_cors: config.integration.rest_api.enable_cors,
+            cors_origins: config.integration.rest_api.cors_origins.clone(),
+            prefix: config.integration.rest_api.prefix.clone(),
+        };
+        let rest_router = create_rest_router(coord, &rest_config);
+        app = app.merge(rest_router);
+    }
+
+    // Add Web UI routes if enabled
+    if config.integration.web_ui.enabled {
+        info!(
+            "Web UI enabled at {}",
+            config.integration.web_ui.path_prefix
+        );
+        let web_config = WebUiConfig {
+            enabled: true,
+            path_prefix: config.integration.web_ui.path_prefix.clone(),
+        };
+        let web_router = create_web_ui_router(&web_config);
+        app = app.merge(web_router);
+    }
+
+    // Apply auth middleware if enabled, then add MCP service as fallback
     let app = if auth_enabled {
         let auth_layer = AuthLayer::new(authenticator);
-        Router::new()
-            .route("/health", axum::routing::get(health_handler))
-            .route("/ready", axum::routing::get(readiness_handler))
-            .route("/metrics", axum::routing::get(metrics_handler))
-            .route("/", axum::routing::get(root_handler))
-            .route("/auth/status", axum::routing::get(auth_status_handler))
-            .fallback_service(
-                ServiceBuilder::new()
-                    .layer(auth_layer)
-                    .service(http_service),
-            )
+        app.fallback_service(
+            ServiceBuilder::new()
+                .layer(auth_layer)
+                .service(http_service),
+        )
     } else {
-        Router::new()
-            .route("/health", axum::routing::get(health_handler))
-            .route("/ready", axum::routing::get(readiness_handler))
-            .route("/metrics", axum::routing::get(metrics_handler))
-            .route("/", axum::routing::get(root_handler))
-            .fallback_service(http_service)
+        app.fallback_service(http_service)
     };
 
     let addr = SocketAddr::from(([0, 0, 0, 0], port));
@@ -194,7 +235,9 @@ async fn root_handler() -> axum::Json<serde_json::Value> {
             "health": "/health",
             "ready": "/ready",
             "metrics": "/metrics",
-            "auth_status": "/auth/status"
+            "auth_status": "/auth/status",
+            "rest_api": "/api/v1",
+            "web_ui": "/ui"
         }
     }))
 }

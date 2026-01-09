@@ -110,6 +110,13 @@ jsonwebtoken = "9"
 # HTTP body types (for middleware)
 http-body = "1"
 
+# Integration features - CORS and HTTP utilities
+tower-http = { version = "0.6", features = ["cors", "compression-gzip"] }
+
+# Webhooks - HMAC signatures
+hmac = "0.12"
+hex = "0.4"
+
 [dev-dependencies]
 tokio-test = "0.4"
 tempfile = "3"
