@@ -201,7 +201,7 @@ impl MemoryAclStorage {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::acl::{AclEntry, Principal};
+    use crate::acl::AclEntry;
 
     #[tokio::test]
     async fn test_memory_storage() {
