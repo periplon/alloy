@@ -3133,6 +3133,588 @@ impl AlloyServer {
             serde_json::to_string_pretty(&response).unwrap(),
         )]))
     }
+
+    // ========================================================================
+    // GTD Tools
+    // ========================================================================
+
+    /// Manage GTD projects - list, create, update, archive, and check health.
+    #[tool(
+        description = "Manage GTD projects. Actions: list, get, create, update, archive, complete, health. Projects are multi-step outcomes with next actions."
+    )]
+    async fn gtd_projects(
+        &self,
+        Parameters(params): Parameters<crate::mcp::gtd_tools::GtdProjectsParams>,
+    ) -> Result<CallToolResult, McpError> {
+        use crate::gtd::{Project, ProjectFilter, ProjectManager};
+        use crate::mcp::gtd_tools::{GtdProjectsResponse, ProjectAction};
+
+        // Get ontology store from coordinator
+        self.ensure_coordinator().await?;
+        let state = self.state.read().await;
+        let coordinator = state.coordinator.as_ref().unwrap();
+        let ontology_store = coordinator.ontology_store();
+
+        let manager = ProjectManager::new(ontology_store);
+
+        let response = match params.action {
+            ProjectAction::List => {
+                let filter = ProjectFilter {
+                    status: params.status,
+                    area: params.area.clone(),
+                    has_next_action: params.has_next_action,
+                    stalled_days: params.stalled_days,
+                    limit: params.limit.unwrap_or(100),
+                    offset: 0,
+                };
+                match manager.list(filter).await {
+                    Ok(projects) => GtdProjectsResponse::success_list(
+                        projects.clone(),
+                        format!("Found {} projects", projects.len()),
+                    ),
+                    Err(e) => GtdProjectsResponse::error(format!("Failed to list projects: {}", e)),
+                }
+            }
+            ProjectAction::Get => {
+                let project_id = params.project_id.ok_or_else(|| {
+                    McpError::invalid_params("project_id is required for 'get' action", None)
+                })?;
+                match manager.get(&project_id).await {
+                    Ok(Some(project)) => {
+                        GtdProjectsResponse::success_single(project, "Project retrieved")
+                    }
+                    Ok(None) => GtdProjectsResponse::error(format!("Project not found: {}", project_id)),
+                    Err(e) => GtdProjectsResponse::error(format!("Failed to get project: {}", e)),
+                }
+            }
+            ProjectAction::Create => {
+                let name = params.name.ok_or_else(|| {
+                    McpError::invalid_params("name is required for 'create' action", None)
+                })?;
+                let mut project = Project::new(name);
+                if let Some(outcome) = params.outcome {
+                    project = project.with_outcome(outcome);
+                }
+                if let Some(area) = params.area {
+                    project = project.with_area(area);
+                }
+                if let Some(goal) = params.goal {
+                    project = project.with_goal(goal);
+                }
+                match manager.create(project).await {
+                    Ok(created) => GtdProjectsResponse::success_single(
+                        created,
+                        "Project created successfully",
+                    ),
+                    Err(e) => GtdProjectsResponse::error(format!("Failed to create project: {}", e)),
+                }
+            }
+            ProjectAction::Update => {
+                let project_id = params.project_id.ok_or_else(|| {
+                    McpError::invalid_params("project_id is required for 'update' action", None)
+                })?;
+                match manager.get(&project_id).await {
+                    Ok(Some(mut project)) => {
+                        if let Some(name) = params.name {
+                            project.name = name;
+                        }
+                        if let Some(outcome) = params.outcome {
+                            project.outcome = Some(outcome);
+                        }
+                        if let Some(area) = params.area {
+                            project.area = Some(area);
+                        }
+                        if let Some(goal) = params.goal {
+                            project.supporting_goal = Some(goal);
+                        }
+                        if let Some(status) = params.status {
+                            project.status = status;
+                        }
+                        match manager.update(&project_id, project).await {
+                            Ok(updated) => GtdProjectsResponse::success_single(updated, "Project updated"),
+                            Err(e) => GtdProjectsResponse::error(format!("Failed to update: {}", e)),
+                        }
+                    }
+                    Ok(None) => GtdProjectsResponse::error(format!("Project not found: {}", project_id)),
+                    Err(e) => GtdProjectsResponse::error(format!("Failed to get project: {}", e)),
+                }
+            }
+            ProjectAction::Archive => {
+                let project_id = params.project_id.ok_or_else(|| {
+                    McpError::invalid_params("project_id is required for 'archive' action", None)
+                })?;
+                match manager.archive(&project_id).await {
+                    Ok(Some(project)) => {
+                        GtdProjectsResponse::success_single(project, "Project archived")
+                    }
+                    Ok(None) => GtdProjectsResponse::error(format!("Project not found: {}", project_id)),
+                    Err(e) => GtdProjectsResponse::error(format!("Failed to archive: {}", e)),
+                }
+            }
+            ProjectAction::Complete => {
+                let project_id = params.project_id.ok_or_else(|| {
+                    McpError::invalid_params("project_id is required for 'complete' action", None)
+                })?;
+                match manager.complete(&project_id).await {
+                    Ok(Some(project)) => {
+                        GtdProjectsResponse::success_single(project, "Project completed")
+                    }
+                    Ok(None) => GtdProjectsResponse::error(format!("Project not found: {}", project_id)),
+                    Err(e) => GtdProjectsResponse::error(format!("Failed to complete: {}", e)),
+                }
+            }
+            ProjectAction::Health => {
+                let project_id = params.project_id.ok_or_else(|| {
+                    McpError::invalid_params("project_id is required for 'health' action", None)
+                })?;
+                match manager.get_health(&project_id).await {
+                    Ok(Some(health)) => GtdProjectsResponse::success_health(
+                        health,
+                        "Project health calculated",
+                    ),
+                    Ok(None) => GtdProjectsResponse::error(format!("Project not found: {}", project_id)),
+                    Err(e) => GtdProjectsResponse::error(format!("Failed to calculate health: {}", e)),
+                }
+            }
+        };
+
+        Ok(CallToolResult::success(vec![Content::text(
+            serde_json::to_string_pretty(&response).unwrap(),
+        )]))
+    }
+
+    /// Manage GTD tasks - list, create, complete, and get smart recommendations.
+    #[tool(
+        description = "Manage GTD tasks. Actions: list, get, create, update, complete, delete, recommend, quick_wins, overdue. Supports context-aware recommendations."
+    )]
+    async fn gtd_tasks(
+        &self,
+        Parameters(params): Parameters<crate::mcp::gtd_tools::GtdTasksParams>,
+    ) -> Result<CallToolResult, McpError> {
+        use crate::gtd::{RecommendParams, Task, TaskFilter, TaskManager};
+        use crate::mcp::gtd_tools::{GtdTasksResponse, TaskAction};
+
+        // Get ontology store from coordinator
+        self.ensure_coordinator().await?;
+        let state = self.state.read().await;
+        let coordinator = state.coordinator.as_ref().unwrap();
+        let ontology_store = coordinator.ontology_store();
+
+        let manager = TaskManager::new(ontology_store);
+
+        let response = match params.action {
+            TaskAction::List => {
+                let filter = TaskFilter {
+                    contexts: params.contexts.unwrap_or_default(),
+                    project_id: params.project_id.clone(),
+                    status: params.status,
+                    energy_level: params.energy_level,
+                    time_available: params.time_available,
+                    due_before: params.due_date,
+                    priority: params.priority,
+                    limit: params.limit.unwrap_or(100),
+                    offset: 0,
+                };
+                match manager.list(filter).await {
+                    Ok(tasks) => GtdTasksResponse::success_list(
+                        tasks.clone(),
+                        format!("Found {} tasks", tasks.len()),
+                    ),
+                    Err(e) => GtdTasksResponse::error(format!("Failed to list tasks: {}", e)),
+                }
+            }
+            TaskAction::Get => {
+                let task_id = params.task_id.ok_or_else(|| {
+                    McpError::invalid_params("task_id is required for 'get' action", None)
+                })?;
+                match manager.get(&task_id).await {
+                    Ok(Some(task)) => GtdTasksResponse::success_single(task, "Task retrieved"),
+                    Ok(None) => GtdTasksResponse::error(format!("Task not found: {}", task_id)),
+                    Err(e) => GtdTasksResponse::error(format!("Failed to get task: {}", e)),
+                }
+            }
+            TaskAction::Create => {
+                let description = params.description.ok_or_else(|| {
+                    McpError::invalid_params("description is required for 'create' action", None)
+                })?;
+                let mut task = Task::new(description);
+                if let Some(project_id) = params.project_id {
+                    task = task.with_project(project_id);
+                }
+                if let Some(contexts) = params.contexts {
+                    task = task.with_contexts(contexts);
+                }
+                if let Some(energy) = params.energy_level {
+                    task = task.with_energy(energy);
+                }
+                if let Some(duration) = params.estimated_minutes {
+                    task = task.with_duration(duration);
+                }
+                if let Some(due) = params.due_date {
+                    task = task.with_due_date(due);
+                }
+                if let Some(priority) = params.priority {
+                    task = task.with_priority(priority);
+                }
+                match manager.create(task).await {
+                    Ok(created) => GtdTasksResponse::success_single(created, "Task created"),
+                    Err(e) => GtdTasksResponse::error(format!("Failed to create task: {}", e)),
+                }
+            }
+            TaskAction::Update => {
+                let task_id = params.task_id.ok_or_else(|| {
+                    McpError::invalid_params("task_id is required for 'update' action", None)
+                })?;
+                match manager.get(&task_id).await {
+                    Ok(Some(mut task)) => {
+                        if let Some(desc) = params.description {
+                            task.description = desc;
+                        }
+                        if let Some(project_id) = params.project_id {
+                            task.project_id = Some(project_id);
+                        }
+                        if let Some(contexts) = params.contexts {
+                            task.contexts = contexts;
+                        }
+                        if let Some(status) = params.status {
+                            task.status = status;
+                        }
+                        if let Some(energy) = params.energy_level {
+                            task.energy_level = energy;
+                        }
+                        if let Some(duration) = params.estimated_minutes {
+                            task.estimated_minutes = Some(duration);
+                        }
+                        if let Some(due) = params.due_date {
+                            task.due_date = Some(due);
+                        }
+                        if let Some(priority) = params.priority {
+                            task.priority = priority;
+                        }
+                        match manager.update(&task_id, task).await {
+                            Ok(updated) => GtdTasksResponse::success_single(updated, "Task updated"),
+                            Err(e) => GtdTasksResponse::error(format!("Failed to update: {}", e)),
+                        }
+                    }
+                    Ok(None) => GtdTasksResponse::error(format!("Task not found: {}", task_id)),
+                    Err(e) => GtdTasksResponse::error(format!("Failed to get task: {}", e)),
+                }
+            }
+            TaskAction::Complete => {
+                let task_id = params.task_id.ok_or_else(|| {
+                    McpError::invalid_params("task_id is required for 'complete' action", None)
+                })?;
+                match manager.complete(&task_id).await {
+                    Ok(Some(task)) => GtdTasksResponse::success_single(task, "Task completed"),
+                    Ok(None) => GtdTasksResponse::error(format!("Task not found: {}", task_id)),
+                    Err(e) => GtdTasksResponse::error(format!("Failed to complete: {}", e)),
+                }
+            }
+            TaskAction::Delete => {
+                let task_id = params.task_id.ok_or_else(|| {
+                    McpError::invalid_params("task_id is required for 'delete' action", None)
+                })?;
+                match manager.delete(&task_id).await {
+                    Ok(true) => GtdTasksResponse {
+                        success: true,
+                        task: None,
+                        tasks: None,
+                        recommendations: None,
+                        message: "Task deleted".to_string(),
+                    },
+                    Ok(false) => GtdTasksResponse::error(format!("Task not found: {}", task_id)),
+                    Err(e) => GtdTasksResponse::error(format!("Failed to delete: {}", e)),
+                }
+            }
+            TaskAction::Recommend => {
+                let rec_params = RecommendParams {
+                    current_context: params.current_context,
+                    energy_level: params.energy_level,
+                    time_available: params.time_available,
+                    focus_area: None,
+                    limit: params.limit.unwrap_or(5),
+                };
+                match manager.recommend(rec_params).await {
+                    Ok(recs) => GtdTasksResponse::success_recommendations(
+                        recs.clone(),
+                        format!("{} recommendations", recs.len()),
+                    ),
+                    Err(e) => GtdTasksResponse::error(format!("Failed to get recommendations: {}", e)),
+                }
+            }
+            TaskAction::QuickWins => {
+                match manager.get_quick_wins().await {
+                    Ok(tasks) => GtdTasksResponse::success_list(
+                        tasks.clone(),
+                        format!("{} quick wins (≤2 min)", tasks.len()),
+                    ),
+                    Err(e) => GtdTasksResponse::error(format!("Failed to get quick wins: {}", e)),
+                }
+            }
+            TaskAction::Overdue => {
+                match manager.get_overdue().await {
+                    Ok(tasks) => GtdTasksResponse::success_list(
+                        tasks.clone(),
+                        format!("{} overdue tasks", tasks.len()),
+                    ),
+                    Err(e) => GtdTasksResponse::error(format!("Failed to get overdue: {}", e)),
+                }
+            }
+        };
+
+        Ok(CallToolResult::success(vec![Content::text(
+            serde_json::to_string_pretty(&response).unwrap(),
+        )]))
+    }
+
+    /// Track items you're waiting on from others.
+    #[tool(
+        description = "Track waiting-for items. Actions: list, get, add, follow_up, resolve, overdue. Manage delegated items and follow-ups."
+    )]
+    async fn gtd_waiting(
+        &self,
+        Parameters(params): Parameters<crate::mcp::gtd_tools::GtdWaitingParams>,
+    ) -> Result<CallToolResult, McpError> {
+        use crate::gtd::{WaitingFilter, WaitingFor, WaitingManager};
+        use crate::mcp::gtd_tools::{GtdWaitingResponse, WaitingAction};
+
+        // Get ontology store from coordinator
+        self.ensure_coordinator().await?;
+        let state = self.state.read().await;
+        let coordinator = state.coordinator.as_ref().unwrap();
+        let ontology_store = coordinator.ontology_store();
+
+        let manager = WaitingManager::new(ontology_store);
+
+        let response = match params.action {
+            WaitingAction::List => {
+                let filter = WaitingFilter {
+                    delegated_to: params.delegated_to.clone(),
+                    project_id: params.project_id.clone(),
+                    status: params.status,
+                    overdue_only: false,
+                    limit: params.limit.unwrap_or(100),
+                    offset: 0,
+                };
+                match manager.list(filter).await {
+                    Ok(items) => GtdWaitingResponse::success_list(
+                        items.clone(),
+                        format!("Found {} waiting items", items.len()),
+                    ),
+                    Err(e) => GtdWaitingResponse::error(format!("Failed to list: {}", e)),
+                }
+            }
+            WaitingAction::Get => {
+                let item_id = params.item_id.ok_or_else(|| {
+                    McpError::invalid_params("item_id is required for 'get' action", None)
+                })?;
+                match manager.get(&item_id).await {
+                    Ok(Some(item)) => GtdWaitingResponse::success_single(item, "Item retrieved"),
+                    Ok(None) => GtdWaitingResponse::error(format!("Item not found: {}", item_id)),
+                    Err(e) => GtdWaitingResponse::error(format!("Failed to get: {}", e)),
+                }
+            }
+            WaitingAction::Add => {
+                let description = params.description.ok_or_else(|| {
+                    McpError::invalid_params("description is required for 'add' action", None)
+                })?;
+                let delegated_to = params.delegated_to.ok_or_else(|| {
+                    McpError::invalid_params("delegated_to is required for 'add' action", None)
+                })?;
+                let mut item = WaitingFor::new(description, delegated_to);
+                if let Some(project_id) = params.project_id {
+                    item = item.with_project(project_id);
+                }
+                if let Some(expected) = params.expected_by {
+                    item = item.with_expected_by(expected);
+                }
+                match manager.create(item).await {
+                    Ok(created) => GtdWaitingResponse::success_single(created, "Waiting item added"),
+                    Err(e) => GtdWaitingResponse::error(format!("Failed to add: {}", e)),
+                }
+            }
+            WaitingAction::FollowUp => {
+                let item_id = params.item_id.ok_or_else(|| {
+                    McpError::invalid_params("item_id is required for 'follow_up' action", None)
+                })?;
+                match manager.record_follow_up(&item_id).await {
+                    Ok(Some(item)) => GtdWaitingResponse::success_single(item, "Follow-up recorded"),
+                    Ok(None) => GtdWaitingResponse::error(format!("Item not found: {}", item_id)),
+                    Err(e) => GtdWaitingResponse::error(format!("Failed to record: {}", e)),
+                }
+            }
+            WaitingAction::Resolve => {
+                let item_id = params.item_id.ok_or_else(|| {
+                    McpError::invalid_params("item_id is required for 'resolve' action", None)
+                })?;
+                let resolution = params.resolution.unwrap_or_else(|| "Resolved".to_string());
+                match manager.resolve(&item_id, &resolution).await {
+                    Ok(Some(item)) => GtdWaitingResponse::success_single(item, "Item resolved"),
+                    Ok(None) => GtdWaitingResponse::error(format!("Item not found: {}", item_id)),
+                    Err(e) => GtdWaitingResponse::error(format!("Failed to resolve: {}", e)),
+                }
+            }
+            WaitingAction::Overdue => {
+                match manager.get_overdue().await {
+                    Ok(items) => GtdWaitingResponse::success_list(
+                        items.clone(),
+                        format!("{} overdue items", items.len()),
+                    ),
+                    Err(e) => GtdWaitingResponse::error(format!("Failed to get overdue: {}", e)),
+                }
+            }
+        };
+
+        Ok(CallToolResult::success(vec![Content::text(
+            serde_json::to_string_pretty(&response).unwrap(),
+        )]))
+    }
+
+    /// Manage someday/maybe items for future consideration.
+    #[tool(
+        description = "Manage someday/maybe items. Actions: list, get, add, update, activate, archive, categories, due_for_review. Track deferred ideas and projects."
+    )]
+    async fn gtd_someday(
+        &self,
+        Parameters(params): Parameters<crate::mcp::gtd_tools::GtdSomedayParams>,
+    ) -> Result<CallToolResult, McpError> {
+        use crate::gtd::{SomedayFilter, SomedayItem, SomedayManager};
+        use crate::mcp::gtd_tools::{GtdSomedayResponse, SomedayAction};
+
+        // Get ontology store from coordinator
+        self.ensure_coordinator().await?;
+        let state = self.state.read().await;
+        let coordinator = state.coordinator.as_ref().unwrap();
+        let ontology_store = coordinator.ontology_store();
+
+        let manager = SomedayManager::new(ontology_store);
+
+        let response = match params.action {
+            SomedayAction::List => {
+                let filter = SomedayFilter {
+                    category: params.category.clone(),
+                    due_for_review: false,
+                    limit: params.limit.unwrap_or(100),
+                    offset: 0,
+                };
+                match manager.list(filter).await {
+                    Ok(items) => GtdSomedayResponse::success_list(
+                        items.clone(),
+                        format!("Found {} someday/maybe items", items.len()),
+                    ),
+                    Err(e) => GtdSomedayResponse::error(format!("Failed to list: {}", e)),
+                }
+            }
+            SomedayAction::Get => {
+                let item_id = params.item_id.ok_or_else(|| {
+                    McpError::invalid_params("item_id is required for 'get' action", None)
+                })?;
+                match manager.get(&item_id).await {
+                    Ok(Some(item)) => GtdSomedayResponse::success_single(item, "Item retrieved"),
+                    Ok(None) => GtdSomedayResponse::error(format!("Item not found: {}", item_id)),
+                    Err(e) => GtdSomedayResponse::error(format!("Failed to get: {}", e)),
+                }
+            }
+            SomedayAction::Add => {
+                let description = params.description.ok_or_else(|| {
+                    McpError::invalid_params("description is required for 'add' action", None)
+                })?;
+                let mut item = SomedayItem::new(description);
+                if let Some(category) = params.category {
+                    item = item.with_category(category);
+                }
+                if let Some(trigger) = params.trigger {
+                    item = item.with_trigger(trigger);
+                }
+                if let Some(review) = params.review_date {
+                    item = item.with_review_date(review);
+                }
+                match manager.create(item).await {
+                    Ok(created) => GtdSomedayResponse::success_single(created, "Item added"),
+                    Err(e) => GtdSomedayResponse::error(format!("Failed to add: {}", e)),
+                }
+            }
+            SomedayAction::Update => {
+                let item_id = params.item_id.ok_or_else(|| {
+                    McpError::invalid_params("item_id is required for 'update' action", None)
+                })?;
+                match manager.get(&item_id).await {
+                    Ok(Some(mut item)) => {
+                        if let Some(desc) = params.description {
+                            item.description = desc;
+                        }
+                        if let Some(category) = params.category {
+                            item.category = Some(category);
+                        }
+                        if let Some(trigger) = params.trigger {
+                            item.trigger = Some(trigger);
+                        }
+                        if let Some(review) = params.review_date {
+                            item.review_date = Some(review);
+                        }
+                        match manager.update(&item_id, item).await {
+                            Ok(updated) => GtdSomedayResponse::success_single(updated, "Item updated"),
+                            Err(e) => GtdSomedayResponse::error(format!("Failed to update: {}", e)),
+                        }
+                    }
+                    Ok(None) => GtdSomedayResponse::error(format!("Item not found: {}", item_id)),
+                    Err(e) => GtdSomedayResponse::error(format!("Failed to get: {}", e)),
+                }
+            }
+            SomedayAction::Activate => {
+                let item_id = params.item_id.ok_or_else(|| {
+                    McpError::invalid_params("item_id is required for 'activate' action", None)
+                })?;
+                match manager.activate(&item_id).await {
+                    Ok(Some(task)) => GtdSomedayResponse::success_activated(
+                        task,
+                        "Item activated - converted to task",
+                    ),
+                    Ok(None) => GtdSomedayResponse::error(format!("Item not found: {}", item_id)),
+                    Err(e) => GtdSomedayResponse::error(format!("Failed to activate: {}", e)),
+                }
+            }
+            SomedayAction::Archive => {
+                let item_id = params.item_id.ok_or_else(|| {
+                    McpError::invalid_params("item_id is required for 'archive' action", None)
+                })?;
+                match manager.delete(&item_id).await {
+                    Ok(true) => GtdSomedayResponse {
+                        success: true,
+                        item: None,
+                        items: None,
+                        task: None,
+                        categories: None,
+                        message: "Item archived/deleted".to_string(),
+                    },
+                    Ok(false) => GtdSomedayResponse::error(format!("Item not found: {}", item_id)),
+                    Err(e) => GtdSomedayResponse::error(format!("Failed to archive: {}", e)),
+                }
+            }
+            SomedayAction::Categories => {
+                match manager.get_categories().await {
+                    Ok(cats) => GtdSomedayResponse::success_categories(
+                        cats.clone(),
+                        format!("{} categories", cats.len()),
+                    ),
+                    Err(e) => GtdSomedayResponse::error(format!("Failed to get categories: {}", e)),
+                }
+            }
+            SomedayAction::DueForReview => {
+                match manager.get_due_for_review().await {
+                    Ok(items) => GtdSomedayResponse::success_list(
+                        items.clone(),
+                        format!("{} items due for review", items.len()),
+                    ),
+                    Err(e) => GtdSomedayResponse::error(format!("Failed to get: {}", e)),
+                }
+            }
+        };
+
+        Ok(CallToolResult::success(vec![Content::text(
+            serde_json::to_string_pretty(&response).unwrap(),
+        )]))
+    }
 }
 
 #[tool_handler]

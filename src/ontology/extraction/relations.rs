@@ -388,7 +388,7 @@ impl RelationExtractor {
                     .filter_map(|m| m.map(|m| m.as_str().to_string()))
                     .collect();
 
-                if entity_texts.len() >= 1 {
+                if !entity_texts.is_empty() {
                     // For single-entity patterns, we need context
                     let source_text = full_match.as_str().to_string();
 

@@ -42,6 +42,7 @@ use crate::versioning::{
     FileVersionStorage, InMemoryVersionStorage, RetentionPolicy, VersionDiff, VersionManager,
     VersionMetadata, VersionStorage, VersioningConfig as VersionManagerConfig,
 };
+use crate::ontology::EmbeddedOntologyStore;
 
 /// Progress event during indexing.
 #[derive(Debug, Clone)]
@@ -174,6 +175,8 @@ pub struct IndexCoordinator {
     cache: QueryCache,
     /// Model name for cache keys.
     model_name: String,
+    /// Ontology store for GTD and knowledge graph features.
+    ontology_store: Arc<RwLock<EmbeddedOntologyStore>>,
 }
 
 impl IndexCoordinator {
@@ -351,6 +354,9 @@ impl IndexCoordinator {
             EmbeddingProviderType::Api => config.embedding.api.model.clone(),
         };
 
+        // Initialize ontology store for GTD features
+        let ontology_store = Arc::new(RwLock::new(EmbeddedOntologyStore::new()));
+
         Ok(Self {
             config,
             processors,
@@ -365,6 +371,7 @@ impl IndexCoordinator {
             change_detector: Arc::new(change_detector),
             cache,
             model_name,
+            ontology_store,
         })
     }
 
@@ -378,6 +385,11 @@ impl IndexCoordinator {
         let (tx, rx) = mpsc::unbounded_channel();
         self.progress_tx = Some(tx);
         rx
+    }
+
+    /// Get the ontology store for GTD and knowledge graph features.
+    pub fn ontology_store(&self) -> Arc<RwLock<EmbeddedOntologyStore>> {
+        self.ontology_store.clone()
     }
 
     /// Report progress.

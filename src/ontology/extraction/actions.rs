@@ -8,6 +8,7 @@
 //! - Delegation detection: "Ask X to", "Have Y"
 //! - Reminder patterns: "Don't forget to", "Remember to"
 
+use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
 // ============================================================================
@@ -83,12 +84,13 @@ pub enum CommitmentType {
 }
 
 /// Priority level.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Default, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum Priority {
     /// Low priority.
     Low,
     /// Normal/medium priority.
+    #[default]
     Normal,
     /// High priority.
     High,
@@ -96,28 +98,17 @@ pub enum Priority {
     Critical,
 }
 
-impl Default for Priority {
-    fn default() -> Self {
-        Priority::Normal
-    }
-}
-
 /// Energy level required for a task.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum EnergyLevel {
     /// Low energy, routine task.
     Low,
     /// Medium energy, focused work.
+    #[default]
     Medium,
     /// High energy, demanding task.
     High,
-}
-
-impl Default for EnergyLevel {
-    fn default() -> Self {
-        EnergyLevel::Medium
-    }
 }
 
 // ============================================================================

@@ -889,8 +889,8 @@ impl TemporalParser {
                 };
                 let after = text_lower.chars().nth(pos + term.len());
 
-                if before.map_or(true, |c| !c.is_alphanumeric())
-                    && after.map_or(true, |c| !c.is_alphanumeric())
+                if before.is_none_or(|c| !c.is_alphanumeric())
+                    && after.is_none_or(|c| !c.is_alphanumeric())
                 {
                     results.push(TemporalExtraction {
                         original_text: term.to_string(),

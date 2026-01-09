@@ -12,6 +12,7 @@ pub mod config;
 pub mod coordinator;
 pub mod embedding;
 pub mod error;
+pub mod gtd;
 pub mod mcp;
 pub mod metrics;
 pub mod ontology;
@@ -54,4 +55,9 @@ pub use webhooks::{
     create_dispatcher, DocumentDeletedData, DocumentIndexedData, IndexErrorData,
     SharedWebhookDispatcher, SourceAddedData, SourceRemovedData, WebhookConfig,
     WebhookDeliveryResult, WebhookDispatcher, WebhookEvent, WebhookPayload, WebhookStats,
+};
+pub use gtd::{
+    Project, ProjectFilter, ProjectHealth, ProjectManager, ProjectStatus, RecommendParams,
+    SomedayFilter, SomedayItem, SomedayManager, Task, TaskFilter, TaskManager,
+    TaskRecommendation, TaskStatus, WaitingFilter, WaitingFor, WaitingManager, WaitingStatus,
 };
