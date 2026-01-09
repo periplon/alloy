@@ -1138,22 +1138,32 @@ impl AlloyServer {
     /// Get cache statistics and configuration.
     #[tool(description = "Get cache statistics including hit/miss counts and configuration.")]
     async fn get_cache_stats(&self) -> Result<CallToolResult, McpError> {
+        // Ensure coordinator is initialized
+        self.ensure_coordinator().await?;
+
         let state = self.state.read().await;
         let config = &state.config.search.cache;
+        let coordinator = state.coordinator.as_ref().unwrap();
+
+        // Get live cache stats from coordinator
+        let cache_stats = coordinator.cache_stats();
 
         let response = GetCacheStatsResponse {
             enabled: config.enabled,
-            embedding_entries: 0, // Would need cache access
-            result_entries: 0,    // Would need cache access
-            embedding_size_bytes: 0,
-            result_size_bytes: 0,
+            embedding_entries: cache_stats.embedding_entries,
+            result_entries: cache_stats.result_entries,
+            embedding_size_bytes: cache_stats.embedding_size_bytes,
+            result_size_bytes: cache_stats.result_size_bytes,
             config: CacheConfigInfo {
                 max_entries: config.max_entries,
                 ttl_secs: config.ttl_secs,
                 cache_embeddings: config.cache_embeddings,
                 cache_results: config.cache_results,
             },
-            message: "Cache stats retrieved successfully".to_string(),
+            message: format!(
+                "Cache stats retrieved successfully: {} embeddings, {} results cached",
+                cache_stats.embedding_entries, cache_stats.result_entries
+            ),
         };
 
         Ok(CallToolResult::success(vec![Content::text(
@@ -1164,10 +1174,24 @@ impl AlloyServer {
     /// Clear all cached data.
     #[tool(description = "Clear all cached embeddings and search results.")]
     async fn clear_cache(&self) -> Result<CallToolResult, McpError> {
-        // Cache clearing would need coordinator access
+        // Ensure coordinator is initialized
+        self.ensure_coordinator().await?;
+
+        let state = self.state.read().await;
+        let coordinator = state.coordinator.as_ref().unwrap();
+
+        // Get stats before clearing
+        let stats_before = coordinator.cache_stats();
+
+        // Clear the cache
+        coordinator.clear_cache().await;
+
         let response = ClearCacheResponse {
             success: true,
-            message: "Cache cleared successfully".to_string(),
+            message: format!(
+                "Cache cleared successfully. Removed {} embeddings and {} results.",
+                stats_before.embedding_entries, stats_before.result_entries
+            ),
         };
 
         Ok(CallToolResult::success(vec![Content::text(

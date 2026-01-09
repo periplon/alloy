@@ -15,6 +15,7 @@ use chrono::Utc;
 use tokio::sync::{mpsc, RwLock};
 use tracing::{debug, info, warn};
 
+use crate::cache::{EmbeddingKey, QueryCache, SearchKey};
 use crate::config::{Config, EmbeddingProvider as EmbeddingProviderType, StorageBackendType};
 use crate::embedding::{
     ApiEmbeddingProvider, BatchConfig, BatchEmbeddingProcessor, EmbeddingProvider,
@@ -169,6 +170,10 @@ pub struct IndexCoordinator {
     version_manager: Option<Arc<VersionManager>>,
     /// Change detector for incremental indexing.
     change_detector: Arc<ChangeDetector>,
+    /// Query and embedding cache for performance.
+    cache: QueryCache,
+    /// Model name for cache keys.
+    model_name: String,
 }
 
 impl IndexCoordinator {
@@ -333,6 +338,19 @@ impl IndexCoordinator {
         let change_detector =
             ChangeDetector::with_persistence(change_detection_config, change_detector_path).await?;
 
+        // Create cache based on configuration
+        let cache = if config.search.cache.enabled {
+            QueryCache::new(&config.search.cache)
+        } else {
+            QueryCache::disabled()
+        };
+
+        // Get model name for cache keys
+        let model_name = match config.embedding.provider {
+            EmbeddingProviderType::Local => config.embedding.model.clone(),
+            EmbeddingProviderType::Api => config.embedding.api.model.clone(),
+        };
+
         Ok(Self {
             config,
             processors,
@@ -345,6 +363,8 @@ impl IndexCoordinator {
             deduplicator,
             version_manager,
             change_detector: Arc::new(change_detector),
+            cache,
+            model_name,
         })
     }
 
@@ -751,7 +771,7 @@ impl IndexCoordinator {
         Ok(IndexItemResult::Indexed(chunk_count))
     }
 
-    /// Embed text chunks.
+    /// Embed text chunks with caching support.
     async fn embed_chunks(&self, chunks: &[TextChunk]) -> Result<Vec<Vec<f32>>> {
         if chunks.is_empty() {
             return Ok(vec![]);
@@ -761,28 +781,73 @@ impl IndexCoordinator {
         let _timer = Metrics::start_timer(&metrics.embedding_duration_seconds);
         metrics.embedding_queue_size.set(chunks.len() as i64);
 
-        let texts: Vec<String> = chunks.iter().map(|c| c.text.clone()).collect();
-        let result = self.embedder.embed(&texts).await;
+        // Check cache for each text and track which need embedding
+        let mut results: Vec<Option<Vec<f32>>> = vec![None; chunks.len()];
+        let mut to_embed: Vec<(usize, String)> = Vec::new();
 
-        metrics.embedding_queue_size.set(0);
-        if result.is_ok() {
-            metrics
-                .embeddings_generated_total
-                .inc_by(chunks.len() as u64);
+        for (i, chunk) in chunks.iter().enumerate() {
+            let key = EmbeddingKey::new(&chunk.text, &self.model_name);
+            if let Some(cached) = self.cache.get_embedding(&key).await {
+                results[i] = Some((*cached).clone());
+            } else {
+                to_embed.push((i, chunk.text.clone()));
+            }
         }
 
-        result
+        // Embed uncached texts
+        if !to_embed.is_empty() {
+            let texts_to_embed: Vec<String> = to_embed.iter().map(|(_, t)| t.clone()).collect();
+            let embeddings = self.embedder.embed(&texts_to_embed).await?;
+
+            // Store in cache and results
+            for ((idx, text), embedding) in to_embed.into_iter().zip(embeddings.into_iter()) {
+                let key = EmbeddingKey::new(text, &self.model_name);
+                self.cache.set_embedding(key, embedding.clone()).await;
+                results[idx] = Some(embedding);
+            }
+
+            metrics
+                .embeddings_generated_total
+                .inc_by(texts_to_embed.len() as u64);
+        }
+
+        metrics.embedding_queue_size.set(0);
+
+        Ok(results.into_iter().flatten().collect())
     }
 
-    /// Search indexed documents.
+    /// Search indexed documents with caching support.
     pub async fn search(&self, query: HybridQuery) -> Result<HybridSearchResponse> {
         let metrics = get_metrics();
         let _timer = Metrics::start_timer(&metrics.search_duration_seconds);
         metrics.search_queries_total.inc();
 
+        // Check cache for this query
+        let expand_query = query.expansion.enabled.unwrap_or(false);
+        let rerank = query.reranking.enabled.unwrap_or(false);
+        let cache_key = SearchKey::new(
+            &query.text,
+            query.vector_weight,
+            query.limit,
+            query.filter.source_id.clone(),
+            expand_query,
+            rerank,
+        );
+
+        // Try to get from cache
+        if let Some(cached) = self.cache.get_search_result(&cache_key).await {
+            return Ok(cached.response.clone());
+        }
+
+        // Execute search
         let result = self.searcher.search(query).await;
 
-        if result.is_err() {
+        if let Ok(ref response) = result {
+            // Cache the result
+            self.cache
+                .set_search_result(cache_key, response.clone())
+                .await;
+        } else {
             metrics.search_errors_total.inc();
         }
 
@@ -1147,6 +1212,35 @@ impl IndexCoordinator {
     /// Save change detector state to disk.
     pub async fn save_change_tracking(&self) -> Result<()> {
         self.change_detector.save().await
+    }
+
+    // ========================================================================
+    // Cache Methods
+    // ========================================================================
+
+    /// Get cache statistics.
+    pub fn cache_stats(&self) -> crate::cache::CacheStats {
+        self.cache.stats()
+    }
+
+    /// Check if caching is enabled.
+    pub fn is_cache_enabled(&self) -> bool {
+        self.cache.is_enabled()
+    }
+
+    /// Clear all cached data.
+    pub async fn clear_cache(&self) {
+        self.cache.invalidate_all().await;
+    }
+
+    /// Invalidate cache entries for a specific source.
+    pub async fn invalidate_source_cache(&self, source_id: &str) {
+        self.cache.invalidate_source(source_id).await;
+    }
+
+    /// Run cache maintenance tasks.
+    pub async fn run_cache_maintenance(&self) {
+        self.cache.run_pending_tasks().await;
     }
 }
 
