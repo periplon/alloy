@@ -265,10 +265,55 @@ pub struct ClusterInfo {
 pub struct ClusterMetrics {
     /// Silhouette score (-1 to 1, higher is better)
     pub silhouette_score: f64,
+    /// Calinski-Harabasz index (higher is better)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub calinski_harabasz_index: Option<f64>,
+    /// Davies-Bouldin index (lower is better)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub davies_bouldin_index: Option<f64>,
     /// Number of clusters
     pub num_clusters: usize,
     /// Number of outliers (for DBSCAN)
     pub num_outliers: usize,
+}
+
+/// 2D point for cluster visualization.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct VisualizationPoint {
+    /// X coordinate (0.0 to 1.0, normalized)
+    pub x: f64,
+    /// Y coordinate (0.0 to 1.0, normalized)
+    pub y: f64,
+    /// Document ID
+    pub document_id: String,
+    /// Cluster ID (null for outliers)
+    pub cluster_id: Option<usize>,
+}
+
+/// Cluster outline for visualization.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ClusterOutlineInfo {
+    /// Cluster ID
+    pub cluster_id: usize,
+    /// Cluster label
+    pub label: String,
+    /// Centroid position
+    pub centroid: (f64, f64),
+    /// Convex hull points
+    pub hull: Vec<(f64, f64)>,
+}
+
+/// Cluster visualization response.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ClusterVisualizationResponse {
+    /// All points projected to 2D
+    pub points: Vec<VisualizationPoint>,
+    /// Cluster outlines
+    pub clusters: Vec<ClusterOutlineInfo>,
+    /// Projection method used
+    pub projection_method: String,
+    /// Original embedding dimension
+    pub original_dimension: usize,
 }
 
 // ============================================================================

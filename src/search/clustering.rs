@@ -71,6 +71,10 @@ pub struct ClusteringMetrics {
     pub silhouette_score: f64,
     /// Inertia/distortion (sum of squared distances to centroids).
     pub inertia: f64,
+    /// Calinski-Harabasz index (higher is better, measures between/within variance ratio).
+    pub calinski_harabasz_index: f64,
+    /// Davies-Bouldin index (lower is better, measures cluster separation).
+    pub davies_bouldin_index: f64,
     /// Number of clusters.
     pub num_clusters: usize,
     /// Number of outliers.
@@ -134,6 +138,8 @@ impl DocumentClusterer for KMeansClusterer {
                 metrics: ClusteringMetrics {
                     silhouette_score: 0.0,
                     inertia: 0.0,
+                    calinski_harabasz_index: 0.0,
+                    davies_bouldin_index: 0.0,
                     num_clusters: 0,
                     num_outliers: 0,
                     cluster_size_distribution: vec![],
@@ -255,6 +261,8 @@ impl DocumentClusterer for KMeansClusterer {
         // Compute metrics
         let inertia = model.inertia();
         let silhouette = compute_silhouette_score(&data, &labels, num_clusters);
+        let calinski_harabasz = compute_calinski_harabasz(&data, &labels, num_clusters);
+        let davies_bouldin = compute_davies_bouldin(&data, &labels, num_clusters, centroids);
 
         Ok(ClusteringResult {
             clusters,
@@ -262,6 +270,8 @@ impl DocumentClusterer for KMeansClusterer {
             metrics: ClusteringMetrics {
                 silhouette_score: silhouette,
                 inertia,
+                calinski_harabasz_index: calinski_harabasz,
+                davies_bouldin_index: davies_bouldin,
                 num_clusters,
                 num_outliers: 0,
                 cluster_size_distribution: cluster_sizes,
@@ -310,6 +320,8 @@ impl DocumentClusterer for DbscanClusterer {
                 metrics: ClusteringMetrics {
                     silhouette_score: 0.0,
                     inertia: 0.0,
+                    calinski_harabasz_index: 0.0,
+                    davies_bouldin_index: 0.0,
                     num_clusters: 0,
                     num_outliers: 0,
                     cluster_size_distribution: vec![],
@@ -427,6 +439,8 @@ impl DocumentClusterer for DbscanClusterer {
             metrics: ClusteringMetrics {
                 silhouette_score: 0.0, // Not computed for DBSCAN with outliers
                 inertia: 0.0,
+                calinski_harabasz_index: 0.0, // Not computed for DBSCAN
+                davies_bouldin_index: 0.0,    // Not computed for DBSCAN
                 num_clusters,
                 num_outliers: outliers.len(),
                 cluster_size_distribution: cluster_sizes,
@@ -801,6 +815,153 @@ fn compute_silhouette_score(data: &Array2<f64>, labels: &[usize], num_clusters: 
     }
 }
 
+/// Compute Calinski-Harabasz index (Variance Ratio Criterion).
+///
+/// Higher values indicate better-defined clusters.
+/// It measures the ratio of between-cluster dispersion to within-cluster dispersion.
+fn compute_calinski_harabasz(data: &Array2<f64>, labels: &[usize], num_clusters: usize) -> f64 {
+    if num_clusters <= 1 || data.nrows() <= num_clusters {
+        return 0.0;
+    }
+
+    let n = data.nrows();
+    let d = data.ncols();
+
+    // Compute overall centroid
+    let overall_centroid: Vec<f64> = (0..d)
+        .map(|j| data.column(j).mean().unwrap_or(0.0))
+        .collect();
+
+    // Compute cluster centroids and sizes
+    let mut cluster_centroids: Vec<Vec<f64>> = vec![vec![0.0; d]; num_clusters];
+    let mut cluster_sizes: Vec<usize> = vec![0; num_clusters];
+
+    for (i, &label) in labels.iter().enumerate() {
+        if label < num_clusters {
+            cluster_sizes[label] += 1;
+            for j in 0..d {
+                cluster_centroids[label][j] += data[[i, j]];
+            }
+        }
+    }
+
+    for k in 0..num_clusters {
+        if cluster_sizes[k] > 0 {
+            for val in cluster_centroids[k].iter_mut() {
+                *val /= cluster_sizes[k] as f64;
+            }
+        }
+    }
+
+    // Compute between-cluster dispersion (B)
+    let mut between_var = 0.0;
+    for k in 0..num_clusters {
+        let n_k = cluster_sizes[k] as f64;
+        if n_k > 0.0 {
+            let dist_sq: f64 = cluster_centroids[k]
+                .iter()
+                .zip(overall_centroid.iter())
+                .map(|(a, b)| (a - b).powi(2))
+                .sum();
+            between_var += n_k * dist_sq;
+        }
+    }
+
+    // Compute within-cluster dispersion (W)
+    let mut within_var = 0.0;
+    for (i, &label) in labels.iter().enumerate() {
+        if label < num_clusters {
+            let dist_sq: f64 = (0..d)
+                .map(|j| (data[[i, j]] - cluster_centroids[label][j]).powi(2))
+                .sum();
+            within_var += dist_sq;
+        }
+    }
+
+    if within_var == 0.0 {
+        return 0.0;
+    }
+
+    let k = num_clusters as f64;
+    let n_f = n as f64;
+
+    // CH = (B / (k-1)) / (W / (n-k))
+    (between_var / (k - 1.0)) / (within_var / (n_f - k))
+}
+
+/// Compute Davies-Bouldin index.
+///
+/// Lower values indicate better-defined clusters.
+/// It measures the average similarity between each cluster and its most similar cluster.
+fn compute_davies_bouldin(
+    data: &Array2<f64>,
+    labels: &[usize],
+    num_clusters: usize,
+    centroids: &Array2<f64>,
+) -> f64 {
+    if num_clusters <= 1 || data.nrows() <= num_clusters {
+        return 0.0;
+    }
+
+    let d = data.ncols();
+
+    // Compute intra-cluster dispersion (average distance from centroid)
+    let mut dispersions: Vec<f64> = vec![0.0; num_clusters];
+    let mut cluster_sizes: Vec<usize> = vec![0; num_clusters];
+
+    for (i, &label) in labels.iter().enumerate() {
+        if label < num_clusters {
+            let dist: f64 = (0..d)
+                .map(|j| (data[[i, j]] - centroids[[label, j]]).powi(2))
+                .sum::<f64>()
+                .sqrt();
+            dispersions[label] += dist;
+            cluster_sizes[label] += 1;
+        }
+    }
+
+    // Average dispersion for each cluster
+    for k in 0..num_clusters {
+        if cluster_sizes[k] > 0 {
+            dispersions[k] /= cluster_sizes[k] as f64;
+        }
+    }
+
+    // Compute Davies-Bouldin index
+    let mut db_sum = 0.0;
+    for i in 0..num_clusters {
+        if cluster_sizes[i] == 0 {
+            continue;
+        }
+
+        let mut max_ratio: f64 = 0.0;
+        for j in 0..num_clusters {
+            if i == j || cluster_sizes[j] == 0 {
+                continue;
+            }
+
+            // Distance between cluster centroids
+            let centroid_dist: f64 = (0..d)
+                .map(|k| (centroids[[i, k]] - centroids[[j, k]]).powi(2))
+                .sum::<f64>()
+                .sqrt();
+
+            if centroid_dist > 0.0 {
+                let ratio = (dispersions[i] + dispersions[j]) / centroid_dist;
+                max_ratio = max_ratio.max(ratio);
+            }
+        }
+        db_sum += max_ratio;
+    }
+
+    let valid_clusters = cluster_sizes.iter().filter(|&&s| s > 0).count();
+    if valid_clusters > 0 {
+        db_sum / valid_clusters as f64
+    } else {
+        0.0
+    }
+}
+
 /// Factory for creating clusterers based on configuration.
 pub struct ClustererFactory;
 
@@ -883,6 +1044,8 @@ mod tests {
         let metrics = ClusteringMetrics {
             silhouette_score: 0.75,
             inertia: 100.0,
+            calinski_harabasz_index: 150.5,
+            davies_bouldin_index: 0.5,
             num_clusters: 3,
             num_outliers: 2,
             cluster_size_distribution: vec![10, 15, 8],
@@ -890,5 +1053,7 @@ mod tests {
 
         assert_eq!(metrics.num_clusters, 3);
         assert_eq!(metrics.cluster_size_distribution.iter().sum::<usize>(), 33);
+        assert!(metrics.calinski_harabasz_index > 0.0);
+        assert!(metrics.davies_bouldin_index > 0.0);
     }
 }

@@ -98,6 +98,7 @@
 //! ```
 
 mod clustering;
+mod clustering_viz;
 mod cross_encoder;
 mod expansion;
 mod fusion;
@@ -105,6 +106,7 @@ mod hybrid;
 mod reranker;
 
 pub use clustering::*;
+pub use clustering_viz::*;
 pub use cross_encoder::*;
 pub use expansion::*;
 pub use fusion::*;

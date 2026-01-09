@@ -22,16 +22,16 @@ use crate::mcp::tools::{
     AclConfigInfo, AclEntryInfo, AddWebhookResponse, BackupInfo, CacheConfigInfo,
     CheckDuplicateResponse, CheckPermissionResponse, ClearCacheResponse,
     ClearDeduplicationResponse, ClusterDocumentsResponse, ClusterInfo, ClusterMetrics,
-    ConfigureResponse, CreateBackupResponse, DeduplicationStatsResponse,
-    DeleteDocumentAclResponse, DiffStatsInfo, DiffVersionsResponse, DocumentDetails,
-    ExportDocumentsResponse, GetAclStatsResponse, GetCacheStatsResponse, GetDocumentAclResponse,
-    GetDocumentHistoryResponse, GetMetricsResponse, GetVersionContentResponse,
-    GetWebhookStatsResponse, ImportDocumentsResponse, IndexPathResponse, IndexStats,
-    ListBackupsResponse, ListSourcesResponse, ListWebhooksResponse, RemoveSourceResponse,
-    RemoveWebhookResponse, RestoreBackupResponse, RestoreVersionResponse, RoleInfo,
-    SearchResponse, SearchResult, SetDocumentAclResponse, SourceInfo, TestWebhookResponse,
-    VersionInfo, VersioningRetentionInfo, VersioningStatsResponse, WebhookDeliveryInfo,
-    WebhookInfo,
+    ClusterOutlineInfo, ClusterVisualizationResponse, ConfigureResponse, CreateBackupResponse,
+    DeduplicationStatsResponse, DeleteDocumentAclResponse, DiffStatsInfo, DiffVersionsResponse,
+    DocumentDetails, ExportDocumentsResponse, GetAclStatsResponse, GetCacheStatsResponse,
+    GetDocumentAclResponse, GetDocumentHistoryResponse, GetMetricsResponse,
+    GetVersionContentResponse, GetWebhookStatsResponse, ImportDocumentsResponse, IndexPathResponse,
+    IndexStats, ListBackupsResponse, ListSourcesResponse, ListWebhooksResponse,
+    RemoveSourceResponse, RemoveWebhookResponse, RestoreBackupResponse, RestoreVersionResponse,
+    RoleInfo, SearchResponse, SearchResult, SetDocumentAclResponse, SourceInfo,
+    TestWebhookResponse, VersionInfo, VersioningRetentionInfo, VersioningStatsResponse,
+    VisualizationPoint, WebhookDeliveryInfo, WebhookInfo,
 };
 use crate::metrics::get_metrics;
 use crate::search::{HybridQuery, SearchFilter};
@@ -126,14 +126,15 @@ impl AlloyServer {
     async fn ensure_coordinator(&self) -> Result<(), McpError> {
         let mut state = self.state.write().await;
         if state.coordinator.is_none() {
-            let mut coordinator = IndexCoordinator::new(state.config.clone())
-                .await
-                .map_err(|e| {
-                    McpError::internal_error(
-                        format!("Failed to initialize coordinator: {}", e),
-                        None,
-                    )
-                })?;
+            let mut coordinator =
+                IndexCoordinator::new(state.config.clone())
+                    .await
+                    .map_err(|e| {
+                        McpError::internal_error(
+                            format!("Failed to initialize coordinator: {}", e),
+                            None,
+                        )
+                    })?;
 
             // Set up webhook integration by subscribing to progress events
             let webhook_dispatcher = state.webhook_dispatcher.clone();
@@ -318,6 +319,23 @@ pub struct ConfigureParams {
 // Parameters for cluster_documents tool
 #[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema)]
 pub struct ClusterDocumentsParams {
+    /// Optional filter by source ID
+    #[serde(default)]
+    pub source_id: Option<String>,
+    /// Clustering algorithm to use (kmeans or dbscan)
+    #[serde(default)]
+    pub algorithm: Option<String>,
+    /// Number of clusters (for k-means, default: auto-detect)
+    #[serde(default)]
+    pub num_clusters: Option<usize>,
+    /// Include 2D visualization data (default: false)
+    #[serde(default)]
+    pub include_visualization: Option<bool>,
+}
+
+// Parameters for get_cluster_visualization tool
+#[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema)]
+pub struct GetClusterVisualizationParams {
     /// Optional filter by source ID
     #[serde(default)]
     pub source_id: Option<String>,
@@ -1038,6 +1056,16 @@ impl AlloyServer {
                     outliers: result.outliers.clone(),
                     metrics: ClusterMetrics {
                         silhouette_score: result.metrics.silhouette_score,
+                        calinski_harabasz_index: if result.metrics.calinski_harabasz_index > 0.0 {
+                            Some(result.metrics.calinski_harabasz_index)
+                        } else {
+                            None
+                        },
+                        davies_bouldin_index: if result.metrics.davies_bouldin_index > 0.0 {
+                            Some(result.metrics.davies_bouldin_index)
+                        } else {
+                            None
+                        },
                         num_clusters: result.metrics.num_clusters,
                         num_outliers: result.metrics.num_outliers,
                     },
@@ -1051,6 +1079,97 @@ impl AlloyServer {
             }
             Err(e) => Ok(CallToolResult::success(vec![Content::text(format!(
                 "Clustering failed: {}",
+                e
+            ))])),
+        }
+    }
+
+    /// Get 2D visualization data for clustered documents.
+    #[tool(
+        description = "Get 2D visualization data for document clusters. Returns points and cluster outlines for rendering a scatter plot."
+    )]
+    async fn get_cluster_visualization(
+        &self,
+        Parameters(params): Parameters<GetClusterVisualizationParams>,
+    ) -> Result<CallToolResult, McpError> {
+        use crate::search::PcaProjection;
+
+        // Ensure coordinator is initialized
+        self.ensure_coordinator().await?;
+
+        let state = self.state.read().await;
+        let coordinator = state.coordinator.as_ref().unwrap();
+
+        // Parse algorithm if provided
+        let algorithm = params.algorithm.as_deref().map(|algo| match algo {
+            "dbscan" => crate::config::ClusteringAlgorithm::Dbscan,
+            _ => crate::config::ClusteringAlgorithm::KMeans,
+        });
+
+        match coordinator
+            .cluster_documents(params.source_id.as_deref(), algorithm, params.num_clusters)
+            .await
+        {
+            Ok(result) => {
+                // Get embeddings for visualization
+                let chunks = coordinator
+                    .storage()
+                    .get_all_chunks_for_clustering(params.source_id.as_deref())
+                    .await
+                    .map_err(|e| {
+                        McpError::internal_error(format!("Failed to get chunks: {}", e), None)
+                    })?;
+
+                // Convert to input format
+                let embeddings: Vec<Vec<f32>> =
+                    chunks.iter().map(|c| c.embedding.clone()).collect();
+                let doc_ids: Vec<String> = chunks.iter().map(|c| c.document_id.clone()).collect();
+
+                // Create cluster assignments
+                let mut cluster_assignments: Vec<Option<usize>> = vec![None; doc_ids.len()];
+                for cluster in &result.clusters {
+                    for doc_id in &cluster.document_ids {
+                        if let Some(idx) = doc_ids.iter().position(|id| id == doc_id) {
+                            cluster_assignments[idx] = Some(cluster.cluster_id);
+                        }
+                    }
+                }
+
+                // Perform PCA projection
+                let viz = PcaProjection::project(&embeddings, &doc_ids, &cluster_assignments);
+
+                // Convert to response format
+                let response = ClusterVisualizationResponse {
+                    points: viz
+                        .points
+                        .into_iter()
+                        .map(|p| VisualizationPoint {
+                            x: p.x,
+                            y: p.y,
+                            document_id: p.document_id,
+                            cluster_id: p.cluster_id,
+                        })
+                        .collect(),
+                    clusters: viz
+                        .clusters
+                        .into_iter()
+                        .map(|c| ClusterOutlineInfo {
+                            cluster_id: c.cluster_id,
+                            label: c.label,
+                            centroid: c.centroid,
+                            hull: c.hull,
+                        })
+                        .collect(),
+                    projection_method: viz.projection_method,
+                    original_dimension: viz.original_dimension,
+                };
+
+                Ok(CallToolResult::success(vec![Content::text(
+                    serde_json::to_string_pretty(&response).unwrap(),
+                )]))
+            }
+            Err(e) => Ok(CallToolResult::success(vec![Content::text(format!(
+                "Visualization failed: {}",
                 e
             ))])),
         }

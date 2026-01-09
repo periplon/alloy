@@ -192,6 +192,9 @@ pub enum AuthError {
     #[error("Token generation failed: {0}")]
     TokenGeneration(String),
 
+    #[error("Permission denied: {0}")]
+    PermissionDenied(String),
+
     #[error("Unauthorized: {0}")]
     Unauthorized(String),
 }

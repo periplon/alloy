@@ -235,6 +235,16 @@ pub async fn cluster(
         outliers: result.outliers,
         metrics: ClusterMetrics {
             silhouette_score: result.metrics.silhouette_score,
+            calinski_harabasz_index: if result.metrics.calinski_harabasz_index > 0.0 {
+                Some(result.metrics.calinski_harabasz_index)
+            } else {
+                None
+            },
+            davies_bouldin_index: if result.metrics.davies_bouldin_index > 0.0 {
+                Some(result.metrics.davies_bouldin_index)
+            } else {
+                None
+            },
             num_clusters: result.metrics.num_clusters,
             num_outliers: result.metrics.num_outliers,
         },

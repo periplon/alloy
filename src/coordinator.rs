@@ -956,6 +956,8 @@ impl IndexCoordinator {
                 metrics: crate::search::ClusteringMetrics {
                     silhouette_score: 0.0,
                     inertia: 0.0,
+                    calinski_harabasz_index: 0.0,
+                    davies_bouldin_index: 0.0,
                     num_clusters: 0,
                     num_outliers: 0,
                     cluster_size_distribution: vec![],

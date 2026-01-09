@@ -2,6 +2,7 @@
 //!
 //! Provides document-level access control for multi-tenant deployments.
 
+mod middleware;
 mod query_filter;
 mod resolver;
 mod storage;
@@ -11,6 +12,7 @@ use std::collections::HashSet;
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 
+pub use middleware::{AclEnforcementLayer, AclGuard, AclGuardBuilder, OperationType};
 pub use query_filter::AclQueryFilter;
 pub use resolver::AclResolver;
 pub use storage::{AclStorage, MemoryAclStorage};
