@@ -3735,6 +3735,369 @@ impl AlloyServer {
     }
 
     // ========================================================================
+    // GTD Advanced Features (Phase 8)
+    // ========================================================================
+
+    /// Analyze attention economics - where focus goes across areas and projects.
+    #[tool(
+        description = "Analyze attention economics. Shows where your focus is going across areas, projects, and contexts. Identifies attention imbalances and provides focus depth metrics. Use for understanding work distribution and rebalancing attention."
+    )]
+    async fn gtd_attention(
+        &self,
+        Parameters(params): Parameters<crate::mcp::gtd_tools::GtdAttentionParams>,
+    ) -> Result<CallToolResult, McpError> {
+        use crate::gtd::{AttentionManager, AttentionParams};
+        use crate::mcp::gtd_tools::GtdAttentionResponse;
+        use chrono::Duration;
+
+        // Get ontology store from coordinator
+        self.ensure_coordinator().await?;
+        let state = self.state.read().await;
+        let coordinator = state.coordinator.as_ref().unwrap();
+        let ontology_store = coordinator.ontology_store();
+
+        let manager = AttentionManager::new(ontology_store);
+
+        // Build attention params
+        let now = chrono::Utc::now();
+        let period_end = params.period_end.unwrap_or(now);
+        let period_start = params.period_start.unwrap_or_else(|| {
+            period_end - Duration::days(params.period_days as i64)
+        });
+
+        let attention_params = AttentionParams {
+            period_start: Some(period_start),
+            period_end: Some(period_end),
+            period_days: params.period_days,
+            include_projects: params.include_projects,
+            include_trends: params.include_trends,
+            focus_areas: params.focus_areas.clone(),
+        };
+
+        let response = match manager.analyze(attention_params).await {
+            Ok(metrics) => {
+                let rating_str = format!("{:?}", metrics.focus_depth.rating);
+                let summary = format!(
+                    "Attention analysis for {} days: {} areas, {} projects tracked. Focus depth: {:.0}% ({})",
+                    params.period_days,
+                    metrics.by_area.len(),
+                    metrics.by_project.len(),
+                    metrics.focus_depth.score * 100.0,
+                    rating_str
+                );
+                GtdAttentionResponse::success(metrics, summary)
+            }
+            Err(e) => GtdAttentionResponse::error(format!("Failed to analyze attention: {}", e)),
+        };
+
+        Ok(CallToolResult::success(vec![Content::text(
+            serde_json::to_string_pretty(&response).unwrap(),
+        )]))
+    }
+
+    /// Track and manage commitments made and received.
+    #[tool(
+        description = "Track commitments - promises made and received. Actions: list, get, extract (from text), create, fulfill, cancel, summary, overdue, made_to (person), received_from (person). Use for tracking promises and accountability."
+    )]
+    async fn gtd_commitments(
+        &self,
+        Parameters(params): Parameters<crate::mcp::gtd_tools::GtdCommitmentsParams>,
+    ) -> Result<CallToolResult, McpError> {
+        use crate::gtd::{Commitment, CommitmentDirection, CommitmentFilter, CommitmentManager, CommitmentStatus};
+        use crate::mcp::gtd_tools::{CommitmentAction, GtdCommitmentsResponse};
+
+        // Get ontology store from coordinator
+        self.ensure_coordinator().await?;
+        let state = self.state.read().await;
+        let coordinator = state.coordinator.as_ref().unwrap();
+        let ontology_store = coordinator.ontology_store();
+
+        let manager = CommitmentManager::new(ontology_store);
+
+        let response = match params.action {
+            CommitmentAction::List => {
+                let filter = CommitmentFilter {
+                    commitment_type: params.commitment_type.as_ref().and_then(|ct| {
+                        match ct.as_str() {
+                            "made" => Some(CommitmentDirection::Made),
+                            "received" => Some(CommitmentDirection::Received),
+                            _ => None,
+                        }
+                    }),
+                    status: params.status.as_ref().and_then(|s| {
+                        match s.as_str() {
+                            "pending" => Some(CommitmentStatus::Pending),
+                            "fulfilled" => Some(CommitmentStatus::Fulfilled),
+                            "cancelled" => Some(CommitmentStatus::Cancelled),
+                            "overdue" => Some(CommitmentStatus::Overdue),
+                            _ => None,
+                        }
+                    }),
+                    person: params.person.clone(),
+                    project_id: None,
+                    overdue_only: false,
+                    needs_follow_up: false,
+                    limit: params.limit,
+                };
+                match manager.list(filter).await {
+                    Ok(commitments) => GtdCommitmentsResponse::success_list(
+                        commitments.clone(),
+                        format!("Found {} commitments", commitments.len()),
+                    ),
+                    Err(e) => GtdCommitmentsResponse::error(format!("Failed to list: {}", e)),
+                }
+            }
+            CommitmentAction::Get => {
+                let id = params.commitment_id.ok_or_else(|| {
+                    McpError::invalid_params("commitment_id is required for 'get' action", None)
+                })?;
+                match manager.get(&id).await {
+                    Ok(Some(commitment)) => {
+                        GtdCommitmentsResponse::success_single(commitment, "Commitment retrieved")
+                    }
+                    Ok(None) => GtdCommitmentsResponse::error(format!("Commitment not found: {}", id)),
+                    Err(e) => GtdCommitmentsResponse::error(format!("Failed to get: {}", e)),
+                }
+            }
+            CommitmentAction::Extract => {
+                let text = params.text.ok_or_else(|| {
+                    McpError::invalid_params("text is required for 'extract' action", None)
+                })?;
+                let result = manager.extract_from_text(&text, params.document_id.as_deref());
+                GtdCommitmentsResponse::success_extraction(
+                    result.clone(),
+                    format!("Extracted {} commitments", result.total_found),
+                )
+            }
+            CommitmentAction::Create => {
+                let description = params.description.ok_or_else(|| {
+                    McpError::invalid_params("description is required for 'create' action", None)
+                })?;
+                let commitment = Commitment {
+                    id: uuid::Uuid::new_v4().to_string(),
+                    commitment_type: params.commitment_type.as_ref()
+                        .map(|ct| if ct == "made" { CommitmentDirection::Made } else { CommitmentDirection::Received })
+                        .unwrap_or(CommitmentDirection::Made),
+                    description: description.clone(),
+                    from_person: params.person.clone(),
+                    to_person: None,
+                    due_date: None,
+                    status: CommitmentStatus::Pending,
+                    source_document: params.document_id.clone(),
+                    extracted_text: description,
+                    confidence: 1.0,
+                    project_id: None,
+                    follow_up_date: None,
+                    notes: None,
+                    created_at: chrono::Utc::now(),
+                    updated_at: chrono::Utc::now(),
+                };
+                match manager.create(commitment).await {
+                    Ok(created) => GtdCommitmentsResponse::success_single(created, "Commitment created"),
+                    Err(e) => GtdCommitmentsResponse::error(format!("Failed to create: {}", e)),
+                }
+            }
+            CommitmentAction::Fulfill => {
+                let id = params.commitment_id.ok_or_else(|| {
+                    McpError::invalid_params("commitment_id is required for 'fulfill' action", None)
+                })?;
+                match manager.fulfill(&id).await {
+                    Ok(()) => GtdCommitmentsResponse {
+                        success: true,
+                        commitment: None,
+                        commitments: None,
+                        extraction: None,
+                        summary: None,
+                        message: "Commitment marked as fulfilled".to_string(),
+                    },
+                    Err(e) => GtdCommitmentsResponse::error(format!("Failed to fulfill: {}", e)),
+                }
+            }
+            CommitmentAction::Cancel => {
+                let id = params.commitment_id.ok_or_else(|| {
+                    McpError::invalid_params("commitment_id is required for 'cancel' action", None)
+                })?;
+                match manager.cancel(&id).await {
+                    Ok(()) => GtdCommitmentsResponse {
+                        success: true,
+                        commitment: None,
+                        commitments: None,
+                        extraction: None,
+                        summary: None,
+                        message: "Commitment cancelled".to_string(),
+                    },
+                    Err(e) => GtdCommitmentsResponse::error(format!("Failed to cancel: {}", e)),
+                }
+            }
+            CommitmentAction::Summary => {
+                match manager.summary().await {
+                    Ok(summary) => GtdCommitmentsResponse::success_summary(
+                        summary,
+                        "Commitment summary generated",
+                    ),
+                    Err(e) => GtdCommitmentsResponse::error(format!("Failed to generate summary: {}", e)),
+                }
+            }
+            CommitmentAction::Overdue => {
+                match manager.get_overdue().await {
+                    Ok(commitments) => GtdCommitmentsResponse::success_list(
+                        commitments.clone(),
+                        format!("{} overdue commitments", commitments.len()),
+                    ),
+                    Err(e) => GtdCommitmentsResponse::error(format!("Failed to get overdue: {}", e)),
+                }
+            }
+            CommitmentAction::MadeTo => {
+                let person = params.person.ok_or_else(|| {
+                    McpError::invalid_params("person is required for 'made_to' action", None)
+                })?;
+                match manager.get_made_to(&person).await {
+                    Ok(commitments) => GtdCommitmentsResponse::success_list(
+                        commitments.clone(),
+                        format!("{} commitments made to {}", commitments.len(), person),
+                    ),
+                    Err(e) => GtdCommitmentsResponse::error(format!("Failed to get: {}", e)),
+                }
+            }
+            CommitmentAction::ReceivedFrom => {
+                let person = params.person.ok_or_else(|| {
+                    McpError::invalid_params("person is required for 'received_from' action", None)
+                })?;
+                match manager.get_received_from(&person).await {
+                    Ok(commitments) => GtdCommitmentsResponse::success_list(
+                        commitments.clone(),
+                        format!("{} commitments received from {}", commitments.len(), person),
+                    ),
+                    Err(e) => GtdCommitmentsResponse::error(format!("Failed to get: {}", e)),
+                }
+            }
+        };
+
+        Ok(CallToolResult::success(vec![Content::text(
+            serde_json::to_string_pretty(&response).unwrap(),
+        )]))
+    }
+
+    /// Visualize and analyze task/project dependencies.
+    #[tool(
+        description = "Generate dependency graph for tasks and projects. Shows critical path, blockers, and dependency chains. Supports output in json, mermaid, dot, or text format. Use for understanding project structure and identifying bottlenecks."
+    )]
+    async fn gtd_dependencies(
+        &self,
+        Parameters(params): Parameters<crate::mcp::gtd_tools::GtdDependenciesParams>,
+    ) -> Result<CallToolResult, McpError> {
+        use crate::gtd::{DependencyManager, DependencyParams, OutputFormat};
+        use crate::mcp::gtd_tools::GtdDependenciesResponse;
+
+        // Get ontology store from coordinator
+        self.ensure_coordinator().await?;
+        let state = self.state.read().await;
+        let coordinator = state.coordinator.as_ref().unwrap();
+        let ontology_store = coordinator.ontology_store();
+
+        let manager = DependencyManager::new(ontology_store);
+
+        // Build dependency params
+        let output_format = match params.output_format.to_lowercase().as_str() {
+            "mermaid" => OutputFormat::Mermaid,
+            "dot" => OutputFormat::Dot,
+            "text" => OutputFormat::Text,
+            _ => OutputFormat::Json,
+        };
+
+        let dep_params = DependencyParams {
+            project_id: params.project_id.clone(),
+            include_completed: params.include_completed,
+            max_depth: params.max_depth,
+            include_critical_path: params.include_critical_path,
+            include_blockers: params.include_blockers,
+            output_format,
+        };
+
+        let response = match manager.generate(dep_params).await {
+            Ok(graph) => {
+                let summary = format!(
+                    "Dependency graph: {} nodes, {} edges. Critical path: {} items. {} blockers found.",
+                    graph.nodes.len(),
+                    graph.edges.len(),
+                    graph.critical_path.length,
+                    graph.blockers.len()
+                );
+
+                let mut resp = GtdDependenciesResponse::success(graph.clone(), summary);
+                resp.critical_path = Some(graph.critical_path);
+                resp.blockers = Some(graph.blockers);
+                resp
+            }
+            Err(e) => GtdDependenciesResponse::error(format!("Failed to generate graph: {}", e)),
+        };
+
+        Ok(CallToolResult::success(vec![Content::text(
+            serde_json::to_string_pretty(&response).unwrap(),
+        )]))
+    }
+
+    /// Map and visualize GTD horizons of focus.
+    #[tool(
+        description = "Map GTD horizons of focus. Shows all 6 levels: Runway (actions), 10k (projects), 20k (areas), 30k (goals), 40k (vision), 50k (purpose). Includes alignment analysis and health metrics. Use for big-picture perspective and ensuring work aligns with higher purpose."
+    )]
+    async fn gtd_horizons(
+        &self,
+        Parameters(params): Parameters<crate::mcp::gtd_tools::GtdHorizonsParams>,
+    ) -> Result<CallToolResult, McpError> {
+        use crate::gtd::{HorizonLevel, HorizonManager, HorizonParams};
+        use crate::mcp::gtd_tools::GtdHorizonsResponse;
+
+        // Get ontology store from coordinator
+        self.ensure_coordinator().await?;
+        let state = self.state.read().await;
+        let coordinator = state.coordinator.as_ref().unwrap();
+        let ontology_store = coordinator.ontology_store();
+
+        let manager = HorizonManager::new(ontology_store);
+
+        // Parse horizon filters
+        let horizons: Vec<HorizonLevel> = params.horizons.iter()
+            .filter_map(|h| match h.to_lowercase().as_str() {
+                "runway" => Some(HorizonLevel::Runway),
+                "h10k" | "10k" | "projects" => Some(HorizonLevel::H10k),
+                "h20k" | "20k" | "areas" => Some(HorizonLevel::H20k),
+                "h30k" | "30k" | "goals" => Some(HorizonLevel::H30k),
+                "h40k" | "40k" | "vision" => Some(HorizonLevel::H40k),
+                "h50k" | "50k" | "purpose" => Some(HorizonLevel::H50k),
+                _ => None,
+            })
+            .collect();
+
+        let horizon_params = HorizonParams {
+            horizons,
+            include_counts: params.include_counts,
+            include_health: params.include_health,
+            include_alignment: params.include_alignment,
+            items_per_horizon: params.items_per_horizon,
+            area: params.area.clone(),
+        };
+
+        let response = match manager.map(horizon_params).await {
+            Ok(map) => {
+                let summary = format!(
+                    "Horizon map: {} levels. Overall health: {:.0}% ({}). {} recommendations.",
+                    map.horizons.len(),
+                    map.overall_health.score,
+                    map.overall_health.rating,
+                    map.recommendations.len()
+                );
+                GtdHorizonsResponse::success(map, summary)
+            }
+            Err(e) => GtdHorizonsResponse::error(format!("Failed to generate horizon map: {}", e)),
+        };
+
+        Ok(CallToolResult::success(vec![Content::text(
+            serde_json::to_string_pretty(&response).unwrap(),
+        )]))
+    }
+
+    // ========================================================================
     // Knowledge Graph Tools
     // ========================================================================
 
