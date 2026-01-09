@@ -4,7 +4,9 @@
 
 use alloy::{
     backup::{BackupManager, ExportFormat, ExportOptions},
-    calendar::{CalendarEvent, CalendarFilter, CalendarManager, EventType, EventUpdate, FreeTimeParams},
+    calendar::{
+        CalendarEvent, CalendarFilter, CalendarManager, EventType, EventUpdate, FreeTimeParams,
+    },
     gtd::{
         AttentionManager, AttentionParams, Commitment, CommitmentDirection, CommitmentFilter,
         CommitmentManager, CommitmentStatus, DependencyManager, DependencyParams, HorizonLevel,
@@ -690,7 +692,8 @@ pub async fn gtd(config: Config, command: GtdCommand) -> Result<GtdResult> {
                     }
                 }
                 "create" => {
-                    let project_name = name.ok_or_else(|| anyhow::anyhow!("Project name required"))?;
+                    let project_name =
+                        name.ok_or_else(|| anyhow::anyhow!("Project name required"))?;
                     let mut project = Project::new(&project_name);
                     if let Some(o) = outcome {
                         project = project.with_outcome(o);
@@ -816,11 +819,13 @@ pub async fn gtd(config: Config, command: GtdCommand) -> Result<GtdResult> {
                     }
                 }
                 "create" => {
-                    let task_desc = description.ok_or_else(|| anyhow::anyhow!("Task description required"))?;
+                    let task_desc =
+                        description.ok_or_else(|| anyhow::anyhow!("Task description required"))?;
                     let mut task = Task::new(&task_desc);
 
                     if let Some(ctx_str) = set_contexts {
-                        let contexts: Vec<String> = ctx_str.split(',').map(|s| s.trim().to_string()).collect();
+                        let contexts: Vec<String> =
+                            ctx_str.split(',').map(|s| s.trim().to_string()).collect();
                         task = task.with_contexts(contexts);
                     }
                     if let Some(e) = set_energy {
@@ -936,8 +941,10 @@ pub async fn gtd(config: Config, command: GtdCommand) -> Result<GtdResult> {
                     })
                 }
                 "add" => {
-                    let desc = description.ok_or_else(|| anyhow::anyhow!("Description required"))?;
-                    let delegate = delegated_to.ok_or_else(|| anyhow::anyhow!("Delegated to person required"))?;
+                    let desc =
+                        description.ok_or_else(|| anyhow::anyhow!("Description required"))?;
+                    let delegate = delegated_to
+                        .ok_or_else(|| anyhow::anyhow!("Delegated to person required"))?;
 
                     let mut item = WaitingFor::new(&desc, &delegate);
                     if let Some(exp) = expected_by {
@@ -1017,7 +1024,8 @@ pub async fn gtd(config: Config, command: GtdCommand) -> Result<GtdResult> {
                     })
                 }
                 "add" => {
-                    let desc = description.ok_or_else(|| anyhow::anyhow!("Description required"))?;
+                    let desc =
+                        description.ok_or_else(|| anyhow::anyhow!("Description required"))?;
                     let mut item = SomedayItem::new(&desc);
 
                     if let Some(c) = set_category {
@@ -1073,7 +1081,10 @@ pub async fn gtd(config: Config, command: GtdCommand) -> Result<GtdResult> {
             }
         }
 
-        GtdCommand::Review { week_ending, sections } => {
+        GtdCommand::Review {
+            week_ending,
+            sections,
+        } => {
             let manager = ReviewManager::new(store);
 
             let mut params = WeeklyReviewParams::default();
@@ -1091,7 +1102,9 @@ pub async fn gtd(config: Config, command: GtdCommand) -> Result<GtdResult> {
                         "projects" | "projects_review" => Some(ReviewSection::ProjectsReview),
                         "stalled" | "stalled_projects" => Some(ReviewSection::StalledProjects),
                         "waiting" | "waiting_for" => Some(ReviewSection::WaitingFor),
-                        "upcoming" | "calendar" | "upcoming_calendar" => Some(ReviewSection::UpcomingCalendar),
+                        "upcoming" | "calendar" | "upcoming_calendar" => {
+                            Some(ReviewSection::UpcomingCalendar)
+                        }
                         "someday" | "someday_maybe" => Some(ReviewSection::SomedayMaybe),
                         "areas" | "areas_check" => Some(ReviewSection::AreasCheck),
                         "overdue" | "overdue_items" => Some(ReviewSection::OverdueItems),
@@ -1113,7 +1126,12 @@ pub async fn gtd(config: Config, command: GtdCommand) -> Result<GtdResult> {
             })
         }
 
-        GtdCommand::Horizons { action, level, name: _name, description: _description } => {
+        GtdCommand::Horizons {
+            action,
+            level,
+            name: _name,
+            description: _description,
+        } => {
             let manager = HorizonManager::new(store);
 
             match action.as_str() {
@@ -1201,7 +1219,8 @@ pub async fn gtd(config: Config, command: GtdCommand) -> Result<GtdResult> {
                     })
                 }
                 "add" => {
-                    let desc = description.ok_or_else(|| anyhow::anyhow!("Description required"))?;
+                    let desc =
+                        description.ok_or_else(|| anyhow::anyhow!("Description required"))?;
                     let p = person.ok_or_else(|| anyhow::anyhow!("Person required"))?;
 
                     let direction = match commitment_type.as_deref() {
@@ -1297,18 +1316,27 @@ pub async fn gtd(config: Config, command: GtdCommand) -> Result<GtdResult> {
                     let graph = manager.generate(params).await?;
                     Ok(GtdResult {
                         success: true,
-                        message: format!("Dependency analysis: {} nodes, {} edges", graph.nodes.len(), graph.edges.len()),
+                        message: format!(
+                            "Dependency analysis: {} nodes, {} edges",
+                            graph.nodes.len(),
+                            graph.edges.len()
+                        ),
                         data: serde_json::to_value(graph)?,
                     })
                 }
                 "add" => {
-                    let blocked = blocked_task.ok_or_else(|| anyhow::anyhow!("Blocked task required"))?;
-                    let blocking = blocking_task.ok_or_else(|| anyhow::anyhow!("Blocking task required"))?;
+                    let blocked =
+                        blocked_task.ok_or_else(|| anyhow::anyhow!("Blocked task required"))?;
+                    let blocking =
+                        blocking_task.ok_or_else(|| anyhow::anyhow!("Blocking task required"))?;
 
                     // Create a BlockedBy relationship in the ontology store
-                    let relationship = Relationship::new(&blocked, RelationType::BlockedBy, &blocking);
+                    let relationship =
+                        Relationship::new(&blocked, RelationType::BlockedBy, &blocking);
                     let store_writer = store.write().await;
-                    store_writer.create_relationship(relationship.clone()).await?;
+                    store_writer
+                        .create_relationship(relationship.clone())
+                        .await?;
 
                     Ok(GtdResult {
                         success: true,
@@ -1317,7 +1345,8 @@ pub async fn gtd(config: Config, command: GtdCommand) -> Result<GtdResult> {
                     })
                 }
                 "critical-path" => {
-                    let project_id = project.ok_or_else(|| anyhow::anyhow!("Project ID required for critical path"))?;
+                    let project_id = project
+                        .ok_or_else(|| anyhow::anyhow!("Project ID required for critical path"))?;
                     let path = manager.get_critical_path(&project_id).await?;
                     Ok(GtdResult {
                         success: true,
@@ -1326,7 +1355,9 @@ pub async fn gtd(config: Config, command: GtdCommand) -> Result<GtdResult> {
                     })
                 }
                 "blockers" => {
-                    let item_id = blocked_task.or(project).ok_or_else(|| anyhow::anyhow!("Item ID required"))?;
+                    let item_id = blocked_task
+                        .or(project)
+                        .ok_or_else(|| anyhow::anyhow!("Item ID required"))?;
                     let blockers = manager.get_blockers(&item_id).await?;
                     Ok(GtdResult {
                         success: true,
@@ -1342,7 +1373,10 @@ pub async fn gtd(config: Config, command: GtdCommand) -> Result<GtdResult> {
             }
         }
 
-        GtdCommand::Attention { period, group_by: _group_by } => {
+        GtdCommand::Attention {
+            period,
+            group_by: _group_by,
+        } => {
             let manager = AttentionManager::new(store);
 
             let period_days = match period.as_str() {
@@ -1364,7 +1398,12 @@ pub async fn gtd(config: Config, command: GtdCommand) -> Result<GtdResult> {
             })
         }
 
-        GtdCommand::Areas { action, id: _id, name, description } => {
+        GtdCommand::Areas {
+            action,
+            id: _id,
+            name,
+            description,
+        } => {
             // Areas are stored as entities in the ontology
             let store_guard = store.read().await;
 
@@ -1402,7 +1441,14 @@ pub async fn gtd(config: Config, command: GtdCommand) -> Result<GtdResult> {
             }
         }
 
-        GtdCommand::Goals { action, id, name, description, target_date, area } => {
+        GtdCommand::Goals {
+            action,
+            id,
+            name,
+            description,
+            target_date,
+            area,
+        } => {
             let store_guard = store.read().await;
 
             match action.as_str() {
@@ -1486,7 +1532,8 @@ pub async fn calendar(config: Config, command: CalendarCommand) -> Result<Calend
         }
 
         CalendarCommand::Range { start, end } => {
-            let start_dt = parse_date(&start).ok_or_else(|| anyhow::anyhow!("Invalid start date"))?;
+            let start_dt =
+                parse_date(&start).ok_or_else(|| anyhow::anyhow!("Invalid start date"))?;
             let end_dt = parse_date(&end).ok_or_else(|| anyhow::anyhow!("Invalid end date"))?;
 
             let filter = CalendarFilter::date_range(start_dt, end_dt);
@@ -1498,8 +1545,13 @@ pub async fn calendar(config: Config, command: CalendarCommand) -> Result<Calend
             })
         }
 
-        CalendarCommand::Free { start, end, min_duration } => {
-            let start_dt = parse_date(&start).ok_or_else(|| anyhow::anyhow!("Invalid start date"))?;
+        CalendarCommand::Free {
+            start,
+            end,
+            min_duration,
+        } => {
+            let start_dt =
+                parse_date(&start).ok_or_else(|| anyhow::anyhow!("Invalid start date"))?;
             let end_dt = parse_date(&end).ok_or_else(|| anyhow::anyhow!("Invalid end date"))?;
 
             let params = FreeTimeParams {
@@ -1552,139 +1604,138 @@ pub async fn calendar(config: Config, command: CalendarCommand) -> Result<Calend
             from,
             to,
             filter_type,
-        } => {
-            match action.as_str() {
-                "list" => {
-                    let mut filter = CalendarFilter::default();
-                    if let Some(f) = from {
-                        filter.start_date = parse_date(&f);
-                    }
-                    if let Some(t) = to {
-                        filter.end_date = parse_date(&t);
-                    }
-                    if let Some(ft) = filter_type {
-                        if let Some(et) = parse_event_type(&ft) {
-                            filter.event_types.push(et);
-                        }
-                    }
-
-                    let events = manager.list(&filter).await?;
-                    Ok(CalendarResult {
-                        success: true,
-                        message: format!("Found {} events", events.len()),
-                        data: serde_json::to_value(events)?,
-                    })
+        } => match action.as_str() {
+            "list" => {
+                let mut filter = CalendarFilter::default();
+                if let Some(f) = from {
+                    filter.start_date = parse_date(&f);
                 }
-                "get" => {
-                    let event_id = id.ok_or_else(|| anyhow::anyhow!("Event ID required"))?;
-                    match manager.get(&event_id).await? {
-                        Some(event) => Ok(CalendarResult {
-                            success: true,
-                            message: format!("Event: {}", event.title),
-                            data: serde_json::to_value(event)?,
-                        }),
-                        None => Ok(CalendarResult {
-                            success: false,
-                            message: format!("Event not found: {}", event_id),
-                            data: serde_json::Value::Null,
-                        }),
+                if let Some(t) = to {
+                    filter.end_date = parse_date(&t);
+                }
+                if let Some(ft) = filter_type {
+                    if let Some(et) = parse_event_type(&ft) {
+                        filter.event_types.push(et);
                     }
                 }
-                "add" => {
-                    let event_title = title.ok_or_else(|| anyhow::anyhow!("Event title required"))?;
-                    let start_str = start.ok_or_else(|| anyhow::anyhow!("Start time required"))?;
-                    let start_dt = parse_date(&start_str).ok_or_else(|| anyhow::anyhow!("Invalid start time"))?;
 
-                    let mut event = CalendarEvent::new(&event_title, start_dt);
-
-                    if let Some(et) = event_type {
-                        if let Some(parsed_type) = parse_event_type(&et) {
-                            event = event.with_type(parsed_type);
-                        }
-                    }
-                    if let Some(e) = end {
-                        if let Some(end_dt) = parse_date(&e) {
-                            event = event.with_end(end_dt);
-                        }
-                    }
-                    if let Some(l) = location {
-                        event = event.with_location(l);
-                    }
-                    if let Some(p) = participants {
-                        let parts: Vec<String> = p.split(',').map(|s| s.trim().to_string()).collect();
-                        event = event.with_participants(parts);
-                    }
-                    if let Some(p) = project {
-                        event = event.with_project(p);
-                    }
-                    if let Some(n) = notes {
-                        event.notes = Some(n);
-                    }
-
-                    let created = manager.create(event).await?;
-                    Ok(CalendarResult {
-                        success: true,
-                        message: format!("Created event: {}", created.title),
-                        data: serde_json::to_value(created)?,
-                    })
-                }
-                "update" => {
-                    let event_id = id.ok_or_else(|| anyhow::anyhow!("Event ID required"))?;
-                    let mut update = EventUpdate::default();
-
-                    if let Some(t) = title {
-                        update.title = Some(t);
-                    }
-                    if let Some(s) = start {
-                        update.start = parse_date(&s);
-                    }
-                    if let Some(e) = end {
-                        update.end = parse_date(&e);
-                    }
-                    if let Some(l) = location {
-                        update.location = Some(l);
-                    }
-                    if let Some(p) = participants {
-                        let parts: Vec<String> = p.split(',').map(|s| s.trim().to_string()).collect();
-                        update.add_participants = parts;
-                    }
-                    if let Some(n) = notes {
-                        update.notes = Some(n);
-                    }
-
-                    match manager.update(&event_id, update).await? {
-                        Some(event) => Ok(CalendarResult {
-                            success: true,
-                            message: format!("Updated event: {}", event.title),
-                            data: serde_json::to_value(event)?,
-                        }),
-                        None => Ok(CalendarResult {
-                            success: false,
-                            message: format!("Event not found: {}", event_id),
-                            data: serde_json::Value::Null,
-                        }),
-                    }
-                }
-                "delete" => {
-                    let event_id = id.ok_or_else(|| anyhow::anyhow!("Event ID required"))?;
-                    let deleted = manager.delete(&event_id).await?;
-                    Ok(CalendarResult {
-                        success: deleted,
-                        message: if deleted {
-                            "Event deleted".to_string()
-                        } else {
-                            "Event not found".to_string()
-                        },
-                        data: serde_json::Value::Bool(deleted),
-                    })
-                }
-                _ => Ok(CalendarResult {
-                    success: false,
-                    message: format!("Unknown action: {}", action),
-                    data: serde_json::Value::Null,
-                }),
+                let events = manager.list(&filter).await?;
+                Ok(CalendarResult {
+                    success: true,
+                    message: format!("Found {} events", events.len()),
+                    data: serde_json::to_value(events)?,
+                })
             }
-        }
+            "get" => {
+                let event_id = id.ok_or_else(|| anyhow::anyhow!("Event ID required"))?;
+                match manager.get(&event_id).await? {
+                    Some(event) => Ok(CalendarResult {
+                        success: true,
+                        message: format!("Event: {}", event.title),
+                        data: serde_json::to_value(event)?,
+                    }),
+                    None => Ok(CalendarResult {
+                        success: false,
+                        message: format!("Event not found: {}", event_id),
+                        data: serde_json::Value::Null,
+                    }),
+                }
+            }
+            "add" => {
+                let event_title = title.ok_or_else(|| anyhow::anyhow!("Event title required"))?;
+                let start_str = start.ok_or_else(|| anyhow::anyhow!("Start time required"))?;
+                let start_dt =
+                    parse_date(&start_str).ok_or_else(|| anyhow::anyhow!("Invalid start time"))?;
+
+                let mut event = CalendarEvent::new(&event_title, start_dt);
+
+                if let Some(et) = event_type {
+                    if let Some(parsed_type) = parse_event_type(&et) {
+                        event = event.with_type(parsed_type);
+                    }
+                }
+                if let Some(e) = end {
+                    if let Some(end_dt) = parse_date(&e) {
+                        event = event.with_end(end_dt);
+                    }
+                }
+                if let Some(l) = location {
+                    event = event.with_location(l);
+                }
+                if let Some(p) = participants {
+                    let parts: Vec<String> = p.split(',').map(|s| s.trim().to_string()).collect();
+                    event = event.with_participants(parts);
+                }
+                if let Some(p) = project {
+                    event = event.with_project(p);
+                }
+                if let Some(n) = notes {
+                    event.notes = Some(n);
+                }
+
+                let created = manager.create(event).await?;
+                Ok(CalendarResult {
+                    success: true,
+                    message: format!("Created event: {}", created.title),
+                    data: serde_json::to_value(created)?,
+                })
+            }
+            "update" => {
+                let event_id = id.ok_or_else(|| anyhow::anyhow!("Event ID required"))?;
+                let mut update = EventUpdate::default();
+
+                if let Some(t) = title {
+                    update.title = Some(t);
+                }
+                if let Some(s) = start {
+                    update.start = parse_date(&s);
+                }
+                if let Some(e) = end {
+                    update.end = parse_date(&e);
+                }
+                if let Some(l) = location {
+                    update.location = Some(l);
+                }
+                if let Some(p) = participants {
+                    let parts: Vec<String> = p.split(',').map(|s| s.trim().to_string()).collect();
+                    update.add_participants = parts;
+                }
+                if let Some(n) = notes {
+                    update.notes = Some(n);
+                }
+
+                match manager.update(&event_id, update).await? {
+                    Some(event) => Ok(CalendarResult {
+                        success: true,
+                        message: format!("Updated event: {}", event.title),
+                        data: serde_json::to_value(event)?,
+                    }),
+                    None => Ok(CalendarResult {
+                        success: false,
+                        message: format!("Event not found: {}", event_id),
+                        data: serde_json::Value::Null,
+                    }),
+                }
+            }
+            "delete" => {
+                let event_id = id.ok_or_else(|| anyhow::anyhow!("Event ID required"))?;
+                let deleted = manager.delete(&event_id).await?;
+                Ok(CalendarResult {
+                    success: deleted,
+                    message: if deleted {
+                        "Event deleted".to_string()
+                    } else {
+                        "Event not found".to_string()
+                    },
+                    data: serde_json::Value::Bool(deleted),
+                })
+            }
+            _ => Ok(CalendarResult {
+                success: false,
+                message: format!("Unknown action: {}", action),
+                data: serde_json::Value::Null,
+            }),
+        },
     }
 }
 
@@ -1694,7 +1745,11 @@ pub async fn knowledge(config: Config, command: KnowledgeCommand) -> Result<Know
     let store_guard = store.read().await;
 
     match command {
-        KnowledgeCommand::Search { query, types, limit } => {
+        KnowledgeCommand::Search {
+            query,
+            types,
+            limit,
+        } => {
             let type_list: Vec<EntityType> = types
                 .map(|t| {
                     t.split(',')
@@ -1718,7 +1773,10 @@ pub async fn knowledge(config: Config, command: KnowledgeCommand) -> Result<Know
             })
         }
 
-        KnowledgeCommand::Entity { name, relationships } => {
+        KnowledgeCommand::Entity {
+            name,
+            relationships,
+        } => {
             let entities = store_guard.find_entities_by_name(&name, 1).await?;
 
             if let Some(entity) = entities.first() {
@@ -1730,7 +1788,11 @@ pub async fn knowledge(config: Config, command: KnowledgeCommand) -> Result<Know
                     });
                     Ok(KnowledgeResult {
                         success: true,
-                        message: format!("Entity: {} with {} relationships", entity.name, rels.len()),
+                        message: format!(
+                            "Entity: {} with {} relationships",
+                            entity.name,
+                            rels.len()
+                        ),
                         data: result,
                     })
                 } else {
@@ -1764,7 +1826,9 @@ pub async fn knowledge(config: Config, command: KnowledgeCommand) -> Result<Know
                 for rel in rels {
                     if rel.relationship_type == RelationType::AboutTopic {
                         if let Some(entity) = store_guard.get_entity(&rel.source_entity_id).await? {
-                            if entity.entity_type == EntityType::Person && !experts.iter().any(|e: &Entity| e.id == entity.id) {
+                            if entity.entity_type == EntityType::Person
+                                && !experts.iter().any(|e: &Entity| e.id == entity.id)
+                            {
                                 experts.push(entity);
                             }
                         }
@@ -1850,9 +1914,17 @@ pub async fn query(
     // Simple keyword-based query routing
     let mode = query_mode.clone().unwrap_or_else(|| {
         let q = query_text.to_lowercase();
-        if q.contains("project") || q.contains("task") || q.contains("next action") || q.contains("waiting") {
+        if q.contains("project")
+            || q.contains("task")
+            || q.contains("next action")
+            || q.contains("waiting")
+        {
             "gtd".to_string()
-        } else if q.contains("calendar") || q.contains("meeting") || q.contains("event") || q.contains("schedule") {
+        } else if q.contains("calendar")
+            || q.contains("meeting")
+            || q.contains("event")
+            || q.contains("schedule")
+        {
             "calendar".to_string()
         } else {
             "knowledge".to_string()
@@ -1906,100 +1978,100 @@ pub async fn ontology(config: Config, command: OntologyCommand) -> Result<Ontolo
             aliases,
             metadata,
             merge_into,
-        } => {
-            match action.as_str() {
-                "list" => {
-                    let mut filter = EntityFilter::default();
-                    if let Some(et) = entity_type {
-                        if let Some(parsed) = parse_entity_type(&et) {
-                            filter.entity_types.push(parsed);
-                        }
+        } => match action.as_str() {
+            "list" => {
+                let mut filter = EntityFilter::default();
+                if let Some(et) = entity_type {
+                    if let Some(parsed) = parse_entity_type(&et) {
+                        filter.entity_types.push(parsed);
                     }
-                    if let Some(nc) = name_contains {
-                        filter.name_pattern = Some(nc);
-                    }
-                    filter.limit = limit;
+                }
+                if let Some(nc) = name_contains {
+                    filter.name_pattern = Some(nc);
+                }
+                filter.limit = limit;
 
-                    let entities = store_guard.list_entities(filter).await?;
-                    Ok(OntologyResult {
+                let entities = store_guard.list_entities(filter).await?;
+                Ok(OntologyResult {
+                    success: true,
+                    message: format!("Found {} entities", entities.len()),
+                    data: serde_json::to_value(entities)?,
+                })
+            }
+            "get" => {
+                let entity_id = id.ok_or_else(|| anyhow::anyhow!("Entity ID required"))?;
+                match store_guard.get_entity(&entity_id).await? {
+                    Some(entity) => Ok(OntologyResult {
                         success: true,
-                        message: format!("Found {} entities", entities.len()),
-                        data: serde_json::to_value(entities)?,
-                    })
+                        message: format!("Entity: {}", entity.name),
+                        data: serde_json::to_value(entity)?,
+                    }),
+                    None => Ok(OntologyResult {
+                        success: false,
+                        message: format!("Entity not found: {}", entity_id),
+                        data: serde_json::Value::Null,
+                    }),
                 }
-                "get" => {
-                    let entity_id = id.ok_or_else(|| anyhow::anyhow!("Entity ID required"))?;
-                    match store_guard.get_entity(&entity_id).await? {
-                        Some(entity) => Ok(OntologyResult {
-                            success: true,
-                            message: format!("Entity: {}", entity.name),
-                            data: serde_json::to_value(entity)?,
-                        }),
-                        None => Ok(OntologyResult {
-                            success: false,
-                            message: format!("Entity not found: {}", entity_id),
-                            data: serde_json::Value::Null,
-                        }),
-                    }
-                }
-                "add" => {
-                    let entity_name = name.ok_or_else(|| anyhow::anyhow!("Entity name required"))?;
-                    let type_str = set_type.ok_or_else(|| anyhow::anyhow!("Entity type required"))?;
-                    let parsed_type = parse_entity_type(&type_str)
-                        .ok_or_else(|| anyhow::anyhow!("Invalid entity type: {}", type_str))?;
+            }
+            "add" => {
+                let entity_name = name.ok_or_else(|| anyhow::anyhow!("Entity name required"))?;
+                let type_str = set_type.ok_or_else(|| anyhow::anyhow!("Entity type required"))?;
+                let parsed_type = parse_entity_type(&type_str)
+                    .ok_or_else(|| anyhow::anyhow!("Invalid entity type: {}", type_str))?;
 
-                    let mut entity = Entity::new(parsed_type, &entity_name);
-                    if let Some(a) = aliases {
-                        let alias_list: Vec<String> = a.split(',').map(|s| s.trim().to_string()).collect();
-                        entity = entity.with_aliases(alias_list);
-                    }
-                    if let Some(m) = metadata {
-                        if let Ok(parsed) = serde_json::from_str::<serde_json::Value>(&m) {
-                            if let Some(obj) = parsed.as_object() {
-                                for (k, v) in obj {
-                                    entity = entity.with_metadata(k, v.clone());
-                                }
+                let mut entity = Entity::new(parsed_type, &entity_name);
+                if let Some(a) = aliases {
+                    let alias_list: Vec<String> =
+                        a.split(',').map(|s| s.trim().to_string()).collect();
+                    entity = entity.with_aliases(alias_list);
+                }
+                if let Some(m) = metadata {
+                    if let Ok(parsed) = serde_json::from_str::<serde_json::Value>(&m) {
+                        if let Some(obj) = parsed.as_object() {
+                            for (k, v) in obj {
+                                entity = entity.with_metadata(k, v.clone());
                             }
                         }
                     }
+                }
 
-                    let created = store_guard.create_entity(entity).await?;
-                    Ok(OntologyResult {
-                        success: true,
-                        message: format!("Created entity: {}", created.name),
-                        data: serde_json::to_value(created)?,
-                    })
-                }
-                "delete" => {
-                    let entity_id = id.ok_or_else(|| anyhow::anyhow!("Entity ID required"))?;
-                    let deleted = store_guard.delete_entity(&entity_id).await?;
-                    Ok(OntologyResult {
-                        success: deleted,
-                        message: if deleted {
-                            "Entity deleted".to_string()
-                        } else {
-                            "Entity not found".to_string()
-                        },
-                        data: serde_json::Value::Bool(deleted),
-                    })
-                }
-                "merge" => {
-                    let entity_id = id.ok_or_else(|| anyhow::anyhow!("Entity ID required"))?;
-                    let target_id = merge_into.ok_or_else(|| anyhow::anyhow!("Target entity ID required"))?;
-                    let merged = store_guard.merge_entities(&target_id, &entity_id).await?;
-                    Ok(OntologyResult {
-                        success: true,
-                        message: format!("Merged into entity: {}", merged.name),
-                        data: serde_json::to_value(merged)?,
-                    })
-                }
-                _ => Ok(OntologyResult {
-                    success: false,
-                    message: format!("Unknown action: {}", action),
-                    data: serde_json::Value::Null,
-                }),
+                let created = store_guard.create_entity(entity).await?;
+                Ok(OntologyResult {
+                    success: true,
+                    message: format!("Created entity: {}", created.name),
+                    data: serde_json::to_value(created)?,
+                })
             }
-        }
+            "delete" => {
+                let entity_id = id.ok_or_else(|| anyhow::anyhow!("Entity ID required"))?;
+                let deleted = store_guard.delete_entity(&entity_id).await?;
+                Ok(OntologyResult {
+                    success: deleted,
+                    message: if deleted {
+                        "Entity deleted".to_string()
+                    } else {
+                        "Entity not found".to_string()
+                    },
+                    data: serde_json::Value::Bool(deleted),
+                })
+            }
+            "merge" => {
+                let entity_id = id.ok_or_else(|| anyhow::anyhow!("Entity ID required"))?;
+                let target_id =
+                    merge_into.ok_or_else(|| anyhow::anyhow!("Target entity ID required"))?;
+                let merged = store_guard.merge_entities(&target_id, &entity_id).await?;
+                Ok(OntologyResult {
+                    success: true,
+                    message: format!("Merged into entity: {}", merged.name),
+                    data: serde_json::to_value(merged)?,
+                })
+            }
+            _ => Ok(OntologyResult {
+                success: false,
+                message: format!("Unknown action: {}", action),
+                data: serde_json::Value::Null,
+            }),
+        },
 
         OntologyCommand::Relationships {
             action,
@@ -2011,67 +2083,72 @@ pub async fn ontology(config: Config, command: OntologyCommand) -> Result<Ontolo
             from_entity,
             to_entity,
             set_type,
-        } => {
-            match action.as_str() {
-                "list" => {
-                    let mut filter = RelationshipFilter::default();
-                    if let Some(s) = source {
-                        filter.source_entity_id = Some(s);
+        } => match action.as_str() {
+            "list" => {
+                let mut filter = RelationshipFilter::default();
+                if let Some(s) = source {
+                    filter.source_entity_id = Some(s);
+                }
+                if let Some(t) = target {
+                    filter.target_entity_id = Some(t);
+                }
+                if let Some(rt) = rel_type {
+                    if let Some(parsed) = parse_relation_type(&rt) {
+                        filter.relationship_types.push(parsed);
                     }
-                    if let Some(t) = target {
-                        filter.target_entity_id = Some(t);
-                    }
-                    if let Some(rt) = rel_type {
-                        if let Some(parsed) = parse_relation_type(&rt) {
-                            filter.relationship_types.push(parsed);
-                        }
-                    }
-                    filter.limit = limit;
+                }
+                filter.limit = limit;
 
-                    let relationships = store_guard.list_relationships(filter).await?;
-                    Ok(OntologyResult {
-                        success: true,
-                        message: format!("Found {} relationships", relationships.len()),
-                        data: serde_json::to_value(relationships)?,
-                    })
-                }
-                "add" => {
-                    let source_id = from_entity.ok_or_else(|| anyhow::anyhow!("Source entity ID required"))?;
-                    let target_id = to_entity.ok_or_else(|| anyhow::anyhow!("Target entity ID required"))?;
-                    let type_str = set_type.ok_or_else(|| anyhow::anyhow!("Relationship type required"))?;
-                    let parsed_type = parse_relation_type(&type_str)
-                        .ok_or_else(|| anyhow::anyhow!("Invalid relationship type: {}", type_str))?;
-
-                    let relationship = Relationship::new(&source_id, parsed_type, &target_id);
-                    let created = store_guard.create_relationship(relationship).await?;
-                    Ok(OntologyResult {
-                        success: true,
-                        message: format!("Created relationship: {} -> {}", source_id, target_id),
-                        data: serde_json::to_value(created)?,
-                    })
-                }
-                "delete" => {
-                    let rel_id = id.ok_or_else(|| anyhow::anyhow!("Relationship ID required"))?;
-                    let deleted = store_guard.delete_relationship(&rel_id).await?;
-                    Ok(OntologyResult {
-                        success: deleted,
-                        message: if deleted {
-                            "Relationship deleted".to_string()
-                        } else {
-                            "Relationship not found".to_string()
-                        },
-                        data: serde_json::Value::Bool(deleted),
-                    })
-                }
-                _ => Ok(OntologyResult {
-                    success: false,
-                    message: format!("Unknown action: {}", action),
-                    data: serde_json::Value::Null,
-                }),
+                let relationships = store_guard.list_relationships(filter).await?;
+                Ok(OntologyResult {
+                    success: true,
+                    message: format!("Found {} relationships", relationships.len()),
+                    data: serde_json::to_value(relationships)?,
+                })
             }
-        }
+            "add" => {
+                let source_id =
+                    from_entity.ok_or_else(|| anyhow::anyhow!("Source entity ID required"))?;
+                let target_id =
+                    to_entity.ok_or_else(|| anyhow::anyhow!("Target entity ID required"))?;
+                let type_str =
+                    set_type.ok_or_else(|| anyhow::anyhow!("Relationship type required"))?;
+                let parsed_type = parse_relation_type(&type_str)
+                    .ok_or_else(|| anyhow::anyhow!("Invalid relationship type: {}", type_str))?;
 
-        OntologyCommand::Extract { document: _document, show_confidence: _show_confidence, auto_add: _auto_add } => {
+                let relationship = Relationship::new(&source_id, parsed_type, &target_id);
+                let created = store_guard.create_relationship(relationship).await?;
+                Ok(OntologyResult {
+                    success: true,
+                    message: format!("Created relationship: {} -> {}", source_id, target_id),
+                    data: serde_json::to_value(created)?,
+                })
+            }
+            "delete" => {
+                let rel_id = id.ok_or_else(|| anyhow::anyhow!("Relationship ID required"))?;
+                let deleted = store_guard.delete_relationship(&rel_id).await?;
+                Ok(OntologyResult {
+                    success: deleted,
+                    message: if deleted {
+                        "Relationship deleted".to_string()
+                    } else {
+                        "Relationship not found".to_string()
+                    },
+                    data: serde_json::Value::Bool(deleted),
+                })
+            }
+            _ => Ok(OntologyResult {
+                success: false,
+                message: format!("Unknown action: {}", action),
+                data: serde_json::Value::Null,
+            }),
+        },
+
+        OntologyCommand::Extract {
+            document: _document,
+            show_confidence: _show_confidence,
+            auto_add: _auto_add,
+        } => {
             // Document extraction would require integration with the index coordinator
             // For now, return a placeholder
             Ok(OntologyResult {
@@ -2081,7 +2158,13 @@ pub async fn ontology(config: Config, command: OntologyCommand) -> Result<Ontolo
             })
         }
 
-        OntologyCommand::Person { name, organization, email, topics, aliases } => {
+        OntologyCommand::Person {
+            name,
+            organization,
+            email,
+            topics,
+            aliases,
+        } => {
             let mut entity = Entity::new(EntityType::Person, &name);
             if let Some(a) = aliases {
                 let alias_list: Vec<String> = a.split(',').map(|s| s.trim().to_string()).collect();
@@ -2132,7 +2215,12 @@ pub async fn ontology(config: Config, command: OntologyCommand) -> Result<Ontolo
             })
         }
 
-        OntologyCommand::Organization { name, org_type, parent, aliases } => {
+        OntologyCommand::Organization {
+            name,
+            org_type,
+            parent,
+            aliases,
+        } => {
             let mut entity = Entity::new(EntityType::Organization, &name);
             if let Some(a) = aliases {
                 let alias_list: Vec<String> = a.split(',').map(|s| s.trim().to_string()).collect();
@@ -2147,7 +2235,8 @@ pub async fn ontology(config: Config, command: OntologyCommand) -> Result<Ontolo
             if let Some(parent_name) = parent {
                 let parents = store_guard.find_entities_by_name(&parent_name, 1).await?;
                 if let Some(parent_entity) = parents.first() {
-                    let rel = Relationship::new(&created.id, RelationType::PartOf, &parent_entity.id);
+                    let rel =
+                        Relationship::new(&created.id, RelationType::PartOf, &parent_entity.id);
                     store_guard.create_relationship(rel).await?;
                 }
             }
@@ -2159,7 +2248,12 @@ pub async fn ontology(config: Config, command: OntologyCommand) -> Result<Ontolo
             })
         }
 
-        OntologyCommand::Topic { name, description, parent, aliases } => {
+        OntologyCommand::Topic {
+            name,
+            description,
+            parent,
+            aliases,
+        } => {
             let mut entity = Entity::new(EntityType::Topic, &name);
             if let Some(a) = aliases {
                 let alias_list: Vec<String> = a.split(',').map(|s| s.trim().to_string()).collect();
@@ -2174,7 +2268,8 @@ pub async fn ontology(config: Config, command: OntologyCommand) -> Result<Ontolo
             if let Some(parent_name) = parent {
                 let parents = store_guard.find_entities_by_name(&parent_name, 1).await?;
                 if let Some(parent_entity) = parents.first() {
-                    let rel = Relationship::new(&created.id, RelationType::PartOf, &parent_entity.id);
+                    let rel =
+                        Relationship::new(&created.id, RelationType::PartOf, &parent_entity.id);
                     store_guard.create_relationship(rel).await?;
                 }
             }

@@ -306,106 +306,459 @@ use crate::{CalendarCommand, GtdCommand, KnowledgeCommand, OntologyCommand};
 
 /// Execute GTD commands via remote MCP server.
 pub async fn gtd(url: &str, command: GtdCommand) -> Result<GtdResult> {
-    // Stub - will be implemented to call appropriate MCP tools
-    let message = match &command {
-        GtdCommand::Projects { action, .. } => {
-            format!("GTD projects: {} (remote not implemented)", action)
-        }
-        GtdCommand::Tasks { action, .. } => {
-            format!("GTD tasks: {} (remote not implemented)", action)
-        }
-        GtdCommand::Waiting { action, .. } => {
-            format!("GTD waiting: {} (remote not implemented)", action)
-        }
-        GtdCommand::Someday { action, .. } => {
-            format!("GTD someday: {} (remote not implemented)", action)
-        }
-        GtdCommand::Review { .. } => "GTD review (remote not implemented)".to_string(),
-        GtdCommand::Horizons { action, .. } => {
-            format!("GTD horizons: {} (remote not implemented)", action)
-        }
-        GtdCommand::Commitments { action, .. } => {
-            format!("GTD commitments: {} (remote not implemented)", action)
-        }
-        GtdCommand::Dependencies { action, .. } => {
-            format!("GTD dependencies: {} (remote not implemented)", action)
-        }
-        GtdCommand::Attention { .. } => "GTD attention (remote not implemented)".to_string(),
-        GtdCommand::Areas { action, .. } => {
-            format!("GTD areas: {} (remote not implemented)", action)
-        }
-        GtdCommand::Goals { action, .. } => {
-            format!("GTD goals: {} (remote not implemented)", action)
-        }
-    };
+    let client = McpClient::connect(url).await?;
 
-    // Suppress unused warning for url
-    let _ = url;
-
-    Ok(GtdResult {
-        success: false,
-        message,
-        data: serde_json::Value::Null,
-    })
+    match command {
+        GtdCommand::Projects {
+            action,
+            id,
+            status,
+            area,
+            stalled,
+            no_next_action,
+            name,
+            outcome,
+            set_area,
+            goal,
+        } => {
+            client
+                .call_tool(
+                    "gtd_projects",
+                    serde_json::json!({
+                        "action": action,
+                        "project_id": id,
+                        "status": status,
+                        "area": area,
+                        "stalled_days": stalled,
+                        "no_next_action": no_next_action,
+                        "name": name,
+                        "outcome": outcome,
+                        "set_area": set_area,
+                        "goal": goal,
+                    }),
+                )
+                .await
+        }
+        GtdCommand::Tasks {
+            action,
+            id,
+            context,
+            energy,
+            time,
+            project,
+            status,
+            due_before,
+            limit,
+            description,
+            set_contexts,
+            set_energy,
+            priority,
+            duration,
+            due,
+            scheduled,
+            assign_project,
+            blocked_by,
+        } => {
+            client
+                .call_tool(
+                    "gtd_tasks",
+                    serde_json::json!({
+                        "action": action,
+                        "task_id": id,
+                        "contexts": context,
+                        "energy": energy,
+                        "time_available": time,
+                        "project_id": project,
+                        "status": status,
+                        "due_before": due_before,
+                        "limit": limit,
+                        "description": description,
+                        "set_contexts": set_contexts,
+                        "set_energy": set_energy,
+                        "priority": priority,
+                        "duration": duration,
+                        "due": due,
+                        "scheduled": scheduled,
+                        "assign_project": assign_project,
+                        "blocked_by": blocked_by,
+                    }),
+                )
+                .await
+        }
+        GtdCommand::Waiting {
+            action,
+            id,
+            status,
+            person,
+            project,
+            description,
+            delegated_to,
+            expected_by,
+            for_project,
+            resolution,
+        } => {
+            client
+                .call_tool(
+                    "gtd_waiting",
+                    serde_json::json!({
+                        "action": action,
+                        "item_id": id,
+                        "status": status,
+                        "person": person,
+                        "project_id": project,
+                        "description": description,
+                        "delegated_to": delegated_to,
+                        "expected_by": expected_by,
+                        "for_project": for_project,
+                        "resolution": resolution,
+                    }),
+                )
+                .await
+        }
+        GtdCommand::Someday {
+            action,
+            id,
+            category,
+            description,
+            set_category,
+            trigger,
+            review_date,
+        } => {
+            client
+                .call_tool(
+                    "gtd_someday",
+                    serde_json::json!({
+                        "action": action,
+                        "item_id": id,
+                        "category": category,
+                        "description": description,
+                        "set_category": set_category,
+                        "trigger": trigger,
+                        "review_date": review_date,
+                    }),
+                )
+                .await
+        }
+        GtdCommand::Review {
+            week_ending,
+            sections,
+        } => {
+            client
+                .call_tool(
+                    "gtd_review",
+                    serde_json::json!({
+                        "week_ending": week_ending,
+                        "sections": sections,
+                    }),
+                )
+                .await
+        }
+        GtdCommand::Horizons {
+            action,
+            level,
+            name,
+            description,
+        } => {
+            client
+                .call_tool(
+                    "gtd_horizons",
+                    serde_json::json!({
+                        "action": action,
+                        "level": level,
+                        "name": name,
+                        "description": description,
+                    }),
+                )
+                .await
+        }
+        GtdCommand::Commitments {
+            action,
+            id,
+            filter,
+            pending,
+            description,
+            commitment_type,
+            person,
+            due,
+            resolution,
+        } => {
+            client
+                .call_tool(
+                    "gtd_commitments",
+                    serde_json::json!({
+                        "action": action,
+                        "commitment_id": id,
+                        "filter": filter,
+                        "pending": pending,
+                        "description": description,
+                        "commitment_type": commitment_type,
+                        "person": person,
+                        "due": due,
+                        "resolution": resolution,
+                    }),
+                )
+                .await
+        }
+        GtdCommand::Dependencies {
+            action,
+            project,
+            critical_path,
+            blocked_task,
+            blocking_task,
+        } => {
+            client
+                .call_tool(
+                    "gtd_dependencies",
+                    serde_json::json!({
+                        "action": action,
+                        "project_id": project,
+                        "critical_path": critical_path,
+                        "blocked_task": blocked_task,
+                        "blocking_task": blocking_task,
+                    }),
+                )
+                .await
+        }
+        GtdCommand::Attention { period, group_by } => {
+            client
+                .call_tool(
+                    "gtd_attention",
+                    serde_json::json!({
+                        "period": period,
+                        "group_by": group_by,
+                    }),
+                )
+                .await
+        }
+        GtdCommand::Areas {
+            action,
+            id,
+            name,
+            description,
+        } => {
+            client
+                .call_tool(
+                    "ontology_entities",
+                    serde_json::json!({
+                        "action": action,
+                        "entity_id": id,
+                        "entity_type": "Area",
+                        "name": name,
+                        "description": description,
+                    }),
+                )
+                .await
+        }
+        GtdCommand::Goals {
+            action,
+            id,
+            name,
+            description,
+            target_date,
+            area,
+        } => {
+            client
+                .call_tool(
+                    "ontology_entities",
+                    serde_json::json!({
+                        "action": action,
+                        "entity_id": id,
+                        "entity_type": "Goal",
+                        "name": name,
+                        "description": description,
+                        "target_date": target_date,
+                        "area": area,
+                    }),
+                )
+                .await
+        }
+    }
 }
 
 /// Execute Calendar commands via remote MCP server.
 pub async fn calendar(url: &str, command: CalendarCommand) -> Result<CalendarResult> {
-    let message = match &command {
-        CalendarCommand::Today => "Calendar today (remote not implemented)".to_string(),
-        CalendarCommand::Week => "Calendar week (remote not implemented)".to_string(),
+    let client = McpClient::connect(url).await?;
+
+    match command {
+        CalendarCommand::Today => {
+            client
+                .call_tool(
+                    "calendar_query",
+                    serde_json::json!({
+                        "action": "today",
+                    }),
+                )
+                .await
+        }
+        CalendarCommand::Week => {
+            client
+                .call_tool(
+                    "calendar_query",
+                    serde_json::json!({
+                        "action": "week",
+                    }),
+                )
+                .await
+        }
         CalendarCommand::Range { start, end } => {
-            format!("Calendar range {}-{} (remote not implemented)", start, end)
+            client
+                .call_tool(
+                    "calendar_query",
+                    serde_json::json!({
+                        "action": "range",
+                        "start": start,
+                        "end": end,
+                    }),
+                )
+                .await
         }
-        CalendarCommand::Free { start, end, .. } => {
-            format!("Calendar free {}-{} (remote not implemented)", start, end)
+        CalendarCommand::Free {
+            start,
+            end,
+            min_duration,
+        } => {
+            client
+                .call_tool(
+                    "calendar_query",
+                    serde_json::json!({
+                        "action": "free",
+                        "start": start,
+                        "end": end,
+                        "min_duration": min_duration,
+                    }),
+                )
+                .await
         }
-        CalendarCommand::Conflicts => "Calendar conflicts (remote not implemented)".to_string(),
+        CalendarCommand::Conflicts => {
+            client
+                .call_tool(
+                    "calendar_query",
+                    serde_json::json!({
+                        "action": "conflicts",
+                    }),
+                )
+                .await
+        }
         CalendarCommand::Upcoming { limit } => {
-            format!("Calendar upcoming {} (remote not implemented)", limit)
+            client
+                .call_tool(
+                    "calendar_query",
+                    serde_json::json!({
+                        "action": "upcoming",
+                        "limit": limit,
+                    }),
+                )
+                .await
         }
-        CalendarCommand::Events { action, .. } => {
-            format!("Calendar events: {} (remote not implemented)", action)
+        CalendarCommand::Events {
+            action,
+            id,
+            title,
+            event_type,
+            start,
+            end,
+            location,
+            participants,
+            project,
+            recurrence,
+            notes,
+            from,
+            to,
+            filter_type,
+        } => {
+            client
+                .call_tool(
+                    "calendar_events",
+                    serde_json::json!({
+                        "action": action,
+                        "event_id": id,
+                        "title": title,
+                        "event_type": event_type,
+                        "start": start,
+                        "end": end,
+                        "location": location,
+                        "participants": participants,
+                        "project_id": project,
+                        "recurrence": recurrence,
+                        "notes": notes,
+                        "from": from,
+                        "to": to,
+                        "filter_type": filter_type,
+                    }),
+                )
+                .await
         }
-    };
-
-    let _ = url;
-
-    Ok(CalendarResult {
-        success: false,
-        message,
-        data: serde_json::Value::Null,
-    })
+    }
 }
 
 /// Execute Knowledge commands via remote MCP server.
 pub async fn knowledge(url: &str, command: KnowledgeCommand) -> Result<KnowledgeResult> {
-    let message = match &command {
-        KnowledgeCommand::Search { query, .. } => {
-            format!("Knowledge search '{}' (remote not implemented)", query)
+    let client = McpClient::connect(url).await?;
+
+    match command {
+        KnowledgeCommand::Search {
+            query,
+            types,
+            limit,
+        } => {
+            client
+                .call_tool(
+                    "knowledge_search",
+                    serde_json::json!({
+                        "query": query,
+                        "entity_types": types,
+                        "limit": limit,
+                    }),
+                )
+                .await
         }
-        KnowledgeCommand::Entity { name, .. } => {
-            format!("Knowledge entity '{}' (remote not implemented)", name)
+        KnowledgeCommand::Entity {
+            name,
+            relationships,
+        } => {
+            client
+                .call_tool(
+                    "knowledge_entity",
+                    serde_json::json!({
+                        "name": name,
+                        "include_relationships": relationships,
+                    }),
+                )
+                .await
         }
-        KnowledgeCommand::Expert { topic, .. } => {
-            format!("Knowledge expert '{}' (remote not implemented)", topic)
+        KnowledgeCommand::Expert { topic, limit } => {
+            client
+                .call_tool(
+                    "knowledge_expert",
+                    serde_json::json!({
+                        "topic": topic,
+                        "limit": limit,
+                    }),
+                )
+                .await
         }
         KnowledgeCommand::Topic { topic } => {
-            format!("Knowledge topic '{}' (remote not implemented)", topic)
+            client
+                .call_tool(
+                    "knowledge_topic",
+                    serde_json::json!({
+                        "topic": topic,
+                    }),
+                )
+                .await
         }
-        KnowledgeCommand::Connected { entity, depth } => format!(
-            "Knowledge connected '{}' depth {} (remote not implemented)",
-            entity, depth
-        ),
-    };
-
-    let _ = url;
-
-    Ok(KnowledgeResult {
-        success: false,
-        message,
-        data: serde_json::Value::Null,
-    })
+        KnowledgeCommand::Connected { entity, depth } => {
+            client
+                .call_tool(
+                    "knowledge_connected",
+                    serde_json::json!({
+                        "entity": entity,
+                        "depth": depth,
+                    }),
+                )
+                .await
+        }
+    }
 }
 
 /// Execute natural language query via remote MCP server.
@@ -414,47 +767,157 @@ pub async fn query(
     query_text: String,
     query_mode: Option<String>,
 ) -> Result<QueryResult> {
-    let _ = url;
-
-    Ok(QueryResult {
-        success: false,
-        query: query_text,
-        mode: query_mode.unwrap_or_else(|| "auto".to_string()),
-        message: "Natural language query (remote not implemented)".to_string(),
-        data: serde_json::Value::Null,
-    })
+    let client = McpClient::connect(url).await?;
+    client
+        .call_tool(
+            "natural_language_query",
+            serde_json::json!({
+                "query": query_text,
+                "mode": query_mode,
+            }),
+        )
+        .await
 }
 
 /// Execute Ontology commands via remote MCP server.
 pub async fn ontology(url: &str, command: OntologyCommand) -> Result<OntologyResult> {
-    let message = match &command {
-        OntologyCommand::Stats => "Ontology stats (remote not implemented)".to_string(),
-        OntologyCommand::Entities { action, .. } => {
-            format!("Ontology entities: {} (remote not implemented)", action)
-        }
-        OntologyCommand::Relationships { action, .. } => format!(
-            "Ontology relationships: {} (remote not implemented)",
-            action
-        ),
-        OntologyCommand::Extract { document, .. } => {
-            format!("Ontology extract '{}' (remote not implemented)", document)
-        }
-        OntologyCommand::Person { name, .. } => {
-            format!("Ontology person '{}' (remote not implemented)", name)
-        }
-        OntologyCommand::Organization { name, .. } => {
-            format!("Ontology organization '{}' (remote not implemented)", name)
-        }
-        OntologyCommand::Topic { name, .. } => {
-            format!("Ontology topic '{}' (remote not implemented)", name)
-        }
-    };
+    let client = McpClient::connect(url).await?;
 
-    let _ = url;
-
-    Ok(OntologyResult {
-        success: false,
-        message,
-        data: serde_json::Value::Null,
-    })
+    match command {
+        OntologyCommand::Stats => {
+            client
+                .call_tool("ontology_stats", serde_json::json!({}))
+                .await
+        }
+        OntologyCommand::Entities {
+            action,
+            id,
+            entity_type,
+            name_contains,
+            limit,
+            set_type,
+            name,
+            aliases,
+            metadata,
+            merge_into,
+        } => {
+            client
+                .call_tool(
+                    "ontology_entities",
+                    serde_json::json!({
+                        "action": action,
+                        "entity_id": id,
+                        "entity_type": entity_type,
+                        "name_contains": name_contains,
+                        "limit": limit,
+                        "set_type": set_type,
+                        "name": name,
+                        "aliases": aliases,
+                        "metadata": metadata,
+                        "merge_into": merge_into,
+                    }),
+                )
+                .await
+        }
+        OntologyCommand::Relationships {
+            action,
+            id,
+            source,
+            target,
+            rel_type,
+            limit,
+            from_entity,
+            to_entity,
+            set_type,
+        } => {
+            client
+                .call_tool(
+                    "ontology_relationships",
+                    serde_json::json!({
+                        "action": action,
+                        "relationship_id": id,
+                        "source": source,
+                        "target": target,
+                        "rel_type": rel_type,
+                        "limit": limit,
+                        "from_entity": from_entity,
+                        "to_entity": to_entity,
+                        "set_type": set_type,
+                    }),
+                )
+                .await
+        }
+        OntologyCommand::Extract {
+            document,
+            show_confidence,
+            auto_add,
+        } => {
+            client
+                .call_tool(
+                    "ontology_extract",
+                    serde_json::json!({
+                        "document": document,
+                        "show_confidence": show_confidence,
+                        "auto_add": auto_add,
+                    }),
+                )
+                .await
+        }
+        OntologyCommand::Person {
+            name,
+            organization,
+            email,
+            topics,
+            aliases,
+        } => {
+            client
+                .call_tool(
+                    "ontology_person",
+                    serde_json::json!({
+                        "name": name,
+                        "organization": organization,
+                        "email": email,
+                        "topics": topics,
+                        "aliases": aliases,
+                    }),
+                )
+                .await
+        }
+        OntologyCommand::Organization {
+            name,
+            org_type,
+            parent,
+            aliases,
+        } => {
+            client
+                .call_tool(
+                    "ontology_organization",
+                    serde_json::json!({
+                        "name": name,
+                        "org_type": org_type,
+                        "parent": parent,
+                        "aliases": aliases,
+                    }),
+                )
+                .await
+        }
+        OntologyCommand::Topic {
+            name,
+            description,
+            parent,
+            aliases,
+        } => {
+            client
+                .call_tool(
+                    "ontology_topic",
+                    serde_json::json!({
+                        "name": name,
+                        "description": description,
+                        "parent": parent,
+                        "aliases": aliases,
+                    }),
+                )
+                .await
+        }
+    }
 }
