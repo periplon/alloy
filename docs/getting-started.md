@@ -40,21 +40,38 @@ cp config.toml.example config.toml
 
 Edit `config.toml` to adjust settings. See [Configuration](configuration.md) for details.
 
-### 2. Start the Server
+### 2. Index and Search (CLI Mode)
+
+Use Alloy directly from the command line:
+
+```bash
+# Index a directory
+alloy index ~/projects --pattern "*.md"
+
+# Search documents
+alloy search "how to configure"
+
+# View index statistics
+alloy stats
+```
+
+### 3. Run as MCP Server
 
 **Stdio Transport** (for MCP clients like Claude Desktop):
 
 ```bash
+alloy serve
+# or simply:
 alloy
 ```
 
-**HTTP Transport** (for network access):
+**HTTP Transport** (for network access or remote CLI):
 
 ```bash
-alloy --transport http --port 8080
+alloy serve --transport http --port 8080
 ```
 
-### 3. Configure Your MCP Client
+### 4. Configure Your MCP Client
 
 For Claude Desktop, add to your MCP configuration:
 
@@ -63,7 +80,7 @@ For Claude Desktop, add to your MCP configuration:
   "mcpServers": {
     "alloy": {
       "command": "/path/to/alloy",
-      "args": []
+      "args": ["serve"]
     }
   }
 }
@@ -71,31 +88,43 @@ For Claude Desktop, add to your MCP configuration:
 
 ## First Index
 
-Once connected, index your first directory:
+**From CLI:**
+
+```bash
+alloy index ~/projects --pattern "*.md"
+alloy search "how to configure"
+```
+
+**From MCP client:**
 
 ```
 index_path(path: "~/projects", pattern: "*.md")
-```
-
-Then search:
-
-```
 search(query: "how to configure")
 ```
 
 ## Command Line Options
 
 ```
-alloy [OPTIONS]
+alloy [OPTIONS] [COMMAND]
 
-Options:
-  -c, --config <PATH>      Path to configuration file
-  -t, --transport <TYPE>   Transport type: stdio (default) or http
-  -p, --port <PORT>        HTTP port when using http transport (default: 8080)
-      --json-logs          Enable JSON logging format
-  -h, --help               Print help
-  -V, --version            Print version
+Commands:
+  index    Index a local path or S3 URI
+  search   Search indexed documents
+  get      Get a document by ID
+  sources  List indexed sources
+  remove   Remove an indexed source
+  stats    Show index statistics
+  serve    Run as MCP server (default)
+
+Global Options:
+  -c, --config <PATH>   Path to configuration file
+      --json            Output as JSON
+  -r, --remote <URL>    Connect to remote Alloy server via MCP
+  -h, --help            Print help
+  -V, --version         Print version
 ```
+
+See [CLI Reference](cli.md) for detailed command documentation.
 
 ## Environment Variables
 

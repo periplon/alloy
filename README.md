@@ -19,14 +19,53 @@ Alloy indexes local files and S3 objects, enabling semantic search through vecto
 # Build
 cargo build --release
 
-# Run with stdio transport (default)
-./target/release/alloy
+# Index and search directly from CLI
+alloy index ~/documents --pattern "*.md"
+alloy search "rust async patterns"
+alloy stats
 
-# Run with HTTP transport
-./target/release/alloy --transport http --port 8080
+# Or run as MCP server
+alloy serve                              # stdio transport (default)
+alloy serve --transport http --port 8080 # HTTP transport
 ```
 
-## Basic Usage
+## CLI Commands
+
+Alloy provides direct CLI access to all functionality:
+
+| Command | Description |
+|---------|-------------|
+| `alloy index <path>` | Index a local path or S3 URI |
+| `alloy search <query>` | Search indexed documents |
+| `alloy get <document_id>` | Retrieve a document by ID |
+| `alloy sources` | List all indexed sources |
+| `alloy remove <source_id>` | Remove an indexed source |
+| `alloy stats` | Show index statistics |
+| `alloy serve` | Run as MCP server |
+
+### Global Flags
+
+| Flag | Description |
+|------|-------------|
+| `--config <path>` | Path to config file |
+| `--json` | Output as JSON |
+| `--remote <url>` | Connect to remote Alloy server via MCP |
+
+### Remote Mode
+
+Connect to a running Alloy server instead of using local storage:
+
+```bash
+# Start server on one machine
+alloy serve --transport http --port 8080
+
+# Query from another machine (or same machine)
+alloy --remote http://localhost:8080 search "query"
+alloy --remote http://server:8080 stats
+alloy -r http://localhost:8080 sources
+```
+
+## MCP Tools
 
 Once connected via MCP, use these tools:
 
@@ -63,6 +102,7 @@ data_dir = "~/.local/share/alloy"
 See the [docs/](docs/) directory for detailed documentation:
 
 - [Getting Started](docs/getting-started.md) - Installation and setup
+- [CLI Reference](docs/cli.md) - Command-line interface
 - [Configuration](docs/configuration.md) - All configuration options
 - [Tools Reference](docs/tools.md) - MCP tools API
 - [Usage Guide](docs/usage.md) - Patterns and examples
