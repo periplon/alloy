@@ -13,7 +13,9 @@ mod manager;
 mod retention;
 mod storage;
 
-pub use diff::{compute_diff, compute_unified_diff, DiffChange, DiffHunk, DiffResult, DiffStats, UnifiedDiff};
+pub use diff::{
+    compute_diff, compute_unified_diff, DiffChange, DiffHunk, DiffResult, DiffStats, UnifiedDiff,
+};
 pub use manager::{VersionDiff, VersionManager, VersioningConfig};
 pub use retention::{RetentionEnforcer, RetentionPattern, RetentionPolicy};
 pub use storage::{

@@ -29,6 +29,9 @@ pub enum AlloyError {
     #[error("Access control error: {0}")]
     Acl(#[from] AclError),
 
+    #[error("Ontology error: {0}")]
+    Ontology(#[from] OntologyError),
+
     #[error("MCP error: {0}")]
     Mcp(String),
 
@@ -219,6 +222,34 @@ pub enum AclError {
 
     #[error("ACL storage error: {0}")]
     Storage(String),
+}
+
+/// Ontology-related errors.
+#[derive(Error, Debug)]
+pub enum OntologyError {
+    #[error("Entity not found: {0}")]
+    EntityNotFound(String),
+
+    #[error("Relationship not found: {0}")]
+    RelationshipNotFound(String),
+
+    #[error("Invalid entity: {0}")]
+    InvalidEntity(String),
+
+    #[error("Invalid relationship: {0}")]
+    InvalidRelationship(String),
+
+    #[error("Duplicate entity: {0}")]
+    DuplicateEntity(String),
+
+    #[error("Extraction error: {0}")]
+    Extraction(String),
+
+    #[error("Persistence error: {0}")]
+    Persistence(String),
+
+    #[error("Query error: {0}")]
+    Query(String),
 }
 
 /// Result type alias for Alloy operations.

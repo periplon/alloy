@@ -148,7 +148,8 @@ impl ClusteringCache {
             self.cache.insert(cache_key, cached.clone()).await;
             Some(cached.result)
         } else {
-            self.misses.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+            self.misses
+                .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
             None
         }
     }
@@ -233,18 +234,16 @@ mod tests {
         use super::super::{Cluster, ClusteringMetrics};
 
         ClusteringResult {
-            clusters: vec![
-                Cluster {
-                    cluster_id: 0,
-                    label: "Test Cluster".to_string(),
-                    keywords: vec!["test".to_string()],
-                    document_ids: vec!["doc1".to_string(), "doc2".to_string()],
-                    size: 2,
-                    centroid: None,
-                    coherence_score: 0.8,
-                    representative_docs: vec!["doc1".to_string()],
-                }
-            ],
+            clusters: vec![Cluster {
+                cluster_id: 0,
+                label: "Test Cluster".to_string(),
+                keywords: vec!["test".to_string()],
+                document_ids: vec!["doc1".to_string(), "doc2".to_string()],
+                size: 2,
+                centroid: None,
+                coherence_score: 0.8,
+                representative_docs: vec!["doc1".to_string()],
+            }],
             outliers: vec![],
             metrics: ClusteringMetrics {
                 silhouette_score: 0.5,
@@ -284,12 +283,7 @@ mod tests {
     #[tokio::test]
     async fn test_cache_miss() {
         let cache = ClusteringCache::default();
-        let key = ClusteringCacheKey::new(
-            &["doc1".to_string()],
-            "kmeans",
-            Some(3),
-            None,
-        );
+        let key = ClusteringCacheKey::new(&["doc1".to_string()], "kmeans", Some(3), None);
 
         let cached = cache.get(&key).await;
         assert!(cached.is_none());
@@ -301,12 +295,7 @@ mod tests {
     #[tokio::test]
     async fn test_cache_clear() {
         let cache = ClusteringCache::default();
-        let key = ClusteringCacheKey::new(
-            &["doc1".to_string()],
-            "kmeans",
-            Some(3),
-            None,
-        );
+        let key = ClusteringCacheKey::new(&["doc1".to_string()], "kmeans", Some(3), None);
         let result = create_test_result();
 
         cache.insert(&key, result).await;
@@ -337,18 +326,8 @@ mod tests {
 
     #[test]
     fn test_cache_key_different_params() {
-        let key1 = ClusteringCacheKey::new(
-            &["doc1".to_string()],
-            "kmeans",
-            Some(3),
-            None,
-        );
-        let key2 = ClusteringCacheKey::new(
-            &["doc1".to_string()],
-            "dbscan",
-            Some(3),
-            None,
-        );
+        let key1 = ClusteringCacheKey::new(&["doc1".to_string()], "kmeans", Some(3), None);
+        let key2 = ClusteringCacheKey::new(&["doc1".to_string()], "dbscan", Some(3), None);
 
         // Different algorithms should produce different keys
         assert_ne!(key1.to_cache_string(), key2.to_cache_string());

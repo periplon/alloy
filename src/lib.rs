@@ -14,6 +14,7 @@ pub mod embedding;
 pub mod error;
 pub mod mcp;
 pub mod metrics;
+pub mod ontology;
 pub mod processing;
 pub mod search;
 pub mod sources;
@@ -35,6 +36,10 @@ pub use coordinator::{IndexCoordinator, IndexCoordinatorBuilder, IndexProgress, 
 pub use error::{AclError, AlloyError, AuthError, Result};
 pub use mcp::{run_server, AlloyServer};
 pub use metrics::{get_metrics, HealthCheck, HealthState, HealthStatus, Metrics, MetricsSnapshot};
+pub use ontology::{
+    DocumentRef, EmbeddedOntologyStore, Entity, EntityFilter, EntityType, EntityUpdate,
+    OntologyStats, OntologyStore, RelationType, Relationship, RelationshipFilter,
+};
 pub use web::{create_web_ui_router, WebUiConfig};
 pub use webhooks::{
     create_dispatcher, DocumentDeletedData, DocumentIndexedData, IndexErrorData,

@@ -224,10 +224,7 @@ pub mod compression {
     }
 
     /// Decompress content using the specified method.
-    pub fn decompress(
-        data: &[u8],
-        method: CompressionMethod,
-    ) -> crate::error::Result<Vec<u8>> {
+    pub fn decompress(data: &[u8], method: CompressionMethod) -> crate::error::Result<Vec<u8>> {
         match method {
             CompressionMethod::None => Ok(data.to_vec()),
             CompressionMethod::Gzip => {
@@ -887,12 +884,8 @@ mod tests {
         let storage = InMemoryVersionStorage::new();
 
         for i in 1..=3 {
-            let version = create_test_version(
-                &format!("v{}", i),
-                "doc1",
-                i,
-                &format!("Content v{}", i),
-            );
+            let version =
+                create_test_version(&format!("v{}", i), "doc1", i, &format!("Content v{}", i));
             storage.store_version(version).await.unwrap();
         }
 

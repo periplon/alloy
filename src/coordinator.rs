@@ -1006,10 +1006,8 @@ impl IndexCoordinator {
     ) -> Result<Vec<(usize, f64)>> {
         use crate::search::ClusteringEngine;
 
-        let engine = ClusteringEngine::new(
-            self.embedder.clone(),
-            self.config.search.clustering.clone(),
-        );
+        let engine =
+            ClusteringEngine::new(self.embedder.clone(), self.config.search.clustering.clone());
 
         engine
             .find_similar_cluster(query, clustering_result, top_k)

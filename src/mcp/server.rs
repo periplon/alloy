@@ -26,15 +26,15 @@ use crate::mcp::tools::{
     ClusterMetrics, ClusterOutlineInfo, ClusterVisualizationResponse, ConfigureResponse,
     CreateBackupResponse, DeduplicationStatsResponse, DeleteDocumentAclResponse,
     DeleteSourceAclResponse, DiffStatsInfo, DiffVersionsResponse, DocumentDetails,
-    ExportDocumentsResponse, FindSimilarClusterResponse, GetAclStatsResponse, GetCacheStatsResponse,
-    GetClusterDocumentsResponse, GetDocumentAclResponse, GetDocumentHistoryResponse,
-    GetMetricsResponse, GetSourceAclResponse, GetVersionContentResponse, GetWebhookStatsResponse,
-    ImportDocumentsResponse, IndexPathResponse, IndexStats, ListBackupsResponse,
-    ListSourcesResponse, ListWebhooksResponse, RemoveSourceResponse, RemoveWebhookResponse,
-    RestoreBackupResponse, RestoreVersionResponse, RoleInfo, SearchResponse, SearchResult,
-    SetDocumentAclResponse, SetSourceAclResponse, SimilarClusterInfo, SourceInfo,
-    TestWebhookResponse, VersionInfo, VersioningRetentionInfo, VersioningStatsResponse,
-    VisualizationPoint, WebhookDeliveryInfo, WebhookInfo,
+    ExportDocumentsResponse, FindSimilarClusterResponse, GetAclStatsResponse,
+    GetCacheStatsResponse, GetClusterDocumentsResponse, GetDocumentAclResponse,
+    GetDocumentHistoryResponse, GetMetricsResponse, GetSourceAclResponse,
+    GetVersionContentResponse, GetWebhookStatsResponse, ImportDocumentsResponse, IndexPathResponse,
+    IndexStats, ListBackupsResponse, ListSourcesResponse, ListWebhooksResponse,
+    RemoveSourceResponse, RemoveWebhookResponse, RestoreBackupResponse, RestoreVersionResponse,
+    RoleInfo, SearchResponse, SearchResult, SetDocumentAclResponse, SetSourceAclResponse,
+    SimilarClusterInfo, SourceInfo, TestWebhookResponse, VersionInfo, VersioningRetentionInfo,
+    VersioningStatsResponse, VisualizationPoint, WebhookDeliveryInfo, WebhookInfo,
 };
 use crate::metrics::get_metrics;
 use crate::search::{HybridQuery, SearchFilter};
@@ -1368,8 +1368,7 @@ impl AlloyServer {
                         .skip(offset)
                         .take(limit)
                         .map(|doc_id| {
-                            let is_representative =
-                                cluster.representative_docs.contains(doc_id);
+                            let is_representative = cluster.representative_docs.contains(doc_id);
                             ClusterDocumentInfo {
                                 document_id: doc_id.clone(),
                                 uri: doc_id.clone(), // Document ID is typically the URI

@@ -775,7 +775,8 @@ fn cluster_distance(
             }
             max_d
         }
-        crate::config::AgglomerativeLinkage::Average | crate::config::AgglomerativeLinkage::Ward => {
+        crate::config::AgglomerativeLinkage::Average
+        | crate::config::AgglomerativeLinkage::Ward => {
             // Average distance (Ward approximation using average linkage)
             let mut sum = 0.0;
             let mut count = 0;
@@ -1008,11 +1009,15 @@ impl LlmLabeler {
 
     /// Create from configuration.
     pub fn from_config(config: &crate::config::ClusterLabelingConfig) -> Option<Self> {
-        let api_url = config.llm_api_url.as_deref()
+        let api_url = config
+            .llm_api_url
+            .as_deref()
             .unwrap_or("https://api.openai.com/v1");
 
         // Try config API key first, then environment variable
-        let api_key = config.llm_api_key.clone()
+        let api_key = config
+            .llm_api_key
+            .clone()
             .or_else(|| std::env::var("OPENAI_API_KEY").ok())?;
 
         Some(Self::new(api_url, &api_key, &config.llm_model))
@@ -1054,25 +1059,31 @@ impl ClusterLabeler for LlmLabeler {
             "temperature": 0.3
         });
 
-        let response = self.client
+        let response = self
+            .client
             .post(format!("{}/chat/completions", self.api_url))
             .header("Authorization", format!("Bearer {}", self.api_key))
             .header("Content-Type", "application/json")
             .json(&request_body)
             .send()
             .await
-            .map_err(|e| crate::error::SearchError::Clustering(format!("LLM API request failed: {}", e)))?;
+            .map_err(|e| {
+                crate::error::SearchError::Clustering(format!("LLM API request failed: {}", e))
+            })?;
 
         if !response.status().is_success() {
             let status = response.status();
             let body = response.text().await.unwrap_or_default();
-            return Err(crate::error::SearchError::Clustering(
-                format!("LLM API error {}: {}", status, body)
-            ).into());
+            return Err(crate::error::SearchError::Clustering(format!(
+                "LLM API error {}: {}",
+                status, body
+            ))
+            .into());
         }
 
-        let response_json: serde_json::Value = response.json().await
-            .map_err(|e| crate::error::SearchError::Clustering(format!("Failed to parse LLM response: {}", e)))?;
+        let response_json: serde_json::Value = response.json().await.map_err(|e| {
+            crate::error::SearchError::Clustering(format!("Failed to parse LLM response: {}", e))
+        })?;
 
         let label = response_json["choices"][0]["message"]["content"]
             .as_str()
@@ -1118,7 +1129,9 @@ impl ClusterLabeler for HybridLabeler {
         }
 
         // Fall back to keyword labeling
-        self.keyword_labeler.generate_label(sample_texts, keywords).await
+        self.keyword_labeler
+            .generate_label(sample_texts, keywords)
+            .await
     }
 
     fn name(&self) -> &str {
