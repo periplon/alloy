@@ -52,7 +52,11 @@ impl CalendarExtractor {
     }
 
     /// Extract calendar events from text.
-    pub fn extract(&self, text: &str, source_document_id: Option<&str>) -> Vec<ExtractedCalendarEvent> {
+    pub fn extract(
+        &self,
+        text: &str,
+        source_document_id: Option<&str>,
+    ) -> Vec<ExtractedCalendarEvent> {
         let mut events = Vec::new();
 
         // Parse temporal expressions
@@ -164,10 +168,13 @@ impl CalendarExtractor {
         let context = &text[context_start..context_end];
 
         // Extract event title from context
-        let title = self.extract_title_from_context(context, text, group.context_start, group.context_end);
+        let title =
+            self.extract_title_from_context(context, text, group.context_start, group.context_end);
 
         // Build the datetime
-        let time = group.time.unwrap_or_else(|| chrono::NaiveTime::from_hms_opt(0, 0, 0).unwrap());
+        let time = group
+            .time
+            .unwrap_or_else(|| chrono::NaiveTime::from_hms_opt(0, 0, 0).unwrap());
         let datetime = NaiveDateTime::new(date, time);
         let start = DateTime::from_naive_utc_and_offset(datetime, Utc);
 
@@ -263,7 +270,9 @@ impl CalendarExtractor {
         let mut cleaned = title.to_string();
 
         // Remove leading/trailing punctuation
-        cleaned = cleaned.trim_matches(|c: char| !c.is_alphanumeric()).to_string();
+        cleaned = cleaned
+            .trim_matches(|c: char| !c.is_alphanumeric())
+            .to_string();
 
         // Capitalize first letter
         if let Some(first) = cleaned.chars().next() {
@@ -295,16 +304,25 @@ impl CalendarExtractor {
         if context_lower.contains("appointment") || context_lower.contains("appt") {
             return EventType::Appointment;
         }
-        if context_lower.contains("deadline") || context_lower.contains("due") || context_lower.contains("due by") {
+        if context_lower.contains("deadline")
+            || context_lower.contains("due")
+            || context_lower.contains("due by")
+        {
             return EventType::Deadline;
         }
         if context_lower.contains("remind") || context_lower.contains("reminder") {
             return EventType::Reminder;
         }
-        if context_lower.contains("milestone") || context_lower.contains("launch") || context_lower.contains("release") {
+        if context_lower.contains("milestone")
+            || context_lower.contains("launch")
+            || context_lower.contains("release")
+        {
             return EventType::Milestone;
         }
-        if context_lower.contains("travel") || context_lower.contains("flight") || context_lower.contains("trip") {
+        if context_lower.contains("travel")
+            || context_lower.contains("flight")
+            || context_lower.contains("trip")
+        {
             return EventType::Travel;
         }
         if context_lower.contains("block") || context_lower.contains("focus time") {
@@ -320,7 +338,11 @@ impl CalendarExtractor {
     }
 
     /// Extract meeting patterns using regex.
-    fn extract_meeting_patterns(&self, text: &str, source_document_id: Option<&str>) -> Vec<ExtractedCalendarEvent> {
+    fn extract_meeting_patterns(
+        &self,
+        text: &str,
+        source_document_id: Option<&str>,
+    ) -> Vec<ExtractedCalendarEvent> {
         let mut events = Vec::new();
 
         // Pattern: "Meeting with [person] on [date] at [time]"
@@ -344,7 +366,9 @@ impl CalendarExtractor {
                             time_results
                                 .first()
                                 .and_then(|t| t.parsed_date.time)
-                                .unwrap_or_else(|| chrono::NaiveTime::from_hms_opt(9, 0, 0).unwrap())
+                                .unwrap_or_else(|| {
+                                    chrono::NaiveTime::from_hms_opt(9, 0, 0).unwrap()
+                                })
                         } else {
                             chrono::NaiveTime::from_hms_opt(9, 0, 0).unwrap()
                         };
@@ -466,23 +490,24 @@ mod tests {
 
     #[test]
     fn test_extract_meeting() {
-        let extractor = CalendarExtractor::with_reference_date(
-            NaiveDate::from_ymd_opt(2024, 1, 10).unwrap()
-        );
+        let extractor =
+            CalendarExtractor::with_reference_date(NaiveDate::from_ymd_opt(2024, 1, 10).unwrap());
 
         let text = "Let's schedule a meeting with John tomorrow at 3pm to discuss the project.";
         let events = extractor.extract(text, Some("doc123"));
 
         assert!(!events.is_empty());
         let event = &events[0].event;
-        assert!(event.title.to_lowercase().contains("meeting") || event.title.to_lowercase().contains("john"));
+        assert!(
+            event.title.to_lowercase().contains("meeting")
+                || event.title.to_lowercase().contains("john")
+        );
     }
 
     #[test]
     fn test_extract_deadline() {
-        let extractor = CalendarExtractor::with_reference_date(
-            NaiveDate::from_ymd_opt(2024, 1, 10).unwrap()
-        );
+        let extractor =
+            CalendarExtractor::with_reference_date(NaiveDate::from_ymd_opt(2024, 1, 10).unwrap());
 
         let text = "The report is due by Friday at 5pm. Please submit before the deadline.";
         let events = extractor.extract(text, None);
@@ -499,9 +524,8 @@ mod tests {
 
     #[test]
     fn test_extract_recurring() {
-        let extractor = CalendarExtractor::with_reference_date(
-            NaiveDate::from_ymd_opt(2024, 1, 10).unwrap()
-        );
+        let extractor =
+            CalendarExtractor::with_reference_date(NaiveDate::from_ymd_opt(2024, 1, 10).unwrap());
 
         let text = "Team standup every Monday at 9am in the conference room.";
         let events = extractor.extract(text, None);
@@ -547,14 +571,20 @@ mod tests {
         let events = extractor.extract(text, None);
         if let Some(event) = events.first() {
             // Should infer meeting type from context
-            assert!(event.event.event_type == EventType::Meeting || event.event.event_type == EventType::Event);
+            assert!(
+                event.event.event_type == EventType::Meeting
+                    || event.event.event_type == EventType::Event
+            );
         }
 
         // Call
         let text = "Call John at 3pm to discuss the proposal.";
         let events = extractor.extract(text, None);
         if let Some(event) = events.first() {
-            assert!(event.event.event_type == EventType::Call || event.event.event_type == EventType::Event);
+            assert!(
+                event.event.event_type == EventType::Call
+                    || event.event.event_type == EventType::Event
+            );
         }
     }
 }

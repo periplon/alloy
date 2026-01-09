@@ -10,8 +10,8 @@ use crate::ontology::OntologyStore;
 
 use super::events::CalendarManager;
 use super::types::{
-    CalendarEvent, CalendarFilter, CalendarQueryType, CalendarStats, EventType,
-    FreeTimeParams, FreeTimeSlot, SchedulingConflict,
+    CalendarEvent, CalendarFilter, CalendarQueryType, CalendarStats, EventType, FreeTimeParams,
+    FreeTimeSlot, SchedulingConflict,
 };
 
 use std::sync::Arc;
@@ -56,8 +56,14 @@ impl<S: OntologyStore> CalendarQueryEngine<S> {
                     .await
             }
             CalendarQueryType::FreeTime => self.query_free_time(params.into()).await,
-            CalendarQueryType::Conflicts => self.query_conflicts(params.start_date, params.end_date).await,
-            CalendarQueryType::Commitments => self.query_commitments(params.start_date, params.end_date).await,
+            CalendarQueryType::Conflicts => {
+                self.query_conflicts(params.start_date, params.end_date)
+                    .await
+            }
+            CalendarQueryType::Commitments => {
+                self.query_commitments(params.start_date, params.end_date)
+                    .await
+            }
             CalendarQueryType::ByType => {
                 self.query_by_type(params.event_types, params.start_date, params.end_date)
                     .await

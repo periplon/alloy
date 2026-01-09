@@ -90,6 +90,6 @@ pub use extraction::{CalendarExtractor, ExtractedCalendarEvent, ExtractionMethod
 pub use query::{CalendarQueryEngine, CalendarQueryParams, CalendarQueryResponse, QuerySummary};
 pub use types::{
     CalendarEvent, CalendarFilter, CalendarQueryType, CalendarStats, ConflictSeverity,
-    EventRecurrence, EventType, EventUpdate, FreeTimeParams, FreeTimeSlot, Reminder,
-    ReminderType, SchedulingConflict,
+    EventRecurrence, EventType, EventUpdate, FreeTimeParams, FreeTimeSlot, Reminder, ReminderType,
+    SchedulingConflict,
 };

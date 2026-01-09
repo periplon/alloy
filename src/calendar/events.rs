@@ -13,8 +13,8 @@ use crate::error::Result;
 use crate::ontology::{Entity, EntityFilter, EntityType, OntologyStore};
 
 use super::types::{
-    CalendarEvent, CalendarFilter, CalendarQueryType, CalendarStats,
-    EventRecurrence, EventType, EventUpdate, FreeTimeParams, FreeTimeSlot, SchedulingConflict,
+    CalendarEvent, CalendarFilter, CalendarQueryType, CalendarStats, EventRecurrence, EventType,
+    EventUpdate, FreeTimeParams, FreeTimeSlot, SchedulingConflict,
 };
 
 // ============================================================================
@@ -89,8 +89,8 @@ impl<S: OntologyStore> CalendarManager<S> {
         let (range_start, range_end) = self.get_date_range(filter);
 
         // Build entity filter
-        let entity_filter = EntityFilter::by_types([EntityType::CalendarEvent])
-            .with_limit(filter.limit * 2); // Fetch more to account for filtering
+        let entity_filter =
+            EntityFilter::by_types([EntityType::CalendarEvent]).with_limit(filter.limit * 2); // Fetch more to account for filtering
 
         let entities = store.list_entities(entity_filter).await?;
 
@@ -200,10 +200,7 @@ impl<S: OntologyStore> CalendarManager<S> {
     }
 
     /// Check for conflicts with a new event.
-    pub async fn check_conflicts(
-        &self,
-        event: &CalendarEvent,
-    ) -> Result<Vec<SchedulingConflict>> {
+    pub async fn check_conflicts(&self, event: &CalendarEvent) -> Result<Vec<SchedulingConflict>> {
         // Get events that overlap with the new event's time range
         let buffer = Duration::hours(1);
         let range_start = event.start - buffer;
@@ -223,7 +220,10 @@ impl<S: OntologyStore> CalendarManager<S> {
     }
 
     /// Get all conflicts in a date range.
-    pub async fn find_all_conflicts(&self, filter: &CalendarFilter) -> Result<Vec<SchedulingConflict>> {
+    pub async fn find_all_conflicts(
+        &self,
+        filter: &CalendarFilter,
+    ) -> Result<Vec<SchedulingConflict>> {
         let events = self.list(filter).await?;
         Ok(self.detect_conflicts(&events))
     }
@@ -236,7 +236,10 @@ impl<S: OntologyStore> CalendarManager<S> {
     pub async fn find_free_time(&self, params: &FreeTimeParams) -> Result<Vec<FreeTimeSlot>> {
         // Get all events in the range
         let events = self
-            .list(&CalendarFilter::date_range(params.range_start, params.range_end))
+            .list(&CalendarFilter::date_range(
+                params.range_start,
+                params.range_end,
+            ))
             .await?;
 
         let mut free_slots = Vec::new();
@@ -296,11 +299,8 @@ impl<S: OntologyStore> CalendarManager<S> {
 
         // Check working hours
         if let (Some(start), Some(end)) = (params.working_hours_start, params.working_hours_end) {
-            let time_only = NaiveTime::from_hms_opt(
-                time.hour(),
-                time.minute(),
-                time.second(),
-            ).unwrap_or_default();
+            let time_only = NaiveTime::from_hms_opt(time.hour(), time.minute(), time.second())
+                .unwrap_or_default();
 
             if time_only < start || time_only >= end {
                 return false;
@@ -326,11 +326,8 @@ impl<S: OntologyStore> CalendarManager<S> {
 
         // If before working hours start, move to working hours start
         if let Some(start) = params.working_hours_start {
-            let time_only = NaiveTime::from_hms_opt(
-                next.hour(),
-                next.minute(),
-                0,
-            ).unwrap_or_default();
+            let time_only =
+                NaiveTime::from_hms_opt(next.hour(), next.minute(), 0).unwrap_or_default();
 
             if time_only < start {
                 let date = next.date_naive();
@@ -341,11 +338,8 @@ impl<S: OntologyStore> CalendarManager<S> {
 
         // If after working hours end, move to next day's working hours start
         if let Some(end) = params.working_hours_end {
-            let time_only = NaiveTime::from_hms_opt(
-                next.hour(),
-                next.minute(),
-                0,
-            ).unwrap_or_default();
+            let time_only =
+                NaiveTime::from_hms_opt(next.hour(), next.minute(), 0).unwrap_or_default();
 
             if time_only >= end {
                 let mut date = next.date_naive() + Duration::days(1);
@@ -360,7 +354,9 @@ impl<S: OntologyStore> CalendarManager<S> {
                     }
                 }
 
-                let start = params.working_hours_start.unwrap_or(NaiveTime::from_hms_opt(9, 0, 0).unwrap());
+                let start = params
+                    .working_hours_start
+                    .unwrap_or(NaiveTime::from_hms_opt(9, 0, 0).unwrap());
                 let dt = date.and_time(start);
                 return DateTime::from_naive_utc_and_offset(dt, Utc);
             }
@@ -370,13 +366,14 @@ impl<S: OntologyStore> CalendarManager<S> {
     }
 
     /// Adjust a time to be within working hours.
-    fn adjust_for_working_hours(&self, time: DateTime<Utc>, params: &FreeTimeParams) -> DateTime<Utc> {
+    fn adjust_for_working_hours(
+        &self,
+        time: DateTime<Utc>,
+        params: &FreeTimeParams,
+    ) -> DateTime<Utc> {
         if let Some(end) = params.working_hours_end {
-            let time_only = NaiveTime::from_hms_opt(
-                time.hour(),
-                time.minute(),
-                0,
-            ).unwrap_or_default();
+            let time_only =
+                NaiveTime::from_hms_opt(time.hour(), time.minute(), 0).unwrap_or_default();
 
             if time_only > end {
                 let date = time.date_naive();
@@ -431,7 +428,11 @@ impl<S: OntologyStore> CalendarManager<S> {
     }
 
     /// Calculate the next occurrence based on recurrence rule.
-    fn next_occurrence(&self, current: DateTime<Utc>, recurrence: &EventRecurrence) -> DateTime<Utc> {
+    fn next_occurrence(
+        &self,
+        current: DateTime<Utc>,
+        recurrence: &EventRecurrence,
+    ) -> DateTime<Utc> {
         use crate::ontology::extraction::RecurrencePattern;
 
         match recurrence.pattern {
@@ -442,7 +443,8 @@ impl<S: OntologyStore> CalendarManager<S> {
                 } else {
                     // Find next day in the days_of_week list
                     let current_dow = current.weekday().num_days_from_monday() as u8;
-                    let next_dow = recurrence.days_of_week
+                    let next_dow = recurrence
+                        .days_of_week
                         .iter()
                         .find(|&&d| d > current_dow)
                         .or_else(|| recurrence.days_of_week.first());
@@ -452,7 +454,8 @@ impl<S: OntologyStore> CalendarManager<S> {
                             let days_ahead = if dow > current_dow {
                                 (dow - current_dow) as i64
                             } else {
-                                (7 - current_dow + dow) as i64 + (recurrence.interval as i64 - 1) * 7
+                                (7 - current_dow + dow) as i64
+                                    + (recurrence.interval as i64 - 1) * 7
                             };
                             current + Duration::days(days_ahead)
                         }
@@ -460,7 +463,9 @@ impl<S: OntologyStore> CalendarManager<S> {
                     }
                 }
             }
-            RecurrencePattern::BiWeekly => current + Duration::weeks(2 * recurrence.interval as i64),
+            RecurrencePattern::BiWeekly => {
+                current + Duration::weeks(2 * recurrence.interval as i64)
+            }
             RecurrencePattern::Monthly => {
                 // Simple implementation: add months
                 let mut year = current.year();
@@ -475,7 +480,8 @@ impl<S: OntologyStore> CalendarManager<S> {
                 let max_day = days_in_month(year, month as u32);
                 let day = day.min(max_day);
 
-                current.with_year(year)
+                current
+                    .with_year(year)
                     .and_then(|d| d.with_month(month as u32))
                     .and_then(|d| d.with_day(day))
                     .unwrap_or(current + Duration::days(30))
@@ -489,15 +495,15 @@ impl<S: OntologyStore> CalendarManager<S> {
                 }
                 let day = current.day().min(28); // Safe day for all months
 
-                current.with_year(year)
+                current
+                    .with_year(year)
                     .and_then(|d| d.with_month(month as u32))
                     .and_then(|d| d.with_day(day))
                     .unwrap_or(current + Duration::days(90))
             }
-            RecurrencePattern::Yearly => {
-                current.with_year(current.year() + recurrence.interval as i32)
-                    .unwrap_or(current + Duration::days(365))
-            }
+            RecurrencePattern::Yearly => current
+                .with_year(current.year() + recurrence.interval as i32)
+                .unwrap_or(current + Duration::days(365)),
         }
     }
 
@@ -554,7 +560,10 @@ impl<S: OntologyStore> CalendarManager<S> {
         let recurring_events = events.iter().filter(|e| e.recurrence.is_some()).count();
 
         // Extracted events
-        let extracted_events = events.iter().filter(|e| e.source_document_id.is_some()).count();
+        let extracted_events = events
+            .iter()
+            .filter(|e| e.source_document_id.is_some())
+            .count();
 
         // Average events per day (last 30 days)
         let recent_events = events
@@ -649,7 +658,10 @@ impl<S: OntologyStore> CalendarManager<S> {
             "event_type".to_string(),
             serde_json::to_value(event.event_type).unwrap(),
         );
-        metadata.insert("start".to_string(), serde_json::json!(event.start.to_rfc3339()));
+        metadata.insert(
+            "start".to_string(),
+            serde_json::json!(event.start.to_rfc3339()),
+        );
         if let Some(end) = event.end {
             metadata.insert("end".to_string(), serde_json::json!(end.to_rfc3339()));
         }
@@ -658,7 +670,10 @@ impl<S: OntologyStore> CalendarManager<S> {
             metadata.insert("location".to_string(), serde_json::json!(location));
         }
         if !event.participants.is_empty() {
-            metadata.insert("participants".to_string(), serde_json::json!(event.participants));
+            metadata.insert(
+                "participants".to_string(),
+                serde_json::json!(event.participants),
+            );
         }
         if let Some(ref project_id) = event.project_id {
             metadata.insert("project_id".to_string(), serde_json::json!(project_id));
@@ -667,7 +682,10 @@ impl<S: OntologyStore> CalendarManager<S> {
             metadata.insert("task_id".to_string(), serde_json::json!(task_id));
         }
         if let Some(ref source_id) = event.source_document_id {
-            metadata.insert("source_document_id".to_string(), serde_json::json!(source_id));
+            metadata.insert(
+                "source_document_id".to_string(),
+                serde_json::json!(source_id),
+            );
         }
         if let Some(ref text) = event.extracted_text {
             metadata.insert("extracted_text".to_string(), serde_json::json!(text));
@@ -687,7 +705,10 @@ impl<S: OntologyStore> CalendarManager<S> {
                 serde_json::to_value(&event.reminders).unwrap(),
             );
         }
-        metadata.insert("confidence".to_string(), serde_json::json!(event.confidence));
+        metadata.insert(
+            "confidence".to_string(),
+            serde_json::json!(event.confidence),
+        );
 
         Entity::with_id(&event.id, EntityType::CalendarEvent, &event.title)
             .with_confidence(event.confidence)
@@ -700,9 +721,11 @@ impl<S: OntologyStore> CalendarManager<S> {
             .metadata
             .get("calendar_event")
             .and_then(|v| v.as_object())
-            .ok_or_else(|| crate::error::AlloyError::Config(
-                crate::error::ConfigError::Invalid("Invalid calendar event entity".to_string())
-            ))?;
+            .ok_or_else(|| {
+                crate::error::AlloyError::Config(crate::error::ConfigError::Invalid(
+                    "Invalid calendar event entity".to_string(),
+                ))
+            })?;
 
         let title = metadata
             .get("title")
@@ -886,8 +909,7 @@ mod tests {
     async fn test_conflict_detection() {
         let now = Utc::now();
 
-        let event1 = CalendarEvent::new("Meeting 1", now)
-            .with_duration(Duration::hours(1));
+        let event1 = CalendarEvent::new("Meeting 1", now).with_duration(Duration::hours(1));
 
         let event2 = CalendarEvent::new("Meeting 2", now + Duration::minutes(30))
             .with_duration(Duration::hours(1));
@@ -911,11 +933,7 @@ mod tests {
         let event = CalendarEvent::new("Weekly Standup", now)
             .with_recurrence(EventRecurrence::weekly().times(5));
 
-        let instances = manager.expand_recurring(
-            &event,
-            now,
-            now + Duration::days(30),
-        );
+        let instances = manager.expand_recurring(&event, now, now + Duration::days(30));
 
         assert_eq!(instances.len(), 5);
     }

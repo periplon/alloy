@@ -14,6 +14,7 @@ pub mod coordinator;
 pub mod embedding;
 pub mod error;
 pub mod gtd;
+pub mod knowledge;
 pub mod mcp;
 pub mod metrics;
 pub mod ontology;
@@ -33,6 +34,13 @@ pub use api::{create_rest_router, ApiState, RestApiConfig};
 pub use auth::{AuthContext, AuthLayer, AuthMiddleware, Authenticator};
 pub use backup::{BackupManager, BackupResult, ExportFormat, ExportOptions, RestoreResult};
 pub use cache::{CacheStats, CachedEmbedder, QueryCache};
+pub use calendar::{
+    CalendarEvent, CalendarExtractor, CalendarFilter, CalendarManager, CalendarQueryEngine,
+    CalendarQueryParams, CalendarQueryResponse, CalendarQueryType, CalendarStats, ConflictSeverity,
+    EventRecurrence, EventType, EventUpdate, ExtractedCalendarEvent,
+    ExtractionMethod as CalendarExtractionMethod, FreeTimeParams, FreeTimeSlot, QuerySummary,
+    Reminder, ReminderType, SchedulingConflict,
+};
 pub use config::Config;
 pub use coordinator::{IndexCoordinator, IndexCoordinatorBuilder, IndexProgress, IndexedSource};
 pub use error::{AclError, AlloyError, AuthError, Result};
@@ -40,6 +48,12 @@ pub use gtd::{
     Project, ProjectFilter, ProjectHealth, ProjectManager, ProjectStatus, RecommendParams,
     SomedayFilter, SomedayItem, SomedayManager, Task, TaskFilter, TaskManager, TaskRecommendation,
     TaskStatus, WaitingFilter, WaitingFor, WaitingManager, WaitingStatus,
+};
+pub use knowledge::{
+    DocumentSummary as KnowledgeDocumentSummary, EvidenceType, Expert, ExpertiseEvidence,
+    KnowledgeQueryEngine, KnowledgeQueryParams, KnowledgeQueryResult, KnowledgeQueryType,
+    QueryStats as KnowledgeQueryStats, RelatedTopic, RelationshipPath, ScoredEntity,
+    TopicExpertise, TopicStats, TopicSummary, TraversalResult, TraversalStats,
 };
 pub use mcp::{run_server, AlloyServer};
 pub use metrics::{get_metrics, HealthCheck, HealthState, HealthStatus, Metrics, MetricsSnapshot};
@@ -61,11 +75,4 @@ pub use webhooks::{
     create_dispatcher, DocumentDeletedData, DocumentIndexedData, IndexErrorData,
     SharedWebhookDispatcher, SourceAddedData, SourceRemovedData, WebhookConfig,
     WebhookDeliveryResult, WebhookDispatcher, WebhookEvent, WebhookPayload, WebhookStats,
-};
-pub use calendar::{
-    CalendarEvent, CalendarExtractor, CalendarFilter, CalendarManager, CalendarQueryEngine,
-    CalendarQueryParams, CalendarQueryResponse, CalendarQueryType, CalendarStats,
-    ConflictSeverity, EventRecurrence, EventType, EventUpdate, ExtractedCalendarEvent,
-    ExtractionMethod as CalendarExtractionMethod, FreeTimeParams, FreeTimeSlot, QuerySummary,
-    Reminder, ReminderType, SchedulingConflict,
 };

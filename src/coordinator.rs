@@ -392,6 +392,11 @@ impl IndexCoordinator {
         self.ontology_store.clone()
     }
 
+    /// Get the embedding provider for knowledge graph queries.
+    pub fn embedder(&self) -> Arc<dyn EmbeddingProvider> {
+        self.embedder.clone()
+    }
+
     /// Report progress.
     fn report_progress(&self, progress: IndexProgress) {
         if let Some(tx) = &self.progress_tx {

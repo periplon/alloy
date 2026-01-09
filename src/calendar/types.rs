@@ -448,9 +448,9 @@ impl EventRecurrence {
                 .collect(),
             day_of_month: rule.day_of_month,
             week_of_month: None,
-            until: rule.until.map(|d| {
-                DateTime::from_naive_utc_and_offset(d.and_hms_opt(0, 0, 0).unwrap(), Utc)
-            }),
+            until: rule
+                .until
+                .map(|d| DateTime::from_naive_utc_and_offset(d.and_hms_opt(0, 0, 0).unwrap(), Utc)),
             count: rule.count,
             exceptions: Vec::new(),
         }

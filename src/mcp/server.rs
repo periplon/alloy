@@ -3731,6 +3731,149 @@ impl AlloyServer {
             serde_json::to_string_pretty(&response).unwrap(),
         )]))
     }
+
+    // ========================================================================
+    // Knowledge Graph Tools
+    // ========================================================================
+
+    /// Query the knowledge graph with semantic search, entity lookup, relationship queries, and more.
+    #[tool(
+        description = "Query the knowledge graph. Supports semantic_search (What do I know about X?), entity_lookup (find entity by name), relationship_query (Who works with X?), topic_summary (summarize knowledge on topic), connected_entities (graph traversal), and expert_finding (Who knows about X?)."
+    )]
+    async fn knowledge_query(
+        &self,
+        Parameters(params): Parameters<crate::mcp::knowledge_tools::KnowledgeQueryParams>,
+    ) -> Result<CallToolResult, McpError> {
+        use crate::knowledge::KnowledgeQueryEngine;
+        use crate::mcp::knowledge_tools::KnowledgeQueryResponse;
+
+        // Get ontology store and embedder from coordinator
+        self.ensure_coordinator().await?;
+        let state = self.state.read().await;
+        let coordinator = state.coordinator.as_ref().unwrap();
+        let ontology_store = coordinator.ontology_store();
+        let embedder = coordinator.embedder();
+
+        let engine = KnowledgeQueryEngine::new(ontology_store, embedder);
+
+        let query_params: crate::knowledge::KnowledgeQueryParams = params.into();
+        let response = match engine.query(query_params).await {
+            Ok(result) => KnowledgeQueryResponse::from_result(result),
+            Err(e) => KnowledgeQueryResponse::error(format!("Query failed: {}", e)),
+        };
+
+        Ok(CallToolResult::success(vec![Content::text(
+            serde_json::to_string_pretty(&response).unwrap(),
+        )]))
+    }
+
+    /// Find experts on a specific topic.
+    #[tool(
+        description = "Find people with expertise on a topic. Analyzes relationships, authored content, and semantic similarity to identify experts."
+    )]
+    async fn expert_find(
+        &self,
+        Parameters(params): Parameters<crate::mcp::knowledge_tools::ExpertFindParams>,
+    ) -> Result<CallToolResult, McpError> {
+        use crate::knowledge::KnowledgeQueryEngine;
+        use crate::mcp::knowledge_tools::ExpertFindResponse;
+
+        // Get ontology store and embedder from coordinator
+        self.ensure_coordinator().await?;
+        let state = self.state.read().await;
+        let coordinator = state.coordinator.as_ref().unwrap();
+        let ontology_store = coordinator.ontology_store();
+        let embedder = coordinator.embedder();
+
+        let engine = KnowledgeQueryEngine::new(ontology_store, embedder);
+
+        let limit = params.limit.unwrap_or(10);
+        let response = match engine.find_experts(&params.topic, limit).await {
+            Ok(experts) => {
+                let filtered = if let Some(min_score) = params.min_score {
+                    experts
+                        .into_iter()
+                        .filter(|e| e.expertise_score >= min_score)
+                        .collect()
+                } else {
+                    experts
+                };
+                ExpertFindResponse::success(params.topic, filtered)
+            }
+            Err(e) => ExpertFindResponse::error(format!("Expert finding failed: {}", e)),
+        };
+
+        Ok(CallToolResult::success(vec![Content::text(
+            serde_json::to_string_pretty(&response).unwrap(),
+        )]))
+    }
+
+    /// Summarize knowledge about a topic.
+    #[tool(
+        description = "Generate a comprehensive summary of knowledge about a topic, including key entities, sub-topics, and related topics."
+    )]
+    async fn topic_summarize(
+        &self,
+        Parameters(params): Parameters<crate::mcp::knowledge_tools::TopicSummarizeParams>,
+    ) -> Result<CallToolResult, McpError> {
+        use crate::knowledge::KnowledgeQueryEngine;
+        use crate::mcp::knowledge_tools::TopicSummarizeResponse;
+
+        // Get ontology store and embedder from coordinator
+        self.ensure_coordinator().await?;
+        let state = self.state.read().await;
+        let coordinator = state.coordinator.as_ref().unwrap();
+        let ontology_store = coordinator.ontology_store();
+        let embedder = coordinator.embedder();
+
+        let engine = KnowledgeQueryEngine::new(ontology_store, embedder);
+
+        let limit = params.limit.unwrap_or(20);
+        let response = match engine.summarize_topic(&params.topic, limit).await {
+            Ok(summary) => TopicSummarizeResponse::from_summary(summary),
+            Err(e) => TopicSummarizeResponse::error(format!("Topic summarization failed: {}", e)),
+        };
+
+        Ok(CallToolResult::success(vec![Content::text(
+            serde_json::to_string_pretty(&response).unwrap(),
+        )]))
+    }
+
+    /// Traverse the knowledge graph from an entity.
+    #[tool(
+        description = "Traverse relationships from an entity to discover connected entities. Returns paths and discovered nodes with relevance scores."
+    )]
+    async fn graph_traverse(
+        &self,
+        Parameters(params): Parameters<crate::mcp::knowledge_tools::GraphTraverseParams>,
+    ) -> Result<CallToolResult, McpError> {
+        use crate::knowledge::KnowledgeQueryEngine;
+        use crate::mcp::knowledge_tools::GraphTraverseResponse;
+
+        // Get ontology store and embedder from coordinator
+        self.ensure_coordinator().await?;
+        let state = self.state.read().await;
+        let coordinator = state.coordinator.as_ref().unwrap();
+        let ontology_store = coordinator.ontology_store();
+        let embedder = coordinator.embedder();
+
+        let engine = KnowledgeQueryEngine::new(ontology_store, embedder);
+
+        let max_depth = params.max_depth.unwrap_or(2);
+        let relation_types = params.relationship_type.map(|rt| rt.to_relation_types());
+
+        let response = match engine
+            .traverse_relationships(&params.from_entity_id, relation_types.as_deref(), max_depth)
+            .await
+        {
+            Ok(result) => GraphTraverseResponse::from_result(result),
+            Err(e) => GraphTraverseResponse::error(format!("Graph traversal failed: {}", e)),
+        };
+
+        Ok(CallToolResult::success(vec![Content::text(
+            serde_json::to_string_pretty(&response).unwrap(),
+        )]))
+    }
 }
 
 #[tool_handler]
