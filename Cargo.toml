@@ -101,6 +101,9 @@ sha2 = "0.10"
 # Text diff for versioning
 similar = "2"
 
+# Regex for pattern matching
+regex = "1"
+
 # Compression for versioning
 flate2 = "1"
 zstd = "0.13"

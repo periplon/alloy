@@ -40,6 +40,15 @@ pub use ontology::{
     DocumentRef, EmbeddedOntologyStore, Entity, EntityFilter, EntityType, EntityUpdate,
     OntologyStats, OntologyStore, RelationType, Relationship, RelationshipFilter,
 };
+pub use ontology::extraction::{
+    ActionDetector, ActionItem, ActionType, CommitmentType, DateType, DetectedAction,
+    DocumentExtractionResult, EnergyLevel, EntityExtractionProcessor,
+    EntityExtractionProcessorConfig, EntityExtractable, ExtractionConfig, ExtractionMetadata,
+    ExtractionMethod, ExtractionPipeline, ExtractionResult, ExtractedEntity,
+    ExtractedRelationship, LocalNerExtractor, NamedEntity, NamedEntityType, ParsedDate, Priority,
+    RecurrencePattern, RecurrenceRule, RelationExtractor, RelationshipCandidate,
+    SemanticRelationExtractor, TemporalExtraction, TemporalParser,
+};
 pub use web::{create_web_ui_router, WebUiConfig};
 pub use webhooks::{
     create_dispatcher, DocumentDeletedData, DocumentIndexedData, IndexErrorData,
