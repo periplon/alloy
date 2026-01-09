@@ -513,7 +513,7 @@ mod tests {
         let events = extractor.extract(text, None);
 
         // Should extract at least one event
-        let deadline_events: Vec<_> = events
+        let _deadline_events: Vec<_> = events
             .iter()
             .filter(|e| e.event.event_type == EventType::Deadline)
             .collect();

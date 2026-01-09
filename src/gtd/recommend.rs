@@ -740,7 +740,7 @@ mod tests {
 
     #[test]
     fn test_energy_match_score() {
-        let store = Arc::new(std::sync::RwLock::new(()));
+        let _store = Arc::new(std::sync::RwLock::new(()));
 
         // Perfect matches should score 1.0
         assert_eq!(

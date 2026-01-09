@@ -17,6 +17,12 @@ pub struct Config {
     pub operations: OperationsConfig,
     pub security: SecurityConfig,
     pub integration: IntegrationConfig,
+    /// Ontology configuration for semantic entity storage.
+    pub ontology: OntologyConfig,
+    /// GTD (Getting Things Done) configuration.
+    pub gtd: GtdConfig,
+    /// Calendar configuration.
+    pub calendar: CalendarConfig,
 }
 
 impl Config {
@@ -1071,6 +1077,271 @@ impl Default for WebUiConfig {
         Self {
             enabled: true,
             path_prefix: "/ui".to_string(),
+        }
+    }
+}
+
+// ============================================================================
+// Ontology Configuration
+// ============================================================================
+
+/// Ontology configuration for semantic entity storage.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(default)]
+pub struct OntologyConfig {
+    /// Enable ontology features.
+    pub enabled: bool,
+    /// Storage backend for ontology ("embedded" or "neo4j").
+    pub storage_backend: String,
+    /// Entity extraction configuration.
+    pub extraction: ExtractionConfig,
+}
+
+impl Default for OntologyConfig {
+    fn default() -> Self {
+        Self {
+            enabled: true,
+            storage_backend: "embedded".to_string(),
+            extraction: ExtractionConfig::default(),
+        }
+    }
+}
+
+/// Entity extraction configuration.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(default)]
+pub struct ExtractionConfig {
+    /// Extract entities on indexing.
+    pub extract_on_index: bool,
+    /// Minimum confidence threshold to store entities.
+    pub confidence_threshold: f32,
+    /// Local extraction settings.
+    pub local: LocalExtractionConfig,
+    /// LLM-based extraction settings (optional).
+    pub llm: LlmExtractionConfig,
+}
+
+impl Default for ExtractionConfig {
+    fn default() -> Self {
+        Self {
+            extract_on_index: true,
+            confidence_threshold: 0.7,
+            local: LocalExtractionConfig::default(),
+            llm: LlmExtractionConfig::default(),
+        }
+    }
+}
+
+/// Local pattern-based extraction configuration.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(default)]
+pub struct LocalExtractionConfig {
+    /// Enable temporal extraction (date/time parsing).
+    pub enable_temporal: bool,
+    /// Enable pattern-based entity detection.
+    pub enable_patterns: bool,
+    /// Enable embedding-based NER clustering.
+    pub enable_embedding_ner: bool,
+}
+
+impl Default for LocalExtractionConfig {
+    fn default() -> Self {
+        Self {
+            enable_temporal: true,
+            enable_patterns: true,
+            enable_embedding_ner: true,
+        }
+    }
+}
+
+/// LLM-based extraction configuration (optional, higher accuracy).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(default)]
+pub struct LlmExtractionConfig {
+    /// Enable LLM-based extraction.
+    pub enabled: bool,
+    /// LLM provider (openai, anthropic, local).
+    pub provider: String,
+    /// Custom API endpoint if needed.
+    pub api_endpoint: String,
+    /// Model name.
+    pub model: String,
+    /// Extract action items from prose.
+    pub extract_tasks: bool,
+    /// Extract entity relationships.
+    pub extract_relationships: bool,
+    /// Generate entity summaries.
+    pub extract_summaries: bool,
+    /// Maximum tokens per document for cost control.
+    pub max_tokens_per_doc: usize,
+    /// Rate limit (requests per minute).
+    pub rate_limit_rpm: usize,
+}
+
+impl Default for LlmExtractionConfig {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            provider: "openai".to_string(),
+            api_endpoint: String::new(),
+            model: "gpt-4o-mini".to_string(),
+            extract_tasks: true,
+            extract_relationships: true,
+            extract_summaries: true,
+            max_tokens_per_doc: 4000,
+            rate_limit_rpm: 60,
+        }
+    }
+}
+
+// ============================================================================
+// GTD Configuration
+// ============================================================================
+
+/// GTD (Getting Things Done) configuration.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(default)]
+pub struct GtdConfig {
+    /// Enable GTD features.
+    pub enabled: bool,
+    /// GTD mode: inference_and_manual, manual_only, inference_with_review.
+    pub mode: GtdMode,
+    /// Default contexts for tasks.
+    pub default_contexts: Vec<String>,
+    /// Day of week for weekly review (e.g., "Sunday").
+    pub weekly_review_day: String,
+    /// Days without activity to consider project stalled.
+    pub stalled_project_days: u32,
+    /// Maximum minutes for 2-minute rule quick tasks.
+    pub quick_task_minutes: u32,
+    /// Auto-create projects from extracted items.
+    pub auto_create_projects: bool,
+    /// Auto-link tasks to source documents.
+    pub auto_link_references: bool,
+    /// Attention economics settings.
+    pub attention: AttentionConfig,
+    /// Commitment tracking settings.
+    pub commitments: CommitmentsConfig,
+}
+
+impl Default for GtdConfig {
+    fn default() -> Self {
+        Self {
+            enabled: true,
+            mode: GtdMode::InferenceAndManual,
+            default_contexts: vec![
+                "@home".to_string(),
+                "@work".to_string(),
+                "@phone".to_string(),
+                "@computer".to_string(),
+                "@errand".to_string(),
+                "@anywhere".to_string(),
+            ],
+            weekly_review_day: "Sunday".to_string(),
+            stalled_project_days: 7,
+            quick_task_minutes: 2,
+            auto_create_projects: true,
+            auto_link_references: true,
+            attention: AttentionConfig::default(),
+            commitments: CommitmentsConfig::default(),
+        }
+    }
+}
+
+/// GTD operation mode.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum GtdMode {
+    /// Auto-extract and allow manual creation.
+    #[default]
+    InferenceAndManual,
+    /// Only manual creation, no inference.
+    ManualOnly,
+    /// Auto-extract but require review before adding.
+    InferenceWithReview,
+}
+
+/// Attention economics configuration.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(default)]
+pub struct AttentionConfig {
+    /// Enable attention tracking.
+    pub enabled: bool,
+    /// Default analysis period in days.
+    pub default_period_days: u32,
+    /// Track time invested (if available).
+    pub track_time: bool,
+    /// Alert on imbalance threshold (0.0-1.0).
+    pub imbalance_threshold: f32,
+}
+
+impl Default for AttentionConfig {
+    fn default() -> Self {
+        Self {
+            enabled: true,
+            default_period_days: 30,
+            track_time: true,
+            imbalance_threshold: 0.3,
+        }
+    }
+}
+
+/// Commitment tracking configuration.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(default)]
+pub struct CommitmentsConfig {
+    /// Enable commitment tracking.
+    pub enabled: bool,
+    /// Auto-extract commitments from documents.
+    pub auto_extract: bool,
+    /// Confidence threshold for auto-extraction.
+    pub confidence_threshold: f32,
+    /// Days before follow-up reminder.
+    pub follow_up_reminder_days: u32,
+}
+
+impl Default for CommitmentsConfig {
+    fn default() -> Self {
+        Self {
+            enabled: true,
+            auto_extract: true,
+            confidence_threshold: 0.75,
+            follow_up_reminder_days: 7,
+        }
+    }
+}
+
+// ============================================================================
+// Calendar Configuration
+// ============================================================================
+
+/// Calendar configuration.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(default)]
+pub struct CalendarConfig {
+    /// Enable calendar features.
+    pub enabled: bool,
+    /// Default timezone (IANA format, e.g., "America/New_York").
+    pub default_timezone: String,
+    /// Working hours start (HH:MM format).
+    pub working_hours_start: String,
+    /// Working hours end (HH:MM format).
+    pub working_hours_end: String,
+    /// Auto-create calendar events from extracted dates.
+    pub auto_create_events: bool,
+    /// Include weekends in scheduling.
+    pub include_weekends: bool,
+}
+
+impl Default for CalendarConfig {
+    fn default() -> Self {
+        Self {
+            enabled: true,
+            default_timezone: "UTC".to_string(),
+            working_hours_start: "09:00".to_string(),
+            working_hours_end: "17:00".to_string(),
+            auto_create_events: true,
+            include_weekends: false,
         }
     }
 }

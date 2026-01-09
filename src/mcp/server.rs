@@ -3761,9 +3761,9 @@ impl AlloyServer {
         // Build attention params
         let now = chrono::Utc::now();
         let period_end = params.period_end.unwrap_or(now);
-        let period_start = params.period_start.unwrap_or_else(|| {
-            period_end - Duration::days(params.period_days as i64)
-        });
+        let period_start = params
+            .period_start
+            .unwrap_or_else(|| period_end - Duration::days(params.period_days as i64));
 
         let attention_params = AttentionParams {
             period_start: Some(period_start),
@@ -3803,7 +3803,9 @@ impl AlloyServer {
         &self,
         Parameters(params): Parameters<crate::mcp::gtd_tools::GtdCommitmentsParams>,
     ) -> Result<CallToolResult, McpError> {
-        use crate::gtd::{Commitment, CommitmentDirection, CommitmentFilter, CommitmentManager, CommitmentStatus};
+        use crate::gtd::{
+            Commitment, CommitmentDirection, CommitmentFilter, CommitmentManager, CommitmentStatus,
+        };
         use crate::mcp::gtd_tools::{CommitmentAction, GtdCommitmentsResponse};
 
         // Get ontology store from coordinator
@@ -3824,14 +3826,12 @@ impl AlloyServer {
                             _ => None,
                         }
                     }),
-                    status: params.status.as_ref().and_then(|s| {
-                        match s.as_str() {
-                            "pending" => Some(CommitmentStatus::Pending),
-                            "fulfilled" => Some(CommitmentStatus::Fulfilled),
-                            "cancelled" => Some(CommitmentStatus::Cancelled),
-                            "overdue" => Some(CommitmentStatus::Overdue),
-                            _ => None,
-                        }
+                    status: params.status.as_ref().and_then(|s| match s.as_str() {
+                        "pending" => Some(CommitmentStatus::Pending),
+                        "fulfilled" => Some(CommitmentStatus::Fulfilled),
+                        "cancelled" => Some(CommitmentStatus::Cancelled),
+                        "overdue" => Some(CommitmentStatus::Overdue),
+                        _ => None,
                     }),
                     person: params.person.clone(),
                     project_id: None,
@@ -3855,7 +3855,9 @@ impl AlloyServer {
                     Ok(Some(commitment)) => {
                         GtdCommitmentsResponse::success_single(commitment, "Commitment retrieved")
                     }
-                    Ok(None) => GtdCommitmentsResponse::error(format!("Commitment not found: {}", id)),
+                    Ok(None) => {
+                        GtdCommitmentsResponse::error(format!("Commitment not found: {}", id))
+                    }
                     Err(e) => GtdCommitmentsResponse::error(format!("Failed to get: {}", e)),
                 }
             }
@@ -3875,8 +3877,16 @@ impl AlloyServer {
                 })?;
                 let commitment = Commitment {
                     id: uuid::Uuid::new_v4().to_string(),
-                    commitment_type: params.commitment_type.as_ref()
-                        .map(|ct| if ct == "made" { CommitmentDirection::Made } else { CommitmentDirection::Received })
+                    commitment_type: params
+                        .commitment_type
+                        .as_ref()
+                        .map(|ct| {
+                            if ct == "made" {
+                                CommitmentDirection::Made
+                            } else {
+                                CommitmentDirection::Received
+                            }
+                        })
                         .unwrap_or(CommitmentDirection::Made),
                     description: description.clone(),
                     from_person: params.person.clone(),
@@ -3893,7 +3903,9 @@ impl AlloyServer {
                     updated_at: chrono::Utc::now(),
                 };
                 match manager.create(commitment).await {
-                    Ok(created) => GtdCommitmentsResponse::success_single(created, "Commitment created"),
+                    Ok(created) => {
+                        GtdCommitmentsResponse::success_single(created, "Commitment created")
+                    }
                     Err(e) => GtdCommitmentsResponse::error(format!("Failed to create: {}", e)),
                 }
             }
@@ -3929,24 +3941,21 @@ impl AlloyServer {
                     Err(e) => GtdCommitmentsResponse::error(format!("Failed to cancel: {}", e)),
                 }
             }
-            CommitmentAction::Summary => {
-                match manager.summary().await {
-                    Ok(summary) => GtdCommitmentsResponse::success_summary(
-                        summary,
-                        "Commitment summary generated",
-                    ),
-                    Err(e) => GtdCommitmentsResponse::error(format!("Failed to generate summary: {}", e)),
+            CommitmentAction::Summary => match manager.summary().await {
+                Ok(summary) => {
+                    GtdCommitmentsResponse::success_summary(summary, "Commitment summary generated")
                 }
-            }
-            CommitmentAction::Overdue => {
-                match manager.get_overdue().await {
-                    Ok(commitments) => GtdCommitmentsResponse::success_list(
-                        commitments.clone(),
-                        format!("{} overdue commitments", commitments.len()),
-                    ),
-                    Err(e) => GtdCommitmentsResponse::error(format!("Failed to get overdue: {}", e)),
+                Err(e) => {
+                    GtdCommitmentsResponse::error(format!("Failed to generate summary: {}", e))
                 }
-            }
+            },
+            CommitmentAction::Overdue => match manager.get_overdue().await {
+                Ok(commitments) => GtdCommitmentsResponse::success_list(
+                    commitments.clone(),
+                    format!("{} overdue commitments", commitments.len()),
+                ),
+                Err(e) => GtdCommitmentsResponse::error(format!("Failed to get overdue: {}", e)),
+            },
             CommitmentAction::MadeTo => {
                 let person = params.person.ok_or_else(|| {
                     McpError::invalid_params("person is required for 'made_to' action", None)
@@ -4057,7 +4066,9 @@ impl AlloyServer {
         let manager = HorizonManager::new(ontology_store);
 
         // Parse horizon filters
-        let horizons: Vec<HorizonLevel> = params.horizons.iter()
+        let horizons: Vec<HorizonLevel> = params
+            .horizons
+            .iter()
             .filter_map(|h| match h.to_lowercase().as_str() {
                 "runway" => Some(HorizonLevel::Runway),
                 "h10k" | "10k" | "projects" => Some(HorizonLevel::H10k),
