@@ -524,6 +524,62 @@ impl IndexCoordinator {
         }
         Ok(())
     }
+
+    /// Cluster indexed documents by semantic similarity.
+    ///
+    /// Groups documents into clusters based on their embedding vectors.
+    /// Returns clustering results including cluster labels, sizes, and quality metrics.
+    pub async fn cluster_documents(
+        &self,
+        source_id: Option<&str>,
+        algorithm: Option<crate::config::ClusteringAlgorithm>,
+        num_clusters: Option<usize>,
+    ) -> Result<crate::search::ClusteringResult> {
+        use crate::search::{ClusterInput, ClusteringEngine};
+
+        // Get all chunks with embeddings
+        let chunks = self.storage.get_all_chunks_for_clustering(source_id).await?;
+
+        if chunks.is_empty() {
+            return Ok(crate::search::ClusteringResult {
+                clusters: vec![],
+                outliers: vec![],
+                metrics: crate::search::ClusteringMetrics {
+                    silhouette_score: 0.0,
+                    inertia: 0.0,
+                    num_clusters: 0,
+                    num_outliers: 0,
+                    cluster_size_distribution: vec![],
+                },
+                algorithm_used: "none".to_string(),
+                total_documents: 0,
+                created_at: chrono::Utc::now(),
+            });
+        }
+
+        // Convert chunks to cluster inputs
+        let inputs: Vec<ClusterInput> = chunks
+            .into_iter()
+            .map(|c| ClusterInput {
+                document_id: c.document_id,
+                embedding: c.embedding,
+                text: Some(c.text),
+            })
+            .collect();
+
+        // Build clustering config
+        let mut cluster_config = self.config.search.clustering.clone();
+        if let Some(algo) = algorithm {
+            cluster_config.algorithm = algo;
+        }
+        if let Some(n) = num_clusters {
+            cluster_config.default_num_clusters = n;
+        }
+
+        // Run clustering
+        let engine = ClusteringEngine::new(self.embedder.clone(), cluster_config.clone());
+        engine.cluster_documents(inputs, Some(&cluster_config)).await
+    }
 }
 
 /// Builder for IndexCoordinator.

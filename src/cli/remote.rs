@@ -201,3 +201,23 @@ pub async fn remove_source(url: &str, source_id: String) -> Result<RemoveSourceR
 pub async fn stats(url: &str) -> Result<IndexStats> {
     McpClient::connect(url).await?.stats().await
 }
+
+/// Cluster documents via remote MCP server.
+pub async fn cluster(
+    url: &str,
+    source_id: Option<String>,
+    algorithm: Option<String>,
+    num_clusters: Option<usize>,
+) -> Result<alloy::mcp::ClusterDocumentsResponse> {
+    let client = McpClient::connect(url).await?;
+    client
+        .call_tool(
+            "cluster_documents",
+            serde_json::json!({
+                "source_id": source_id,
+                "algorithm": algorithm,
+                "num_clusters": num_clusters,
+            }),
+        )
+        .await
+}

@@ -185,3 +185,57 @@ pub async fn stats(config: Config) -> Result<IndexStats> {
         uptime_secs: 0, // Not applicable for CLI
     })
 }
+
+/// Cluster indexed documents by semantic similarity.
+pub async fn cluster(
+    config: Config,
+    source_id: Option<String>,
+    algorithm: Option<String>,
+    num_clusters: Option<usize>,
+) -> Result<alloy::mcp::ClusterDocumentsResponse> {
+    use alloy::mcp::{ClusterDocumentsResponse, ClusterInfo, ClusterMetrics};
+
+    let mut config = config;
+
+    // Parse algorithm if provided
+    if let Some(algo) = &algorithm {
+        config.search.clustering.algorithm = match algo.as_str() {
+            "dbscan" => alloy::config::ClusteringAlgorithm::Dbscan,
+            _ => alloy::config::ClusteringAlgorithm::KMeans,
+        };
+    }
+
+    let coordinator = IndexCoordinator::new(config).await?;
+
+    let clustering_algorithm = algorithm.as_deref().map(|algo| match algo {
+        "dbscan" => alloy::config::ClusteringAlgorithm::Dbscan,
+        _ => alloy::config::ClusteringAlgorithm::KMeans,
+    });
+
+    let result = coordinator
+        .cluster_documents(source_id.as_deref(), clustering_algorithm, num_clusters)
+        .await?;
+
+    Ok(ClusterDocumentsResponse {
+        clusters: result
+            .clusters
+            .iter()
+            .map(|c| ClusterInfo {
+                cluster_id: c.cluster_id,
+                label: c.label.clone(),
+                keywords: c.keywords.clone(),
+                size: c.document_ids.len(),
+                coherence_score: c.coherence_score,
+                representative_docs: c.representative_docs.clone(),
+            })
+            .collect(),
+        outliers: result.outliers,
+        metrics: ClusterMetrics {
+            silhouette_score: result.metrics.silhouette_score,
+            num_clusters: result.metrics.num_clusters,
+            num_outliers: result.metrics.num_outliers,
+        },
+        algorithm: result.algorithm_used,
+        total_documents: result.total_documents,
+    })
+}

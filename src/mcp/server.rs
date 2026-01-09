@@ -146,6 +146,20 @@ pub struct ConfigureParams {
     pub updates: serde_json::Value,
 }
 
+// Parameters for cluster_documents tool
+#[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema)]
+pub struct ClusterDocumentsParams {
+    /// Optional filter by source ID
+    #[serde(default)]
+    pub source_id: Option<String>,
+    /// Clustering algorithm to use (kmeans or dbscan)
+    #[serde(default)]
+    pub algorithm: Option<String>,
+    /// Number of clusters (for k-means, default: auto-detect)
+    #[serde(default)]
+    pub num_clusters: Option<usize>,
+}
+
 #[tool_router]
 impl AlloyServer {
     /// Index a local path or S3 URI for hybrid search. Supports glob patterns and optional file watching.
@@ -525,6 +539,65 @@ impl AlloyServer {
         Ok(CallToolResult::success(vec![Content::text(
             serde_json::to_string_pretty(&response).unwrap(),
         )]))
+    }
+
+    /// Cluster indexed documents by semantic similarity for exploration and organization.
+    #[tool(
+        description = "Group indexed documents into clusters based on semantic similarity. Returns cluster labels, keywords, and quality metrics."
+    )]
+    async fn cluster_documents(
+        &self,
+        Parameters(params): Parameters<ClusterDocumentsParams>,
+    ) -> Result<CallToolResult, McpError> {
+        // Ensure coordinator is initialized
+        self.ensure_coordinator().await?;
+
+        let state = self.state.read().await;
+        let coordinator = state.coordinator.as_ref().unwrap();
+
+        // Parse algorithm if provided
+        let algorithm = params.algorithm.as_deref().map(|algo| match algo {
+            "dbscan" => crate::config::ClusteringAlgorithm::Dbscan,
+            _ => crate::config::ClusteringAlgorithm::KMeans,
+        });
+
+        match coordinator
+            .cluster_documents(params.source_id.as_deref(), algorithm, params.num_clusters)
+            .await
+        {
+            Ok(result) => {
+                let response = ClusterDocumentsResponse {
+                    clusters: result
+                        .clusters
+                        .iter()
+                        .map(|c| ClusterInfo {
+                            cluster_id: c.cluster_id,
+                            label: c.label.clone(),
+                            keywords: c.keywords.clone(),
+                            size: c.document_ids.len(),
+                            coherence_score: c.coherence_score,
+                            representative_docs: c.representative_docs.clone(),
+                        })
+                        .collect(),
+                    outliers: result.outliers.clone(),
+                    metrics: ClusterMetrics {
+                        silhouette_score: result.metrics.silhouette_score,
+                        num_clusters: result.metrics.num_clusters,
+                        num_outliers: result.metrics.num_outliers,
+                    },
+                    algorithm: result.algorithm_used.clone(),
+                    total_documents: result.total_documents,
+                };
+
+                Ok(CallToolResult::success(vec![Content::text(
+                    serde_json::to_string_pretty(&response).unwrap(),
+                )]))
+            }
+            Err(e) => Ok(CallToolResult::success(vec![Content::text(format!(
+                "Clustering failed: {}",
+                e
+            ))])),
+        }
     }
 }
 

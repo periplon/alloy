@@ -74,6 +74,18 @@ enum Command {
     },
     /// Show index statistics
     Stats,
+    /// Cluster indexed documents by semantic similarity
+    Cluster {
+        /// Filter by source ID
+        #[arg(short, long)]
+        source: Option<String>,
+        /// Clustering algorithm (kmeans or dbscan)
+        #[arg(short, long, default_value = "kmeans")]
+        algorithm: String,
+        /// Number of clusters (for k-means, default: auto-detect)
+        #[arg(short, long)]
+        num_clusters: Option<usize>,
+    },
     /// Run as MCP server (default behavior)
     Serve {
         /// Transport type (stdio or http)
@@ -137,6 +149,11 @@ async fn main() -> anyhow::Result<()> {
             cli::run_remove_source(mode, source_id, args.json).await
         }
         Some(Command::Stats) => cli::run_stats(mode, args.json).await,
+        Some(Command::Cluster {
+            source,
+            algorithm,
+            num_clusters,
+        }) => cli::run_cluster(mode, source, Some(algorithm), num_clusters, args.json).await,
         Some(Command::Serve {
             transport,
             port,

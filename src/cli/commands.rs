@@ -111,3 +111,23 @@ pub async fn run_stats(mode: ExecutionMode, json_output: bool) -> Result<()> {
     output::print_stats(&result, json_output);
     Ok(())
 }
+
+/// Run the cluster command.
+pub async fn run_cluster(
+    mode: ExecutionMode,
+    source_id: Option<String>,
+    algorithm: Option<String>,
+    num_clusters: Option<usize>,
+    json_output: bool,
+) -> Result<()> {
+    let result = match mode {
+        ExecutionMode::Local(config) => {
+            local::cluster(*config, source_id, algorithm, num_clusters).await?
+        }
+        ExecutionMode::Remote(url) => {
+            remote::cluster(&url, source_id, algorithm, num_clusters).await?
+        }
+    };
+    output::print_cluster_results(&result, json_output);
+    Ok(())
+}

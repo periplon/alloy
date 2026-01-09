@@ -227,3 +227,46 @@ pub struct ConfigureResponse {
     /// Status message
     pub message: String,
 }
+
+/// Cluster documents response.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ClusterDocumentsResponse {
+    /// List of clusters
+    pub clusters: Vec<ClusterInfo>,
+    /// Document IDs that are outliers (not assigned to any cluster)
+    pub outliers: Vec<String>,
+    /// Clustering quality metrics
+    pub metrics: ClusterMetrics,
+    /// Algorithm used for clustering
+    pub algorithm: String,
+    /// Total documents processed
+    pub total_documents: usize,
+}
+
+/// Information about a single cluster.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ClusterInfo {
+    /// Cluster identifier
+    pub cluster_id: usize,
+    /// Human-readable label for the cluster
+    pub label: String,
+    /// Keywords describing the cluster content
+    pub keywords: Vec<String>,
+    /// Number of documents in this cluster
+    pub size: usize,
+    /// Coherence score (0.0 to 1.0, higher is more coherent)
+    pub coherence_score: f64,
+    /// Representative document IDs (closest to cluster centroid)
+    pub representative_docs: Vec<String>,
+}
+
+/// Clustering quality metrics.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ClusterMetrics {
+    /// Silhouette score (-1 to 1, higher is better)
+    pub silhouette_score: f64,
+    /// Number of clusters
+    pub num_clusters: usize,
+    /// Number of outliers (for DBSCAN)
+    pub num_outliers: usize,
+}

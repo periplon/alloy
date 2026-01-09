@@ -307,6 +307,83 @@ impl LanceBackend {
 
         Ok(count)
     }
+
+    /// Get all chunks with their embeddings for clustering.
+    ///
+    /// Returns a vector of (chunk_id, document_id, text, embedding) tuples.
+    pub async fn get_all_chunks(
+        &self,
+        source_filter: Option<&str>,
+    ) -> Result<Vec<(String, String, String, Vec<f32>)>> {
+        let table = {
+            let guard = self.table.read().await;
+            match guard.as_ref() {
+                Some(t) => t.clone(),
+                None => return Ok(Vec::new()),
+            }
+        };
+
+        // Build query to get all chunks
+        let query = table.query();
+
+        // Note: source filtering would need to be added to the schema if needed
+
+        let results = query
+            .execute()
+            .await
+            .map_err(|e| StorageError::Query(e.to_string()))?;
+
+        let batches: Vec<RecordBatch> = results
+            .try_collect()
+            .await
+            .map_err(|e| StorageError::Query(e.to_string()))?;
+
+        let mut chunks = Vec::new();
+
+        for batch in batches {
+            let chunk_ids = batch
+                .column_by_name("chunk_id")
+                .and_then(|c| c.as_any().downcast_ref::<StringArray>());
+            let doc_ids = batch
+                .column_by_name("document_id")
+                .and_then(|c| c.as_any().downcast_ref::<StringArray>());
+            let texts = batch
+                .column_by_name("text")
+                .and_then(|c| c.as_any().downcast_ref::<StringArray>());
+            let vectors = batch
+                .column_by_name("vector")
+                .and_then(|c| c.as_any().downcast_ref::<arrow_array::FixedSizeListArray>());
+
+            if let (Some(chunk_ids), Some(doc_ids), Some(texts), Some(vectors)) =
+                (chunk_ids, doc_ids, texts, vectors)
+            {
+                for i in 0..batch.num_rows() {
+                    let chunk_id = chunk_ids.value(i).to_string();
+                    let document_id = doc_ids.value(i).to_string();
+                    let text = texts.value(i).to_string();
+
+                    // Extract the vector from FixedSizeListArray
+                    let vector_arr = vectors.value(i);
+                    let float_arr = vector_arr
+                        .as_any()
+                        .downcast_ref::<Float32Array>()
+                        .unwrap();
+                    let embedding: Vec<f32> = (0..float_arr.len())
+                        .map(|j| float_arr.value(j))
+                        .collect();
+
+                    // Apply source filter if specified
+                    if let Some(_filter) = source_filter {
+                        // TODO: source filtering requires source_id in the schema
+                    }
+
+                    chunks.push((chunk_id, document_id, text, embedding));
+                }
+            }
+        }
+
+        Ok(chunks)
+    }
 }
 
 #[cfg(test)]

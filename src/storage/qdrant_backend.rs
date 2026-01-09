@@ -254,6 +254,100 @@ impl StorageBackend for QdrantStorage {
             storage_bytes: 0, // Qdrant doesn't expose this directly
         })
     }
+
+    async fn get_all_chunks_for_clustering(
+        &self,
+        source_id: Option<&str>,
+    ) -> Result<Vec<crate::storage::ChunkWithEmbedding>> {
+        use qdrant_client::qdrant::ScrollPointsBuilder;
+
+        // Build filter if source_id specified
+        let filter = source_id.map(|sid| {
+            Filter::must([qdrant_client::qdrant::Condition::matches(
+                "source_id",
+                sid.to_string(),
+            )])
+        });
+
+        let mut all_chunks = Vec::new();
+        let mut offset: Option<qdrant_client::qdrant::PointId> = None;
+
+        // Scroll through all points
+        loop {
+            let mut scroll_builder = ScrollPointsBuilder::new(&self.collection_name)
+                .limit(1000)
+                .with_payload(true)
+                .with_vectors(true);
+
+            if let Some(f) = filter.clone() {
+                scroll_builder = scroll_builder.filter(f);
+            }
+
+            if let Some(off) = offset.clone() {
+                scroll_builder = scroll_builder.offset(off);
+            }
+
+            let scroll_result = self
+                .client
+                .scroll(scroll_builder)
+                .await
+                .map_err(|e| StorageError::Query(e.to_string()))?;
+
+            let result = scroll_result.result;
+
+            for point in &result {
+                let payload = &point.payload;
+
+                let chunk_id = payload
+                    .get("chunk_id")
+                    .and_then(|v| v.as_str())
+                    .map(|s| s.to_string())
+                    .unwrap_or_default();
+                let document_id = payload
+                    .get("document_id")
+                    .and_then(|v| v.as_str())
+                    .map(|s| s.to_string())
+                    .unwrap_or_default();
+                let text = payload
+                    .get("text")
+                    .and_then(|v| v.as_str())
+                    .map(|s| s.to_string())
+                    .unwrap_or_default();
+
+                // Extract vector from point using the helper method
+                let embedding = point
+                    .vectors
+                    .as_ref()
+                    .and_then(|v| v.get_vector())
+                    .and_then(|vec| {
+                        use qdrant_client::qdrant::vector_output::Vector;
+                        match vec {
+                            Vector::Dense(dense) => Some(dense.data),
+                            _ => None,
+                        }
+                    })
+                    .unwrap_or_default();
+
+                if !embedding.is_empty() {
+                    all_chunks.push(crate::storage::ChunkWithEmbedding {
+                        chunk_id,
+                        document_id,
+                        text,
+                        embedding,
+                    });
+                }
+            }
+
+            // Check if we have more results
+            if let Some(next_offset) = scroll_result.next_page_offset {
+                offset = Some(next_offset);
+            } else {
+                break;
+            }
+        }
+
+        Ok(all_chunks)
+    }
 }
 
 /// Qdrant hybrid storage with full-text support.
@@ -388,6 +482,14 @@ impl StorageBackend for QdrantHybridStorage {
         let mut stats = self.qdrant.stats().await?;
         stats.document_count = self.tantivy.document_count()?;
         Ok(stats)
+    }
+
+    async fn get_all_chunks_for_clustering(
+        &self,
+        source_id: Option<&str>,
+    ) -> Result<Vec<crate::storage::ChunkWithEmbedding>> {
+        // Delegate to the Qdrant storage
+        self.qdrant.get_all_chunks_for_clustering(source_id).await
     }
 }
 

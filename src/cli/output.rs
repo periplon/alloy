@@ -152,3 +152,62 @@ pub fn print_stats(result: &IndexStats, json: bool) {
         }
     }
 }
+
+/// Print clustering results.
+pub fn print_cluster_results(result: &alloy::mcp::ClusterDocumentsResponse, json: bool) {
+    if json {
+        println!("{}", serde_json::to_string_pretty(result).unwrap());
+    } else {
+        println!("Clustering Results");
+        println!("{}", "=".repeat(60));
+        println!(
+            "Algorithm: {}  |  Total Documents: {}  |  Clusters: {}",
+            result.algorithm, result.total_documents, result.metrics.num_clusters
+        );
+        println!(
+            "Silhouette Score: {:.3}  |  Outliers: {}",
+            result.metrics.silhouette_score, result.metrics.num_outliers
+        );
+        println!();
+
+        if result.clusters.is_empty() {
+            println!("No clusters found. Index more documents first.");
+            return;
+        }
+
+        for cluster in &result.clusters {
+            println!(
+                "Cluster {} ({} docs): {}",
+                cluster.cluster_id, cluster.size, cluster.label
+            );
+            if !cluster.keywords.is_empty() {
+                println!("  Keywords: {}", cluster.keywords.join(", "));
+            }
+            if !cluster.representative_docs.is_empty() {
+                println!(
+                    "  Representatives: {}",
+                    cluster.representative_docs[..cluster.representative_docs.len().min(3)].join(", ")
+                );
+            }
+            println!("  Coherence: {:.3}", cluster.coherence_score);
+            println!();
+        }
+
+        if !result.outliers.is_empty() {
+            println!(
+                "Outliers: {} documents not assigned to any cluster",
+                result.outliers.len()
+            );
+            if result.outliers.len() <= 5 {
+                for outlier in &result.outliers {
+                    println!("  - {}", outlier);
+                }
+            } else {
+                for outlier in result.outliers.iter().take(5) {
+                    println!("  - {}", outlier);
+                }
+                println!("  ... and {} more", result.outliers.len() - 5);
+            }
+        }
+    }
+}

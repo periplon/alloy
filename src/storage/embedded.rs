@@ -239,6 +239,45 @@ impl StorageBackend for EmbeddedStorage {
             storage_bytes,
         })
     }
+
+    async fn get_all_chunks_for_clustering(
+        &self,
+        source_id: Option<&str>,
+    ) -> Result<Vec<crate::storage::ChunkWithEmbedding>> {
+        let lance = self.lance.lock().await;
+        let chunks = lance.get_all_chunks(source_id).await?;
+
+        // Filter by source_id if specified
+        let docs = self.documents.read().await;
+        let chunk_to_doc = self.chunk_to_doc.read().await;
+
+        let filtered: Vec<crate::storage::ChunkWithEmbedding> = chunks
+            .into_iter()
+            .filter(|(chunk_id, _, _, _)| {
+                if let Some(sid) = source_id {
+                    // Check if chunk's document belongs to the source
+                    if let Some(doc_id) = chunk_to_doc.get(chunk_id) {
+                        if let Some(doc) = docs.get(doc_id) {
+                            return doc.source_id == sid;
+                        }
+                    }
+                    false
+                } else {
+                    true
+                }
+            })
+            .map(|(chunk_id, document_id, text, embedding)| {
+                crate::storage::ChunkWithEmbedding {
+                    chunk_id,
+                    document_id,
+                    text,
+                    embedding,
+                }
+            })
+            .collect();
+
+        Ok(filtered)
+    }
 }
 
 #[cfg(test)]

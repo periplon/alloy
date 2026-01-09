@@ -89,6 +89,19 @@ pub struct StorageStats {
     pub storage_bytes: u64,
 }
 
+/// A chunk with its embedding for clustering.
+#[derive(Debug, Clone)]
+pub struct ChunkWithEmbedding {
+    /// Chunk ID
+    pub chunk_id: String,
+    /// Document ID
+    pub document_id: String,
+    /// Chunk text
+    pub text: String,
+    /// Embedding vector
+    pub embedding: Vec<f32>,
+}
+
 /// Trait for storage backends.
 #[async_trait]
 pub trait StorageBackend: Send + Sync {
@@ -110,4 +123,13 @@ pub trait StorageBackend: Send + Sync {
 
     /// Get storage statistics.
     async fn stats(&self) -> crate::error::Result<StorageStats>;
+
+    /// Get all chunks with embeddings for clustering.
+    ///
+    /// This method retrieves all indexed chunks with their text and embedding vectors,
+    /// which can be used for document clustering operations.
+    async fn get_all_chunks_for_clustering(
+        &self,
+        source_id: Option<&str>,
+    ) -> crate::error::Result<Vec<ChunkWithEmbedding>>;
 }
