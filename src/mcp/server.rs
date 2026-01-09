@@ -160,6 +160,16 @@ pub struct ClusterDocumentsParams {
     pub num_clusters: Option<usize>,
 }
 
+// Parameters for check_duplicate tool
+#[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema)]
+pub struct CheckDuplicateParams {
+    /// Content to check for duplicates
+    pub content: String,
+    /// Optional document ID for the content
+    #[serde(default)]
+    pub document_id: Option<String>,
+}
+
 #[tool_router]
 impl AlloyServer {
     /// Index a local path or S3 URI for hybrid search. Supports glob patterns and optional file watching.
@@ -595,6 +605,124 @@ impl AlloyServer {
             }
             Err(e) => Ok(CallToolResult::success(vec![Content::text(format!(
                 "Clustering failed: {}",
+                e
+            ))])),
+        }
+    }
+
+    /// Check if content is a duplicate of an existing indexed document.
+    #[tool(
+        description = "Check if content is a duplicate of an existing indexed document. Returns similarity score and matching document ID if duplicate found."
+    )]
+    async fn check_duplicate(
+        &self,
+        Parameters(params): Parameters<CheckDuplicateParams>,
+    ) -> Result<CallToolResult, McpError> {
+        // Ensure coordinator is initialized
+        self.ensure_coordinator().await?;
+
+        let state = self.state.read().await;
+        let coordinator = state.coordinator.as_ref().unwrap();
+
+        if !coordinator.is_deduplication_enabled() {
+            return Ok(CallToolResult::success(vec![Content::text(
+                serde_json::to_string_pretty(&CheckDuplicateResponse {
+                    is_duplicate: false,
+                    duplicate_of: None,
+                    similarity: 0.0,
+                    strategy: "disabled".to_string(),
+                    message: "Deduplication is not enabled. Enable it in config.toml with [indexing.deduplication] enabled = true".to_string(),
+                })
+                .unwrap(),
+            )]));
+        }
+
+        match coordinator
+            .check_duplicate(&params.content, params.document_id.as_deref())
+            .await
+        {
+            Ok(Some(result)) => {
+                let response = CheckDuplicateResponse {
+                    is_duplicate: result.is_duplicate,
+                    duplicate_of: result.duplicate_of.clone(),
+                    similarity: result.similarity,
+                    strategy: format!("{:?}", result.strategy),
+                    message: if result.is_duplicate {
+                        format!(
+                            "Content is a duplicate of document '{}' with {:.1}% similarity",
+                            result.duplicate_of.as_deref().unwrap_or("unknown"),
+                            result.similarity * 100.0
+                        )
+                    } else {
+                        "Content is not a duplicate of any indexed document".to_string()
+                    },
+                };
+
+                Ok(CallToolResult::success(vec![Content::text(
+                    serde_json::to_string_pretty(&response).unwrap(),
+                )]))
+            }
+            Ok(None) => Ok(CallToolResult::success(vec![Content::text(
+                "Deduplication is not enabled",
+            )])),
+            Err(e) => Ok(CallToolResult::success(vec![Content::text(format!(
+                "Duplicate check failed: {}",
+                e
+            ))])),
+        }
+    }
+
+    /// Get deduplication configuration and statistics.
+    #[tool(description = "Get deduplication configuration and statistics.")]
+    async fn get_deduplication_stats(&self) -> Result<CallToolResult, McpError> {
+        // Ensure coordinator is initialized
+        self.ensure_coordinator().await?;
+
+        let state = self.state.read().await;
+        let coordinator = state.coordinator.as_ref().unwrap();
+        let config = coordinator.deduplication_config();
+
+        let response = DeduplicationStatsResponse {
+            enabled: config.enabled,
+            strategy: format!("{:?}", config.strategy),
+            threshold: config.threshold,
+            action: format!("{:?}", config.action),
+            minhash_num_hashes: config.minhash_num_hashes,
+            shingle_size: config.shingle_size,
+        };
+
+        Ok(CallToolResult::success(vec![Content::text(
+            serde_json::to_string_pretty(&response).unwrap(),
+        )]))
+    }
+
+    /// Clear the deduplication index to reset duplicate tracking.
+    #[tool(
+        description = "Clear the deduplication index to reset duplicate tracking. This allows previously detected duplicates to be re-indexed."
+    )]
+    async fn clear_deduplication(&self) -> Result<CallToolResult, McpError> {
+        // Ensure coordinator is initialized
+        self.ensure_coordinator().await?;
+
+        let state = self.state.read().await;
+        let coordinator = state.coordinator.as_ref().unwrap();
+
+        if !coordinator.is_deduplication_enabled() {
+            return Ok(CallToolResult::success(vec![Content::text(
+                "Deduplication is not enabled",
+            )]));
+        }
+
+        match coordinator.clear_deduplication_index().await {
+            Ok(()) => Ok(CallToolResult::success(vec![Content::text(
+                serde_json::to_string_pretty(&ClearDeduplicationResponse {
+                    success: true,
+                    message: "Deduplication index cleared successfully".to_string(),
+                })
+                .unwrap(),
+            )])),
+            Err(e) => Ok(CallToolResult::success(vec![Content::text(format!(
+                "Failed to clear deduplication index: {}",
                 e
             ))])),
         }

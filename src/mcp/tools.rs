@@ -270,3 +270,59 @@ pub struct ClusterMetrics {
     /// Number of outliers (for DBSCAN)
     pub num_outliers: usize,
 }
+
+// ============================================================================
+// Deduplication Types
+// ============================================================================
+
+/// Check duplicate request.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CheckDuplicateRequest {
+    /// Content to check for duplicates.
+    pub content: String,
+    /// Optional document ID for the check.
+    #[serde(default)]
+    pub document_id: Option<String>,
+}
+
+/// Check duplicate response.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CheckDuplicateResponse {
+    /// Whether the content is a duplicate.
+    pub is_duplicate: bool,
+    /// ID of the original document if this is a duplicate.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub duplicate_of: Option<String>,
+    /// Similarity score (1.0 for exact match, 0.0-1.0 for fuzzy).
+    pub similarity: f32,
+    /// Strategy that detected the duplicate.
+    pub strategy: String,
+    /// Human-readable message.
+    pub message: String,
+}
+
+/// Deduplication statistics response.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DeduplicationStatsResponse {
+    /// Whether deduplication is enabled.
+    pub enabled: bool,
+    /// Deduplication strategy in use.
+    pub strategy: String,
+    /// Similarity threshold for fuzzy matching.
+    pub threshold: f32,
+    /// Action taken when duplicates are found.
+    pub action: String,
+    /// Number of hash functions for MinHash.
+    pub minhash_num_hashes: usize,
+    /// Shingle size for MinHash.
+    pub shingle_size: usize,
+}
+
+/// Clear deduplication index response.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ClearDeduplicationResponse {
+    /// Whether the operation was successful.
+    pub success: bool,
+    /// Status message.
+    pub message: String,
+}

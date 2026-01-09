@@ -21,7 +21,9 @@ use crate::embedding::{
     LocalEmbeddingProvider,
 };
 use crate::error::Result;
-use crate::processing::{ProcessorRegistry, TextChunk};
+use crate::processing::{
+    CompositeDeduplicator, DeduplicationResult, Deduplicator, ProcessorRegistry, TextChunk,
+};
 use crate::search::{
     EnhancedHybridSearchBuilder, EnhancedHybridSearchOrchestrator, HybridQuery,
     HybridSearchResponse, HybridSearcher,
@@ -57,6 +59,13 @@ pub enum IndexProgress {
         uri: String,
         chunks: usize,
     },
+    /// Document was skipped due to deduplication.
+    DocumentDeduplicated {
+        source_id: String,
+        uri: String,
+        duplicate_of: String,
+        similarity: f32,
+    },
     /// Error processing a document.
     DocumentError {
         source_id: String,
@@ -88,6 +97,15 @@ pub enum IndexProgress {
         event_type: String,
         uri: String,
     },
+}
+
+/// Result of indexing a single item.
+#[derive(Debug)]
+pub enum IndexItemResult {
+    /// Document was indexed successfully with the given number of chunks.
+    Indexed(usize),
+    /// Document was skipped due to deduplication.
+    Skipped(DeduplicationResult),
 }
 
 /// Indexed source information.
@@ -127,6 +145,8 @@ pub struct IndexCoordinator {
     progress_tx: Option<mpsc::UnboundedSender<IndexProgress>>,
     /// Enhanced hybrid search orchestrator with reranking and query expansion.
     searcher: Arc<EnhancedHybridSearchOrchestrator>,
+    /// Document deduplicator for detecting duplicate content.
+    deduplicator: Option<Arc<dyn Deduplicator>>,
 }
 
 impl IndexCoordinator {
@@ -191,6 +211,44 @@ impl IndexCoordinator {
             .search_config(config.search.clone())
             .build()?;
 
+        // Create deduplicator if enabled
+        let deduplicator: Option<Arc<dyn Deduplicator>> =
+            if config.indexing.deduplication.enabled {
+                let dedup_config = crate::processing::DeduplicationConfig {
+                    enabled: config.indexing.deduplication.enabled,
+                    strategy: match config.indexing.deduplication.strategy {
+                        crate::config::DeduplicationStrategy::Exact => {
+                            crate::processing::DeduplicationStrategy::Exact
+                        }
+                        crate::config::DeduplicationStrategy::MinHash => {
+                            crate::processing::DeduplicationStrategy::MinHash
+                        }
+                        crate::config::DeduplicationStrategy::Semantic => {
+                            crate::processing::DeduplicationStrategy::Semantic
+                        }
+                    },
+                    threshold: config.indexing.deduplication.threshold,
+                    action: match config.indexing.deduplication.action {
+                        crate::config::DeduplicationAction::Skip => {
+                            crate::processing::DeduplicationAction::Skip
+                        }
+                        crate::config::DeduplicationAction::Flag => {
+                            crate::processing::DeduplicationAction::Flag
+                        }
+                        crate::config::DeduplicationAction::Update => {
+                            crate::processing::DeduplicationAction::Update
+                        }
+                    },
+                    minhash_num_hashes: config.indexing.deduplication.minhash_num_hashes,
+                    shingle_size: config.indexing.deduplication.shingle_size,
+                };
+
+                let dedup = CompositeDeduplicator::from_config(&dedup_config, Some(embedder.clone()));
+                Some(Arc::new(dedup))
+            } else {
+                None
+            };
+
         Ok(Self {
             config,
             processors,
@@ -200,6 +258,7 @@ impl IndexCoordinator {
             watchers: RwLock::new(HashMap::new()),
             progress_tx: None,
             searcher: Arc::new(searcher),
+            deduplicator,
         })
     }
 
@@ -344,7 +403,7 @@ impl IndexCoordinator {
                 .process_and_index_item(&source_id, &*source, item)
                 .await
             {
-                Ok(chunk_count) => {
+                Ok(IndexItemResult::Indexed(chunk_count)) => {
                     documents_indexed += 1;
                     chunks_created += chunk_count;
                     self.report_progress(IndexProgress::DocumentProcessed {
@@ -352,6 +411,10 @@ impl IndexCoordinator {
                         uri: item.uri.clone(),
                         chunks: chunk_count,
                     });
+                }
+                Ok(IndexItemResult::Skipped(_)) => {
+                    // Document was skipped due to deduplication
+                    // Progress was already reported in process_and_index_item
                 }
                 Err(e) => {
                     self.report_progress(IndexProgress::DocumentError {
@@ -391,20 +454,68 @@ impl IndexCoordinator {
     }
 
     /// Process and index a single item.
+    /// Returns Ok(Some(chunks)) if indexed, Ok(None) if skipped due to deduplication.
     async fn process_and_index_item(
         &self,
         source_id: &str,
         source: &dyn Source,
         item: &SourceItem,
-    ) -> Result<usize> {
+    ) -> Result<IndexItemResult> {
         // Fetch content
         let content = source.fetch(&item.uri).await?;
 
         // Process the document
         let processed = self.processors.process(content, item).await?;
 
+        // Check for duplicates if deduplication is enabled
+        if let Some(dedup) = &self.deduplicator {
+            let dedup_result = dedup.check(&processed.text, &item.id).await?;
+
+            if dedup_result.is_duplicate {
+                let action = self.config.indexing.deduplication.action;
+
+                match action {
+                    crate::config::DeduplicationAction::Skip => {
+                        // Report duplicate and skip
+                        self.report_progress(IndexProgress::DocumentDeduplicated {
+                            source_id: source_id.to_string(),
+                            uri: item.uri.clone(),
+                            duplicate_of: dedup_result
+                                .duplicate_of
+                                .clone()
+                                .unwrap_or_default(),
+                            similarity: dedup_result.similarity,
+                        });
+                        return Ok(IndexItemResult::Skipped(dedup_result));
+                    }
+                    crate::config::DeduplicationAction::Flag => {
+                        // Continue indexing but add duplicate flag to metadata
+                        debug!(
+                            "Document {} flagged as duplicate of {}",
+                            item.id,
+                            dedup_result.duplicate_of.as_deref().unwrap_or("unknown")
+                        );
+                    }
+                    crate::config::DeduplicationAction::Update => {
+                        // Continue indexing (will replace existing document)
+                        debug!(
+                            "Document {} will update existing duplicate",
+                            item.id
+                        );
+                    }
+                }
+            }
+        }
+
         // Generate embeddings for chunks
         let embeddings = self.embed_chunks(&processed.chunks).await?;
+
+        // Build metadata
+        let metadata = serde_json::json!({
+            "title": processed.metadata.title,
+            "author": processed.metadata.author,
+            "word_count": processed.metadata.word_count,
+        });
 
         // Create indexed document
         let doc = IndexedDocument {
@@ -416,11 +527,7 @@ impl IndexCoordinator {
             content: processed.text.clone(),
             modified_at: item.modified,
             indexed_at: Utc::now(),
-            metadata: serde_json::json!({
-                "title": processed.metadata.title,
-                "author": processed.metadata.author,
-                "word_count": processed.metadata.word_count,
-            }),
+            metadata,
         };
 
         // Create vector chunks
@@ -443,7 +550,12 @@ impl IndexCoordinator {
         // Store in backend
         self.storage.store(doc, vector_chunks).await?;
 
-        Ok(chunk_count)
+        // Register with deduplicator for future checks
+        if let Some(dedup) = &self.deduplicator {
+            dedup.register(&processed.text, &item.id).await?;
+        }
+
+        Ok(IndexItemResult::Indexed(chunk_count))
     }
 
     /// Embed text chunks.
@@ -579,6 +691,63 @@ impl IndexCoordinator {
         // Run clustering
         let engine = ClusteringEngine::new(self.embedder.clone(), cluster_config.clone());
         engine.cluster_documents(inputs, Some(&cluster_config)).await
+    }
+
+    // ========================================================================
+    // Deduplication Methods
+    // ========================================================================
+
+    /// Check if content is a duplicate of an existing document.
+    ///
+    /// Returns the deduplication result with similarity information.
+    pub async fn check_duplicate(
+        &self,
+        content: &str,
+        doc_id: Option<&str>,
+    ) -> Result<Option<DeduplicationResult>> {
+        if let Some(dedup) = &self.deduplicator {
+            let id = doc_id.unwrap_or("check");
+            let result = dedup.check(content, id).await?;
+            Ok(Some(result))
+        } else {
+            Ok(None)
+        }
+    }
+
+    /// Check if deduplication is enabled.
+    pub fn is_deduplication_enabled(&self) -> bool {
+        self.deduplicator.is_some()
+    }
+
+    /// Get deduplication configuration.
+    pub fn deduplication_config(&self) -> &crate::config::DeduplicationConfig {
+        &self.config.indexing.deduplication
+    }
+
+    /// Clear the deduplication index.
+    ///
+    /// This removes all registered documents from the deduplicator.
+    pub async fn clear_deduplication_index(&self) -> Result<()> {
+        if let Some(dedup) = &self.deduplicator {
+            dedup.clear().await?;
+        }
+        Ok(())
+    }
+
+    /// Register content with the deduplicator for future duplicate checking.
+    pub async fn register_for_deduplication(&self, content: &str, doc_id: &str) -> Result<()> {
+        if let Some(dedup) = &self.deduplicator {
+            dedup.register(content, doc_id).await?;
+        }
+        Ok(())
+    }
+
+    /// Remove a document from the deduplication index.
+    pub async fn remove_from_deduplication(&self, doc_id: &str) -> Result<()> {
+        if let Some(dedup) = &self.deduplicator {
+            dedup.remove(doc_id).await?;
+        }
+        Ok(())
     }
 }
 
