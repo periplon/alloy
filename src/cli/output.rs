@@ -3,8 +3,9 @@
 //! This module handles formatting output as either JSON or human-readable text.
 
 use alloy::mcp::{
-    DocumentDetails, IndexPathResponse, IndexStats, ListSourcesResponse, RemoveSourceResponse,
-    SearchResponse,
+    CreateBackupResponse, DocumentDetails, ExportDocumentsResponse, ImportDocumentsResponse,
+    IndexPathResponse, IndexStats, ListBackupsResponse, ListSourcesResponse, RemoveSourceResponse,
+    RestoreBackupResponse, SearchResponse,
 };
 
 /// Print index result.
@@ -210,5 +211,123 @@ pub fn print_cluster_results(result: &alloy::mcp::ClusterDocumentsResponse, json
                 println!("  ... and {} more", result.outliers.len() - 5);
             }
         }
+    }
+}
+
+/// Print backup result.
+pub fn print_backup_result(result: &CreateBackupResponse, json: bool) {
+    if json {
+        println!("{}", serde_json::to_string_pretty(result).unwrap());
+    } else if result.success {
+        println!("Backup Created Successfully");
+        println!("{}", "=".repeat(40));
+        println!("Backup ID:  {}", result.backup_id);
+        println!("Path:       {}", result.path);
+        println!("Documents:  {}", result.document_count);
+        println!("Size:       {} bytes", result.size_bytes);
+        println!("Duration:   {}ms", result.duration_ms);
+    } else {
+        println!("Backup Failed");
+        println!("{}", result.message);
+    }
+}
+
+/// Print restore result.
+pub fn print_restore_result(result: &RestoreBackupResponse, json: bool) {
+    if json {
+        println!("{}", serde_json::to_string_pretty(result).unwrap());
+    } else if result.success {
+        println!("Restore Completed Successfully");
+        println!("{}", "=".repeat(40));
+        println!("Backup ID:   {}", result.backup_id);
+        println!("Documents:   {}", result.documents_restored);
+        println!("Chunks:      {}", result.chunks_restored);
+        println!("Duration:    {}ms", result.duration_ms);
+    } else {
+        println!("Restore Failed");
+        println!("{}", result.message);
+    }
+}
+
+/// Print export result.
+pub fn print_export_result(result: &ExportDocumentsResponse, json: bool) {
+    if json {
+        println!("{}", serde_json::to_string_pretty(result).unwrap());
+    } else if result.success {
+        println!("Export Completed Successfully");
+        println!("{}", "=".repeat(40));
+        println!("Output Path: {}", result.path);
+        println!("Documents:   {}", result.document_count);
+        println!("Size:        {} bytes", result.size_bytes);
+        println!("Duration:    {}ms", result.duration_ms);
+    } else {
+        println!("Export Failed");
+        println!("{}", result.message);
+    }
+}
+
+/// Print import result.
+pub fn print_import_result(result: &ImportDocumentsResponse, json: bool) {
+    if json {
+        println!("{}", serde_json::to_string_pretty(result).unwrap());
+    } else if result.success {
+        println!("Import Completed Successfully");
+        println!("{}", "=".repeat(40));
+        println!("Documents:   {}", result.documents_imported);
+        println!("Chunks:      {}", result.chunks_imported);
+        println!("Duration:    {}ms", result.duration_ms);
+    } else {
+        println!("Import Failed");
+        println!("{}", result.message);
+    }
+}
+
+/// Print list backups result.
+pub fn print_list_backups_result(result: &ListBackupsResponse, json: bool) {
+    if json {
+        println!("{}", serde_json::to_string_pretty(result).unwrap());
+    } else {
+        if result.backups.is_empty() {
+            println!("No backups found.");
+            return;
+        }
+
+        println!("Available Backups");
+        println!("{}", "=".repeat(80));
+        println!(
+            "{:<38} {:<20} {:>8} {:>10}",
+            "BACKUP ID", "CREATED", "DOCS", "SIZE"
+        );
+        println!("{}", "-".repeat(80));
+
+        for backup in &result.backups {
+            let id_display = if backup.backup_id.len() > 36 {
+                format!("{}...", &backup.backup_id[..33])
+            } else {
+                backup.backup_id.clone()
+            };
+
+            let created = backup.created_at.format("%Y-%m-%d %H:%M:%S");
+
+            let size_display = if backup.size_bytes > 1024 * 1024 {
+                format!("{:.1} MB", backup.size_bytes as f64 / (1024.0 * 1024.0))
+            } else if backup.size_bytes > 1024 {
+                format!("{:.1} KB", backup.size_bytes as f64 / 1024.0)
+            } else {
+                format!("{} B", backup.size_bytes)
+            };
+
+            println!(
+                "{:<38} {:<20} {:>8} {:>10}",
+                id_display, created, backup.document_count, size_display
+            );
+
+            if let Some(desc) = &backup.description {
+                println!("  Description: {}", desc);
+            }
+        }
+
+        println!();
+        println!("Total: {} backups", result.backups.len());
     }
 }

@@ -3,8 +3,9 @@
 //! This module executes CLI commands by connecting to a remote Alloy MCP server.
 
 use alloy::mcp::{
-    DocumentDetails, IndexPathResponse, IndexStats, ListSourcesResponse, RemoveSourceResponse,
-    SearchResponse,
+    CreateBackupResponse, DocumentDetails, ExportDocumentsResponse, ImportDocumentsResponse,
+    IndexPathResponse, IndexStats, ListBackupsResponse, ListSourcesResponse, RemoveSourceResponse,
+    RestoreBackupResponse, SearchResponse,
 };
 use anyhow::{anyhow, Result};
 use rmcp::{
@@ -219,5 +220,79 @@ pub async fn cluster(
                 "num_clusters": num_clusters,
             }),
         )
+        .await
+}
+
+/// Create a backup via remote MCP server.
+pub async fn backup(
+    url: &str,
+    output_path: Option<String>,
+    description: Option<String>,
+) -> Result<CreateBackupResponse> {
+    let client = McpClient::connect(url).await?;
+    client
+        .call_tool(
+            "create_backup",
+            serde_json::json!({
+                "output_path": output_path,
+                "description": description,
+            }),
+        )
+        .await
+}
+
+/// Restore from a backup via remote MCP server.
+pub async fn restore(url: &str, backup_id: String) -> Result<RestoreBackupResponse> {
+    let client = McpClient::connect(url).await?;
+    client
+        .call_tool(
+            "restore_backup",
+            serde_json::json!({
+                "backup_id": backup_id,
+            }),
+        )
+        .await
+}
+
+/// Export documents via remote MCP server.
+pub async fn export(
+    url: &str,
+    output_path: String,
+    format: String,
+    source_id: Option<String>,
+    include_embeddings: bool,
+) -> Result<ExportDocumentsResponse> {
+    let client = McpClient::connect(url).await?;
+    client
+        .call_tool(
+            "export_documents",
+            serde_json::json!({
+                "output_path": output_path,
+                "format": format,
+                "source_id": source_id,
+                "include_embeddings": include_embeddings,
+            }),
+        )
+        .await
+}
+
+/// Import documents via remote MCP server.
+pub async fn import(url: &str, input_path: String) -> Result<ImportDocumentsResponse> {
+    let client = McpClient::connect(url).await?;
+    client
+        .call_tool(
+            "import_documents",
+            serde_json::json!({
+                "input_path": input_path,
+            }),
+        )
+        .await
+}
+
+/// List backups via remote MCP server.
+pub async fn list_backups(url: &str) -> Result<ListBackupsResponse> {
+    let client = McpClient::connect(url).await?;
+    client
+        .call_tool("list_backups", serde_json::json!({}))
         .await
 }

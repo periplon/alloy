@@ -3,9 +3,12 @@
 //! This module executes CLI commands directly using the IndexCoordinator.
 
 use alloy::{
+    backup::{BackupManager, ExportFormat, ExportOptions},
     mcp::{
-        DocumentDetails, IndexPathResponse, IndexStats, ListSourcesResponse, RemoveSourceResponse,
-        SearchResponse, SearchResult, SourceInfo,
+        BackupInfo, CreateBackupResponse, DocumentDetails, ExportDocumentsResponse,
+        ImportDocumentsResponse, IndexPathResponse, IndexStats, ListBackupsResponse,
+        ListSourcesResponse, RemoveSourceResponse, RestoreBackupResponse, SearchResponse,
+        SearchResult, SourceInfo,
     },
     sources::parse_s3_uri,
     Config, IndexCoordinator,
@@ -237,5 +240,218 @@ pub async fn cluster(
         },
         algorithm: result.algorithm_used,
         total_documents: result.total_documents,
+    })
+}
+
+/// Create a backup of the index.
+pub async fn backup(
+    config: Config,
+    output_path: Option<String>,
+    description: Option<String>,
+) -> Result<CreateBackupResponse> {
+    let coordinator = IndexCoordinator::new(config.clone()).await?;
+
+    let backup_dir = output_path.unwrap_or_else(|| {
+        config
+            .operations
+            .backup
+            .backup_dir
+            .clone()
+            .unwrap_or_else(|| {
+                let data_dir = config.storage.data_dir.clone();
+                format!("{}/backups", data_dir)
+            })
+    });
+
+    let manager = BackupManager::new(&backup_dir)?;
+
+    let result = manager
+        .create_backup(
+            coordinator.storage(),
+            &format!("{:?}", config.storage.backend),
+            coordinator.embedding_dimension(),
+            description,
+        )
+        .await?;
+
+    Ok(CreateBackupResponse {
+        backup_id: result.metadata.backup_id.clone(),
+        path: result.path.display().to_string(),
+        document_count: result.metadata.document_count,
+        size_bytes: result.metadata.size_bytes,
+        duration_ms: result.duration_ms,
+        success: true,
+        message: format!(
+            "Backup created successfully: {} documents",
+            result.metadata.document_count
+        ),
+    })
+}
+
+/// Restore from a backup.
+pub async fn restore(config: Config, input: String) -> Result<RestoreBackupResponse> {
+    let coordinator = IndexCoordinator::new(config.clone()).await?;
+
+    let backup_dir = config
+        .operations
+        .backup
+        .backup_dir
+        .clone()
+        .unwrap_or_else(|| {
+            let data_dir = config.storage.data_dir.clone();
+            format!("{}/backups", data_dir)
+        });
+
+    let manager = BackupManager::new(&backup_dir)?;
+
+    // Try to find backup by ID or use as path
+    let backup_path = if std::path::Path::new(&input).exists() {
+        std::path::PathBuf::from(&input)
+    } else {
+        // Find backup file by listing and matching ID
+        let backups = manager.list_backups()?;
+
+        backups
+            .iter()
+            .find(|b| b.backup_id == input)
+            .map(|b| {
+                let timestamp = b.created_at.format("%Y%m%d_%H%M%S");
+                std::path::PathBuf::from(&backup_dir).join(format!("backup_{}.jsonl", timestamp))
+            })
+            .ok_or_else(|| anyhow::anyhow!("Backup not found: {}", input))?
+    };
+
+    let result = manager
+        .restore_backup(coordinator.storage(), &backup_path)
+        .await?;
+
+    Ok(RestoreBackupResponse {
+        backup_id: result.metadata.backup_id.clone(),
+        documents_restored: result.documents_restored,
+        chunks_restored: result.chunks_restored,
+        duration_ms: result.duration_ms,
+        success: true,
+        message: format!(
+            "Restored {} documents from backup",
+            result.documents_restored
+        ),
+    })
+}
+
+/// Export documents to a file.
+pub async fn export(
+    config: Config,
+    output_path: String,
+    format: String,
+    source_id: Option<String>,
+    include_embeddings: bool,
+) -> Result<ExportDocumentsResponse> {
+    let coordinator = IndexCoordinator::new(config.clone()).await?;
+
+    let backup_dir = config
+        .operations
+        .backup
+        .backup_dir
+        .clone()
+        .unwrap_or_else(|| {
+            let data_dir = config.storage.data_dir.clone();
+            format!("{}/backups", data_dir)
+        });
+
+    let format = match format.as_str() {
+        "json" => ExportFormat::Json,
+        _ => ExportFormat::Jsonl,
+    };
+
+    let options = ExportOptions {
+        format,
+        include_content: true,
+        include_embeddings,
+        source_id,
+        compress: false,
+    };
+
+    let manager = BackupManager::new(&backup_dir)?;
+    let start = std::time::Instant::now();
+    let result = manager
+        .export_documents(coordinator.storage(), &output_path, &options)
+        .await?;
+
+    Ok(ExportDocumentsResponse {
+        path: result.path.display().to_string(),
+        document_count: result.document_count,
+        size_bytes: result.size_bytes,
+        duration_ms: start.elapsed().as_millis() as u64,
+        success: true,
+        message: format!(
+            "Exported {} documents to {}",
+            result.document_count, output_path
+        ),
+    })
+}
+
+/// Import documents from a file.
+pub async fn import(config: Config, input_path: String) -> Result<ImportDocumentsResponse> {
+    let coordinator = IndexCoordinator::new(config.clone()).await?;
+
+    let backup_dir = config
+        .operations
+        .backup
+        .backup_dir
+        .clone()
+        .unwrap_or_else(|| {
+            let data_dir = config.storage.data_dir.clone();
+            format!("{}/backups", data_dir)
+        });
+
+    let manager = BackupManager::new(&backup_dir)?;
+    let start = std::time::Instant::now();
+    let (documents_imported, chunks_imported) = manager
+        .import_documents(coordinator.storage(), &input_path)
+        .await?;
+
+    Ok(ImportDocumentsResponse {
+        documents_imported,
+        chunks_imported,
+        duration_ms: start.elapsed().as_millis() as u64,
+        success: true,
+        message: format!(
+            "Imported {} documents with {} chunks from {}",
+            documents_imported, chunks_imported, input_path
+        ),
+    })
+}
+
+/// List available backups.
+pub async fn list_backups(config: Config) -> Result<ListBackupsResponse> {
+    let backup_dir = config
+        .operations
+        .backup
+        .backup_dir
+        .clone()
+        .unwrap_or_else(|| {
+            let data_dir = config.storage.data_dir.clone();
+            format!("{}/backups", data_dir)
+        });
+
+    let manager = BackupManager::new(&backup_dir)?;
+    let backups = manager.list_backups()?;
+
+    let backup_infos: Vec<BackupInfo> = backups
+        .iter()
+        .map(|b| BackupInfo {
+            backup_id: b.backup_id.clone(),
+            created_at: b.created_at,
+            version: b.version.clone(),
+            document_count: b.document_count,
+            chunk_count: b.chunk_count,
+            size_bytes: b.size_bytes,
+            description: b.description.clone(),
+        })
+        .collect();
+
+    Ok(ListBackupsResponse {
+        backups: backup_infos,
+        message: format!("Found {} backups", backups.len()),
     })
 }

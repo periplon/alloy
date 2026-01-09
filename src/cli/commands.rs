@@ -131,3 +131,69 @@ pub async fn run_cluster(
     output::print_cluster_results(&result, json_output);
     Ok(())
 }
+
+/// Run the backup command.
+pub async fn run_backup(
+    mode: ExecutionMode,
+    output_path: Option<String>,
+    description: Option<String>,
+    json_output: bool,
+) -> Result<()> {
+    let result = match mode {
+        ExecutionMode::Local(config) => local::backup(*config, output_path, description).await?,
+        ExecutionMode::Remote(url) => remote::backup(&url, output_path, description).await?,
+    };
+    output::print_backup_result(&result, json_output);
+    Ok(())
+}
+
+/// Run the restore command.
+pub async fn run_restore(mode: ExecutionMode, input: String, json_output: bool) -> Result<()> {
+    let result = match mode {
+        ExecutionMode::Local(config) => local::restore(*config, input).await?,
+        ExecutionMode::Remote(url) => remote::restore(&url, input).await?,
+    };
+    output::print_restore_result(&result, json_output);
+    Ok(())
+}
+
+/// Run the export command.
+pub async fn run_export(
+    mode: ExecutionMode,
+    output_path: String,
+    format: String,
+    source_id: Option<String>,
+    include_embeddings: bool,
+    json_output: bool,
+) -> Result<()> {
+    let result = match mode {
+        ExecutionMode::Local(config) => {
+            local::export(*config, output_path, format, source_id, include_embeddings).await?
+        }
+        ExecutionMode::Remote(url) => {
+            remote::export(&url, output_path, format, source_id, include_embeddings).await?
+        }
+    };
+    output::print_export_result(&result, json_output);
+    Ok(())
+}
+
+/// Run the import command.
+pub async fn run_import(mode: ExecutionMode, input_path: String, json_output: bool) -> Result<()> {
+    let result = match mode {
+        ExecutionMode::Local(config) => local::import(*config, input_path).await?,
+        ExecutionMode::Remote(url) => remote::import(&url, input_path).await?,
+    };
+    output::print_import_result(&result, json_output);
+    Ok(())
+}
+
+/// Run the list backups command.
+pub async fn run_list_backups(mode: ExecutionMode, json_output: bool) -> Result<()> {
+    let result = match mode {
+        ExecutionMode::Local(config) => local::list_backups(*config).await?,
+        ExecutionMode::Remote(url) => remote::list_backups(&url).await?,
+    };
+    output::print_list_backups_result(&result, json_output);
+    Ok(())
+}

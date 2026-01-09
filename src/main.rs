@@ -86,6 +86,41 @@ enum Command {
         #[arg(short, long)]
         num_clusters: Option<usize>,
     },
+    /// Create a backup of the index
+    Backup {
+        /// Output path for the backup file (defaults to configured backup directory)
+        #[arg(short, long)]
+        output: Option<String>,
+        /// Description for the backup
+        #[arg(short, long)]
+        description: Option<String>,
+    },
+    /// Restore from a backup
+    Restore {
+        /// Path to backup file or backup ID
+        input: String,
+    },
+    /// Export documents to a file
+    Export {
+        /// Output file path
+        output: String,
+        /// Export format (jsonl or json)
+        #[arg(short, long, default_value = "jsonl")]
+        format: String,
+        /// Filter by source ID
+        #[arg(short, long)]
+        source: Option<String>,
+        /// Include embeddings (increases file size significantly)
+        #[arg(long)]
+        include_embeddings: bool,
+    },
+    /// Import documents from a file
+    Import {
+        /// Path to import file
+        input: String,
+    },
+    /// List available backups
+    Backups,
     /// Run as MCP server (default behavior)
     Serve {
         /// Transport type (stdio or http)
@@ -154,6 +189,19 @@ async fn main() -> anyhow::Result<()> {
             algorithm,
             num_clusters,
         }) => cli::run_cluster(mode, source, Some(algorithm), num_clusters, args.json).await,
+        Some(Command::Backup {
+            output,
+            description,
+        }) => cli::run_backup(mode, output, description, args.json).await,
+        Some(Command::Restore { input }) => cli::run_restore(mode, input, args.json).await,
+        Some(Command::Export {
+            output,
+            format,
+            source,
+            include_embeddings,
+        }) => cli::run_export(mode, output, format, source, include_embeddings, args.json).await,
+        Some(Command::Import { input }) => cli::run_import(mode, input, args.json).await,
+        Some(Command::Backups) => cli::run_list_backups(mode, args.json).await,
         Some(Command::Serve {
             transport,
             port,
