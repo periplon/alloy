@@ -111,7 +111,7 @@ async fn health_handler() -> impl IntoResponse {
     let health = HealthStatus {
         status: overall_status,
         version: env!("CARGO_PKG_VERSION").to_string(),
-        uptime_seconds: metrics.uptime_seconds.get(),
+        uptime_seconds: metrics.uptime_seconds.get() as u64,
         checks,
     };
 

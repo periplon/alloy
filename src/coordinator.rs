@@ -21,6 +21,7 @@ use crate::embedding::{
     LocalEmbeddingProvider,
 };
 use crate::error::Result;
+use crate::metrics::{get_metrics, Metrics};
 use crate::processing::{
     CompositeDeduplicator, DeduplicationResult, Deduplicator, ProcessorRegistry, TextChunk,
 };
@@ -476,6 +477,8 @@ impl IndexCoordinator {
     ) -> Result<IndexedSource> {
         let source_id = source.id().to_string();
         let start_time = std::time::Instant::now();
+        let metrics = get_metrics();
+        let _indexing_timer = Metrics::start_timer(&metrics.indexing_duration_seconds);
 
         self.report_progress(IndexProgress::ScanStarted {
             source_id: source_id.clone(),
@@ -581,6 +584,10 @@ impl IndexCoordinator {
                     documents_indexed += 1;
                     chunks_created += chunk_count;
 
+                    // Update metrics
+                    metrics.documents_indexed_total.inc();
+                    metrics.chunks_created_total.inc_by(chunk_count as u64);
+
                     // Register with change detector for future change detection
                     // We'll compute the hash from the content
                     if let Ok(content) = source.fetch(&item.uri).await {
@@ -599,9 +606,11 @@ impl IndexCoordinator {
                 }
                 Ok(IndexItemResult::Skipped(_)) => {
                     // Document was skipped due to deduplication
+                    metrics.duplicates_detected_total.inc();
                     // Progress was already reported in process_and_index_item
                 }
                 Err(e) => {
+                    metrics.indexing_errors_total.inc();
                     self.report_progress(IndexProgress::DocumentError {
                         source_id: source_id.clone(),
                         uri: item.uri.clone(),
@@ -619,6 +628,11 @@ impl IndexCoordinator {
             chunks: chunks_created,
             duration_ms,
         });
+
+        // Update gauge metrics
+        let sources = self.sources.read().await;
+        metrics.sources_count.set((sources.len() + 1) as i64); // +1 for the new source being added
+        drop(sources);
 
         let indexed_source = IndexedSource {
             id: source_id.clone(),
@@ -743,13 +757,36 @@ impl IndexCoordinator {
             return Ok(vec![]);
         }
 
+        let metrics = get_metrics();
+        let _timer = Metrics::start_timer(&metrics.embedding_duration_seconds);
+        metrics.embedding_queue_size.set(chunks.len() as i64);
+
         let texts: Vec<String> = chunks.iter().map(|c| c.text.clone()).collect();
-        self.embedder.embed(&texts).await
+        let result = self.embedder.embed(&texts).await;
+
+        metrics.embedding_queue_size.set(0);
+        if result.is_ok() {
+            metrics
+                .embeddings_generated_total
+                .inc_by(chunks.len() as u64);
+        }
+
+        result
     }
 
     /// Search indexed documents.
     pub async fn search(&self, query: HybridQuery) -> Result<HybridSearchResponse> {
-        self.searcher.search(query).await
+        let metrics = get_metrics();
+        let _timer = Metrics::start_timer(&metrics.search_duration_seconds);
+        metrics.search_queries_total.inc();
+
+        let result = self.searcher.search(query).await;
+
+        if result.is_err() {
+            metrics.search_errors_total.inc();
+        }
+
+        result
     }
 
     /// Get a document by ID.
@@ -779,7 +816,15 @@ impl IndexCoordinator {
 
     /// Get storage statistics.
     pub async fn stats(&self) -> Result<StorageStats> {
-        self.storage.stats().await
+        let stats = self.storage.stats().await?;
+
+        // Update gauge metrics with current values
+        let metrics = get_metrics();
+        metrics.documents_count.set(stats.document_count as i64);
+        metrics.chunks_count.set(stats.chunk_count as i64);
+        metrics.index_size_bytes.set(stats.storage_bytes as i64);
+
+        Ok(stats)
     }
 
     /// Get the embedding dimension.

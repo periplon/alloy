@@ -101,6 +101,9 @@ sha2 = "0.10"
 # Text diff for versioning
 similar = "2"
 
+# Prometheus metrics
+prometheus = "0.13"
+
 [dev-dependencies]
 tokio-test = "0.4"
 tempfile = "3"
