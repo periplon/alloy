@@ -388,7 +388,10 @@ impl GtdTasksResponse {
         }
     }
 
-    pub fn success_recommendations(recs: Vec<TaskRecommendation>, message: impl Into<String>) -> Self {
+    pub fn success_recommendations(
+        recs: Vec<TaskRecommendation>,
+        message: impl Into<String>,
+    ) -> Self {
         Self {
             success: true,
             task: None,
@@ -490,6 +493,364 @@ impl GtdSomedayResponse {
             items: None,
             task: None,
             categories: None,
+            message: message.into(),
+        }
+    }
+}
+
+// ============================================================================
+// Inbox Tool Types
+// ============================================================================
+
+/// Action to perform on inbox.
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum InboxAction {
+    /// Process inbox items with auto-classification.
+    Process,
+    /// Classify a single text item.
+    Classify,
+    /// Classify an item manually.
+    ClassifyAs,
+    /// Get inbox to zero (auto-classify high confidence).
+    InboxZero,
+}
+
+/// Parameters for the gtd_inbox tool.
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+pub struct GtdInboxParams {
+    /// The action to perform.
+    pub action: InboxAction,
+    /// Text content to classify (for classify action).
+    #[serde(default)]
+    pub content: Option<String>,
+    /// Document ID to process items from.
+    #[serde(default)]
+    pub document_id: Option<String>,
+    /// Source ID to process items from.
+    #[serde(default)]
+    pub source_id: Option<String>,
+    /// Inbox item ID (for classify_as).
+    #[serde(default)]
+    pub item_id: Option<String>,
+    /// Target GTD type (for classify_as).
+    #[serde(default)]
+    pub target_type: Option<String>,
+    /// Project ID to associate with.
+    #[serde(default)]
+    pub project_id: Option<String>,
+    /// Contexts to apply.
+    #[serde(default)]
+    pub contexts: Option<Vec<String>>,
+    /// Enable auto-classification.
+    #[serde(default = "default_true")]
+    pub auto_classify: bool,
+    /// Confidence threshold for auto-classification.
+    #[serde(default = "default_threshold")]
+    pub auto_threshold: f32,
+    /// Maximum number of items to process.
+    #[serde(default = "default_batch")]
+    pub batch_size: usize,
+}
+
+fn default_true() -> bool {
+    true
+}
+
+fn default_threshold() -> f32 {
+    0.85
+}
+
+fn default_batch() -> usize {
+    50
+}
+
+impl Default for GtdInboxParams {
+    fn default() -> Self {
+        Self {
+            action: InboxAction::Process,
+            content: None,
+            document_id: None,
+            source_id: None,
+            item_id: None,
+            target_type: None,
+            project_id: None,
+            contexts: None,
+            auto_classify: true,
+            auto_threshold: 0.85,
+            batch_size: 50,
+        }
+    }
+}
+
+/// Response for inbox operations.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct GtdInboxResponse {
+    /// Whether the operation succeeded.
+    pub success: bool,
+    /// Classified inbox item (for classify action).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub item: Option<crate::gtd::InboxItem>,
+    /// All processed items.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub items: Option<Vec<crate::gtd::InboxItem>>,
+    /// Auto-classified results.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub auto_classified: Option<Vec<crate::gtd::ClassificationResult>>,
+    /// Items needing manual review.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub needs_review: Option<Vec<crate::gtd::InboxItem>>,
+    /// Quick wins identified.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub quick_wins: Option<Vec<crate::gtd::InboxItem>>,
+    /// Processing summary.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub summary: Option<crate::gtd::ProcessingSummary>,
+    /// Status message.
+    pub message: String,
+}
+
+impl GtdInboxResponse {
+    pub fn success_item(item: crate::gtd::InboxItem, message: impl Into<String>) -> Self {
+        Self {
+            success: true,
+            item: Some(item),
+            items: None,
+            auto_classified: None,
+            needs_review: None,
+            quick_wins: None,
+            summary: None,
+            message: message.into(),
+        }
+    }
+
+    pub fn success_process(
+        response: crate::gtd::ProcessInboxResponse,
+        message: impl Into<String>,
+    ) -> Self {
+        Self {
+            success: true,
+            item: None,
+            items: Some(response.items),
+            auto_classified: Some(response.auto_classified),
+            needs_review: Some(response.needs_review),
+            quick_wins: Some(response.quick_wins),
+            summary: Some(response.summary),
+            message: message.into(),
+        }
+    }
+
+    pub fn error(message: impl Into<String>) -> Self {
+        Self {
+            success: false,
+            item: None,
+            items: None,
+            auto_classified: None,
+            needs_review: None,
+            quick_wins: None,
+            summary: None,
+            message: message.into(),
+        }
+    }
+}
+
+// ============================================================================
+// Recommend Tool Types
+// ============================================================================
+
+/// Parameters for the gtd_recommend tool.
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+pub struct GtdRecommendParams {
+    /// Current context (e.g., "@home", "@work", "@phone").
+    #[serde(default)]
+    pub current_context: Option<String>,
+    /// Current energy level.
+    #[serde(default)]
+    pub energy_level: Option<EnergyLevel>,
+    /// Available time in minutes.
+    #[serde(default)]
+    pub time_available: Option<u32>,
+    /// Focus on a specific area.
+    #[serde(default)]
+    pub focus_area: Option<String>,
+    /// Focus on a specific project.
+    #[serde(default)]
+    pub focus_project: Option<String>,
+    /// Get quick wins only.
+    #[serde(default)]
+    pub quick_wins_only: bool,
+    /// Maximum number of recommendations.
+    #[serde(default = "default_recommend_limit")]
+    pub limit: usize,
+}
+
+fn default_recommend_limit() -> usize {
+    10
+}
+
+impl Default for GtdRecommendParams {
+    fn default() -> Self {
+        Self {
+            current_context: None,
+            energy_level: None,
+            time_available: None,
+            focus_area: None,
+            focus_project: None,
+            quick_wins_only: false,
+            limit: 10,
+        }
+    }
+}
+
+/// Response for recommendation operations.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct GtdRecommendResponse {
+    /// Whether the operation succeeded.
+    pub success: bool,
+    /// Recommended tasks (from the advanced recommendation engine).
+    pub recommendations: Vec<crate::gtd::recommend::TaskRecommendation>,
+    /// Context used for recommendations.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub context: Option<crate::gtd::RecommendContext>,
+    /// Reasoning explanation.
+    pub reasoning: String,
+    /// Status message.
+    pub message: String,
+}
+
+impl GtdRecommendResponse {
+    pub fn success(response: crate::gtd::RecommendResponse, message: impl Into<String>) -> Self {
+        Self {
+            success: true,
+            recommendations: response.recommendations,
+            context: Some(response.context),
+            reasoning: response.reasoning,
+            message: message.into(),
+        }
+    }
+
+    pub fn success_list(
+        recommendations: Vec<crate::gtd::recommend::TaskRecommendation>,
+        reasoning: String,
+        message: impl Into<String>,
+    ) -> Self {
+        Self {
+            success: true,
+            recommendations,
+            context: None,
+            reasoning,
+            message: message.into(),
+        }
+    }
+
+    pub fn error(message: impl Into<String>) -> Self {
+        Self {
+            success: false,
+            recommendations: Vec::new(),
+            context: None,
+            reasoning: String::new(),
+            message: message.into(),
+        }
+    }
+}
+
+// ============================================================================
+// Weekly Review Tool Types
+// ============================================================================
+
+/// Parameters for the gtd_weekly_review tool.
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+pub struct GtdWeeklyReviewParams {
+    /// Review type.
+    #[serde(default = "default_review_type")]
+    pub review_type: ReviewType,
+    /// Week ending date (ISO 8601 format).
+    #[serde(default)]
+    pub week_ending: Option<DateTime<Utc>>,
+    /// Sections to include.
+    #[serde(default)]
+    pub sections: Option<Vec<String>>,
+    /// Number of days to look back.
+    #[serde(default = "default_lookback")]
+    pub lookback_days: u32,
+    /// Number of days to look ahead.
+    #[serde(default = "default_lookahead")]
+    pub lookahead_days: u32,
+    /// Days of inactivity to consider project stalled.
+    #[serde(default = "default_stalled")]
+    pub stalled_days: u32,
+    /// Include detailed recommendations.
+    #[serde(default = "default_true")]
+    pub include_recommendations: bool,
+}
+
+/// Type of review to generate.
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum ReviewType {
+    /// Full weekly review.
+    Weekly,
+    /// Quick daily review.
+    Daily,
+    /// Custom sections.
+    Custom,
+}
+
+fn default_review_type() -> ReviewType {
+    ReviewType::Weekly
+}
+
+fn default_lookback() -> u32 {
+    7
+}
+
+fn default_lookahead() -> u32 {
+    7
+}
+
+fn default_stalled() -> u32 {
+    7
+}
+
+impl Default for GtdWeeklyReviewParams {
+    fn default() -> Self {
+        Self {
+            review_type: ReviewType::Weekly,
+            week_ending: None,
+            sections: None,
+            lookback_days: 7,
+            lookahead_days: 7,
+            stalled_days: 7,
+            include_recommendations: true,
+        }
+    }
+}
+
+/// Response for weekly review operations.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct GtdWeeklyReviewResponse {
+    /// Whether the operation succeeded.
+    pub success: bool,
+    /// The weekly review report.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub report: Option<crate::gtd::WeeklyReviewReport>,
+    /// Status message.
+    pub message: String,
+}
+
+impl GtdWeeklyReviewResponse {
+    pub fn success(report: crate::gtd::WeeklyReviewReport, message: impl Into<String>) -> Self {
+        Self {
+            success: true,
+            report: Some(report),
+            message: message.into(),
+        }
+    }
+
+    pub fn error(message: impl Into<String>) -> Self {
+        Self {
+            success: false,
+            report: None,
             message: message.into(),
         }
     }

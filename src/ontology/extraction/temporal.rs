@@ -466,17 +466,15 @@ impl TemporalParser {
                 let date = match unit.as_str() {
                     "day" | "days" => self.reference_date + Duration::days(num),
                     "week" | "weeks" => self.reference_date + Duration::weeks(num),
-                    "month" | "months" => {
-                        self.add_months(self.reference_date, num as i32).unwrap_or(self.reference_date)
-                    }
-                    "year" | "years" => {
-                        NaiveDate::from_ymd_opt(
-                            self.reference_date.year() + num as i32,
-                            self.reference_date.month(),
-                            self.reference_date.day(),
-                        )
-                        .unwrap_or(self.reference_date)
-                    }
+                    "month" | "months" => self
+                        .add_months(self.reference_date, num as i32)
+                        .unwrap_or(self.reference_date),
+                    "year" | "years" => NaiveDate::from_ymd_opt(
+                        self.reference_date.year() + num as i32,
+                        self.reference_date.month(),
+                        self.reference_date.day(),
+                    )
+                    .unwrap_or(self.reference_date),
                     _ => continue,
                 };
 
@@ -571,10 +569,8 @@ impl TemporalParser {
         let mut results = Vec::new();
 
         // 12-hour format: 3pm, 3:30pm, 3:30 PM
-        let time_12h = regex::Regex::new(
-            r"(?i)\b(\d{1,2})(?::(\d{2}))?\s*(am|pm|a\.m\.|p\.m\.)\b",
-        )
-        .expect("Invalid regex");
+        let time_12h = regex::Regex::new(r"(?i)\b(\d{1,2})(?::(\d{2}))?\s*(am|pm|a\.m\.|p\.m\.)\b")
+            .expect("Invalid regex");
         for cap in time_12h.captures_iter(text) {
             if let Ok(mut hour) = cap[1].parse::<u32>() {
                 let minute = cap
@@ -637,9 +633,9 @@ impl TemporalParser {
             ("afternoon", 14, 0),
             ("evening", 18, 0),
             ("night", 21, 0),
-            ("eod", 17, 0),       // End of day
-            ("cob", 17, 0),       // Close of business
-            ("eob", 17, 0),       // End of business
+            ("eod", 17, 0), // End of day
+            ("cob", 17, 0), // Close of business
+            ("eob", 17, 0), // End of business
             ("end of day", 17, 0),
         ];
 
@@ -711,9 +707,11 @@ impl TemporalParser {
             }
 
             // "by end of [period]"
-            let eod_pattern =
-                regex::Regex::new(&format!(r"(?i)\b{}\s+end\s+of\s+(?:the\s+)?(week|month|quarter|year|day)\b", prefix))
-                    .expect("Invalid regex");
+            let eod_pattern = regex::Regex::new(&format!(
+                r"(?i)\b{}\s+end\s+of\s+(?:the\s+)?(week|month|quarter|year|day)\b",
+                prefix
+            ))
+            .expect("Invalid regex");
 
             for cap in eod_pattern.captures_iter(text) {
                 let period = cap[1].to_lowercase();
@@ -741,11 +739,9 @@ impl TemporalParser {
             }
 
             // "by tomorrow" / "due today"
-            let simple_pattern = regex::Regex::new(&format!(
-                r"(?i)\b{}\s+(today|tomorrow|yesterday)\b",
-                prefix
-            ))
-            .expect("Invalid regex");
+            let simple_pattern =
+                regex::Regex::new(&format!(r"(?i)\b{}\s+(today|tomorrow|yesterday)\b", prefix))
+                    .expect("Invalid regex");
 
             for cap in simple_pattern.captures_iter(text) {
                 let term = cap[1].to_lowercase();
@@ -819,10 +815,9 @@ impl TemporalParser {
         }
 
         // "every [N] [days/weeks/months]"
-        let every_n_pattern = regex::Regex::new(
-            r"(?i)\bevery\s+(\d+)\s+(day|days|week|weeks|month|months)\b",
-        )
-        .expect("Invalid regex");
+        let every_n_pattern =
+            regex::Regex::new(r"(?i)\bevery\s+(\d+)\s+(day|days|week|weeks|month|months)\b")
+                .expect("Invalid regex");
 
         for cap in every_n_pattern.captures_iter(text) {
             if let Ok(interval) = cap[1].parse::<u32>() {
@@ -956,12 +951,8 @@ impl TemporalParser {
     /// Get the end of the current month.
     fn end_of_month(&self) -> NaiveDate {
         self.add_months(
-            NaiveDate::from_ymd_opt(
-                self.reference_date.year(),
-                self.reference_date.month(),
-                1,
-            )
-            .unwrap(),
+            NaiveDate::from_ymd_opt(self.reference_date.year(), self.reference_date.month(), 1)
+                .unwrap(),
             1,
         )
         .map(|d| d - Duration::days(1))
@@ -975,9 +966,12 @@ impl TemporalParser {
         let year = self.reference_date.year();
 
         // Get last day of quarter end month
-        self.add_months(NaiveDate::from_ymd_opt(year, quarter_end_month, 1).unwrap(), 1)
-            .map(|d| d - Duration::days(1))
-            .unwrap_or(self.reference_date)
+        self.add_months(
+            NaiveDate::from_ymd_opt(year, quarter_end_month, 1).unwrap(),
+            1,
+        )
+        .map(|d| d - Duration::days(1))
+        .unwrap_or(self.reference_date)
     }
 
     /// Get the end of the current year.
@@ -1176,7 +1170,8 @@ mod tests {
     #[test]
     fn test_complex_text() {
         let parser = parser_at(2024, 1, 10);
-        let text = "Meeting with John tomorrow at 3pm. TODO: Review the quarterly report by Friday. \
+        let text =
+            "Meeting with John tomorrow at 3pm. TODO: Review the quarterly report by Friday. \
                     Weekly standup every Monday at 9am.";
         let results = parser.parse(text);
 

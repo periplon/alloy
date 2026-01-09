@@ -35,29 +35,29 @@ pub use cache::{CacheStats, CachedEmbedder, QueryCache};
 pub use config::Config;
 pub use coordinator::{IndexCoordinator, IndexCoordinatorBuilder, IndexProgress, IndexedSource};
 pub use error::{AclError, AlloyError, AuthError, Result};
+pub use gtd::{
+    Project, ProjectFilter, ProjectHealth, ProjectManager, ProjectStatus, RecommendParams,
+    SomedayFilter, SomedayItem, SomedayManager, Task, TaskFilter, TaskManager, TaskRecommendation,
+    TaskStatus, WaitingFilter, WaitingFor, WaitingManager, WaitingStatus,
+};
 pub use mcp::{run_server, AlloyServer};
 pub use metrics::{get_metrics, HealthCheck, HealthState, HealthStatus, Metrics, MetricsSnapshot};
+pub use ontology::extraction::{
+    ActionDetector, ActionItem, ActionType, CommitmentType, DateType, DetectedAction,
+    DocumentExtractionResult, EnergyLevel, EntityExtractable, EntityExtractionProcessor,
+    EntityExtractionProcessorConfig, ExtractedEntity, ExtractedRelationship, ExtractionConfig,
+    ExtractionMetadata, ExtractionMethod, ExtractionPipeline, ExtractionResult, LocalNerExtractor,
+    NamedEntity, NamedEntityType, ParsedDate, Priority, RecurrencePattern, RecurrenceRule,
+    RelationExtractor, RelationshipCandidate, SemanticRelationExtractor, TemporalExtraction,
+    TemporalParser,
+};
 pub use ontology::{
     DocumentRef, EmbeddedOntologyStore, Entity, EntityFilter, EntityType, EntityUpdate,
     OntologyStats, OntologyStore, RelationType, Relationship, RelationshipFilter,
-};
-pub use ontology::extraction::{
-    ActionDetector, ActionItem, ActionType, CommitmentType, DateType, DetectedAction,
-    DocumentExtractionResult, EnergyLevel, EntityExtractionProcessor,
-    EntityExtractionProcessorConfig, EntityExtractable, ExtractionConfig, ExtractionMetadata,
-    ExtractionMethod, ExtractionPipeline, ExtractionResult, ExtractedEntity,
-    ExtractedRelationship, LocalNerExtractor, NamedEntity, NamedEntityType, ParsedDate, Priority,
-    RecurrencePattern, RecurrenceRule, RelationExtractor, RelationshipCandidate,
-    SemanticRelationExtractor, TemporalExtraction, TemporalParser,
 };
 pub use web::{create_web_ui_router, WebUiConfig};
 pub use webhooks::{
     create_dispatcher, DocumentDeletedData, DocumentIndexedData, IndexErrorData,
     SharedWebhookDispatcher, SourceAddedData, SourceRemovedData, WebhookConfig,
     WebhookDeliveryResult, WebhookDispatcher, WebhookEvent, WebhookPayload, WebhookStats,
-};
-pub use gtd::{
-    Project, ProjectFilter, ProjectHealth, ProjectManager, ProjectStatus, RecommendParams,
-    SomedayFilter, SomedayItem, SomedayManager, Task, TaskFilter, TaskManager,
-    TaskRecommendation, TaskStatus, WaitingFilter, WaitingFor, WaitingManager, WaitingStatus,
 };

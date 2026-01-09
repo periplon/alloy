@@ -42,10 +42,10 @@ mod temporal;
 pub use actions::{
     ActionDetector, ActionItem, ActionType, CommitmentType, DetectedAction, EnergyLevel, Priority,
 };
-pub use ner::{LocalNerExtractor, LlmNerExtractor, NerExtractor, NamedEntity, NamedEntityType};
+pub use ner::{LlmNerExtractor, LocalNerExtractor, NamedEntity, NamedEntityType, NerExtractor};
 pub use processor::{
-    DocumentExtractionResult, EntityExtractionProcessor, EntityExtractionProcessorConfig,
-    EntityExtractable,
+    DocumentExtractionResult, EntityExtractable, EntityExtractionProcessor,
+    EntityExtractionProcessorConfig,
 };
 pub use relations::{
     CoOccurrence, RelationExtractor, RelationPattern, RelationshipCandidate,
@@ -334,7 +334,10 @@ impl ExtractionPipeline {
                         "action_type",
                         serde_json::json!(format!("{:?}", action.action_type)),
                     )
-                    .with_metadata("priority", serde_json::json!(format!("{:?}", action.priority)))
+                    .with_metadata(
+                        "priority",
+                        serde_json::json!(format!("{:?}", action.priority)),
+                    )
                     .with_metadata(
                         "energy_level",
                         serde_json::json!(format!("{:?}", action.energy_level)),
@@ -505,10 +508,7 @@ impl ExtractionPipeline {
         let mut seen: HashMap<(String, EntityType), ExtractedEntity> = HashMap::new();
 
         for entity in entities {
-            let key = (
-                entity.entity.name.to_lowercase(),
-                entity.entity.entity_type,
-            );
+            let key = (entity.entity.name.to_lowercase(), entity.entity.entity_type);
 
             match seen.get(&key) {
                 Some(existing) if existing.entity.confidence >= entity.entity.confidence => {

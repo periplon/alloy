@@ -23,6 +23,7 @@ use crate::embedding::{
 };
 use crate::error::Result;
 use crate::metrics::{get_metrics, Metrics};
+use crate::ontology::EmbeddedOntologyStore;
 use crate::processing::{
     CompositeDeduplicator, DeduplicationResult, Deduplicator, ProcessorRegistry, TextChunk,
 };
@@ -42,7 +43,6 @@ use crate::versioning::{
     FileVersionStorage, InMemoryVersionStorage, RetentionPolicy, VersionDiff, VersionManager,
     VersionMetadata, VersionStorage, VersioningConfig as VersionManagerConfig,
 };
-use crate::ontology::EmbeddedOntologyStore;
 
 /// Progress event during indexing.
 #[derive(Debug, Clone)]

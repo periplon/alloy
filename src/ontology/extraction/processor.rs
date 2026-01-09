@@ -116,11 +116,7 @@ impl EntityExtractionProcessor {
         // Extract from full text if configured
         if self.config.extract_from_full_text && !content.text.is_empty() {
             let result = self.pipeline.extract(&content.text, document_id).await?;
-            self.merge_extraction_result(
-                &result,
-                &mut all_entities,
-                &mut all_relationships,
-            );
+            self.merge_extraction_result(&result, &mut all_entities, &mut all_relationships);
             total_confidence += result.confidence;
             extraction_count += 1;
             used_llm = used_llm || result.metadata.used_llm;
@@ -131,11 +127,7 @@ impl EntityExtractionProcessor {
             for chunk in &content.chunks {
                 let chunk_doc_id = format!("{}#{}", document_id, chunk.id);
                 let result = self.pipeline.extract(&chunk.text, &chunk_doc_id).await?;
-                self.merge_extraction_result(
-                    &result,
-                    &mut all_entities,
-                    &mut all_relationships,
-                );
+                self.merge_extraction_result(&result, &mut all_entities, &mut all_relationships);
                 total_confidence += result.confidence;
                 extraction_count += 1;
                 used_llm = used_llm || result.metadata.used_llm;
@@ -297,10 +289,7 @@ mod tests {
         let processor = EntityExtractionProcessor::new(config);
 
         let result = processor
-            .extract_from_text(
-                "Email john@example.com about the project.",
-                "test-doc",
-            )
+            .extract_from_text("Email john@example.com about the project.", "test-doc")
             .await
             .unwrap();
 

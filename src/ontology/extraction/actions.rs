@@ -84,7 +84,9 @@ pub enum CommitmentType {
 }
 
 /// Priority level.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Default, Serialize, Deserialize, JsonSchema)]
+#[derive(
+    Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Default, Serialize, Deserialize, JsonSchema,
+)]
 #[serde(rename_all = "snake_case")]
 pub enum Priority {
     /// Low priority.
@@ -182,17 +184,23 @@ impl ActionDetector {
             (r"(?i)\b(?:TASK)\s*[:;]?\s*([^\n]+)", 0.95),
             (r"(?i)\b(?:FIXME|FIX)\s*[:;]?\s*([^\n]+)", 0.9),
             (r"(?i)\b(?:HACK|XXX)\s*[:;]?\s*([^\n]+)", 0.85),
-
             // Checkbox patterns - match at start of line or after newline
-            (r"(?m)^\s*\[\s*\]\s*([^\n]+)", 0.9),  // [ ] task
-            (r"(?m)^\s*-\s*\[\s*\]\s*([^\n]+)", 0.9),  // - [ ] task (Markdown)
-
+            (r"(?m)^\s*\[\s*\]\s*([^\n]+)", 0.9),     // [ ] task
+            (r"(?m)^\s*-\s*\[\s*\]\s*([^\n]+)", 0.9), // - [ ] task (Markdown)
             // Bullet/numbered lists with action verbs
-            (r"(?i)(?:^|\n)\s*[-*•]\s*((?:need to|must|should|have to|gotta|gonna)\s+.+?)(?:\n|$)", 0.75),
-            (r"(?i)(?:^|\n)\s*\d+[.)]\s*((?:need to|must|should|have to)\s+.+?)(?:\n|$)", 0.75),
-
+            (
+                r"(?i)(?:^|\n)\s*[-*•]\s*((?:need to|must|should|have to|gotta|gonna)\s+.+?)(?:\n|$)",
+                0.75,
+            ),
+            (
+                r"(?i)(?:^|\n)\s*\d+[.)]\s*((?:need to|must|should|have to)\s+.+?)(?:\n|$)",
+                0.75,
+            ),
             // Action verb at start of sentence
-            (r"(?i)(?:^|\n|[.!?]\s+)((?:implement|create|build|develop|design|write|fix|update|review|test|check|verify|complete|finish|prepare|send|submit|schedule|arrange|organize|plan|research|investigate|analyze|evaluate|assess|determine|decide|consider|resolve|address|handle|process|configure|setup|set up|install|deploy|migrate|refactor|optimize|improve|enhance|add|remove|delete|modify|change|edit|correct|adjust|ensure|make sure|validate|confirm|document|draft|outline|define|specify|establish|clarify)\s+.{10,80})(?:[.!?]|\n|$)", 0.7),
+            (
+                r"(?i)(?:^|\n|[.!?]\s+)((?:implement|create|build|develop|design|write|fix|update|review|test|check|verify|complete|finish|prepare|send|submit|schedule|arrange|organize|plan|research|investigate|analyze|evaluate|assess|determine|decide|consider|resolve|address|handle|process|configure|setup|set up|install|deploy|migrate|refactor|optimize|improve|enhance|add|remove|delete|modify|change|edit|correct|adjust|ensure|make sure|validate|confirm|document|draft|outline|define|specify|establish|clarify)\s+.{10,80})(?:[.!?]|\n|$)",
+                0.7,
+            ),
         ];
 
         patterns
@@ -209,19 +217,53 @@ impl ActionDetector {
     fn default_commitment_patterns() -> Vec<CommitmentPattern> {
         let patterns = [
             // Commitments made (first person)
-            (r"(?i)\b(I(?:'ll| will| am going to| shall| promise to| commit to| guarantee to| pledge to)\s+.{5,80})(?:[.!?]|\n|$)", CommitmentType::Made, 0.85),
-            (r"(?i)\b(I(?:'m| am)\s+(?:going to|planning to|committed to)\s+.{5,80})(?:[.!?]|\n|$)", CommitmentType::Made, 0.85),
-            (r"(?i)\b(I can\s+(?:do|handle|take care of|manage|complete|finish)\s+.{5,80})(?:[.!?]|\n|$)", CommitmentType::Made, 0.8),
-            (r"(?i)\b(Let me\s+.{5,60})(?:[.!?]|\n|$)", CommitmentType::Made, 0.75),
-            (r"(?i)\b(I(?:'ll| will) (?:get back to|follow up|send|email|call|contact|reach out to)\s+.{3,50})(?:[.!?]|\n|$)", CommitmentType::Made, 0.85),
-
+            (
+                r"(?i)\b(I(?:'ll| will| am going to| shall| promise to| commit to| guarantee to| pledge to)\s+.{5,80})(?:[.!?]|\n|$)",
+                CommitmentType::Made,
+                0.85,
+            ),
+            (
+                r"(?i)\b(I(?:'m| am)\s+(?:going to|planning to|committed to)\s+.{5,80})(?:[.!?]|\n|$)",
+                CommitmentType::Made,
+                0.85,
+            ),
+            (
+                r"(?i)\b(I can\s+(?:do|handle|take care of|manage|complete|finish)\s+.{5,80})(?:[.!?]|\n|$)",
+                CommitmentType::Made,
+                0.8,
+            ),
+            (
+                r"(?i)\b(Let me\s+.{5,60})(?:[.!?]|\n|$)",
+                CommitmentType::Made,
+                0.75,
+            ),
+            (
+                r"(?i)\b(I(?:'ll| will) (?:get back to|follow up|send|email|call|contact|reach out to)\s+.{3,50})(?:[.!?]|\n|$)",
+                CommitmentType::Made,
+                0.85,
+            ),
             // Commitments received (second/third person)
-            (r"(?i)\b((?:You|He|She|They)(?:'ll| will| promised to| agreed to| committed to)\s+.{5,80})(?:[.!?]|\n|$)", CommitmentType::Received, 0.85),
-            (r"(?i)\b((?:You|He|She|They)\s+(?:said|mentioned|indicated)\s+(?:you|he|she|they)(?:'d| would)\s+.{5,60})(?:[.!?]|\n|$)", CommitmentType::Received, 0.8),
-
+            (
+                r"(?i)\b((?:You|He|She|They)(?:'ll| will| promised to| agreed to| committed to)\s+.{5,80})(?:[.!?]|\n|$)",
+                CommitmentType::Received,
+                0.85,
+            ),
+            (
+                r"(?i)\b((?:You|He|She|They)\s+(?:said|mentioned|indicated)\s+(?:you|he|she|they)(?:'d| would)\s+.{5,60})(?:[.!?]|\n|$)",
+                CommitmentType::Received,
+                0.8,
+            ),
             // Request patterns (often imply commitments)
-            (r"(?i)\b(Can you\s+(?:please\s+)?(?:send|provide|share|update|review|check|confirm)\s+.{3,60})\??", CommitmentType::Received, 0.7),
-            (r"(?i)\b(Please\s+(?:send|provide|share|update|review|check|confirm|complete|finish|submit)\s+.{3,60})(?:[.!?]|\n|$)", CommitmentType::Received, 0.75),
+            (
+                r"(?i)\b(Can you\s+(?:please\s+)?(?:send|provide|share|update|review|check|confirm)\s+.{3,60})\??",
+                CommitmentType::Received,
+                0.7,
+            ),
+            (
+                r"(?i)\b(Please\s+(?:send|provide|share|update|review|check|confirm|complete|finish|submit)\s+.{3,60})(?:[.!?]|\n|$)",
+                CommitmentType::Received,
+                0.75,
+            ),
         ];
 
         patterns
@@ -239,23 +281,39 @@ impl ActionDetector {
     fn default_follow_up_patterns() -> Vec<FollowUpPattern> {
         let patterns = [
             // Explicit follow-up
-            (r"(?i)\b(follow[- ]up\s+(?:with|on)\s+.{3,60})(?:[.!?]|\n|$)", 0.9),
-            (r"(?i)\b(check\s+(?:in\s+)?with\s+.{3,40})(?:[.!?]|\n|$)", 0.85),
+            (
+                r"(?i)\b(follow[- ]up\s+(?:with|on)\s+.{3,60})(?:[.!?]|\n|$)",
+                0.9,
+            ),
+            (
+                r"(?i)\b(check\s+(?:in\s+)?with\s+.{3,40})(?:[.!?]|\n|$)",
+                0.85,
+            ),
             (r"(?i)\b(reach out to\s+.{3,40})(?:[.!?]|\n|$)", 0.8),
             (r"(?i)\b(ping\s+.{3,30})(?:[.!?]|\n|$)", 0.75),
-            (r"(?i)\b(circle back\s+(?:with|on|to)\s+.{3,50})(?:[.!?]|\n|$)", 0.85),
+            (
+                r"(?i)\b(circle back\s+(?:with|on|to)\s+.{3,50})(?:[.!?]|\n|$)",
+                0.85,
+            ),
             (r"(?i)\b(touch base with\s+.{3,40})(?:[.!?]|\n|$)", 0.85),
             (r"(?i)\b(sync(?:\s+up)? with\s+.{3,40})(?:[.!?]|\n|$)", 0.8),
-
             // Waiting patterns
             (r"(?i)\b(waiting (?:for|on)\s+.{3,60})(?:[.!?]|\n|$)", 0.85),
-            (r"(?i)\b(need\s+(?:response|reply|answer|feedback|input)\s+from\s+.{3,40})(?:[.!?]|\n|$)", 0.85),
-            (r"(?i)\b(pending\s+(?:response|reply|review|approval)\s+from\s+.{3,40})(?:[.!?]|\n|$)", 0.85),
+            (
+                r"(?i)\b(need\s+(?:response|reply|answer|feedback|input)\s+from\s+.{3,40})(?:[.!?]|\n|$)",
+                0.85,
+            ),
+            (
+                r"(?i)\b(pending\s+(?:response|reply|review|approval)\s+from\s+.{3,40})(?:[.!?]|\n|$)",
+                0.85,
+            ),
             (r"(?i)\b(awaiting\s+.{3,50})(?:[.!?]|\n|$)", 0.85),
-
             // Ask/request patterns
             (r"(?i)\b(ask\s+(?:\w+\s+)?to\s+.{5,50})(?:[.!?]|\n|$)", 0.8),
-            (r"(?i)\b(have\s+(?:\w+\s+)?(?:to\s+)?(?:review|check|look at|approve|sign off on)\s+.{3,50})(?:[.!?]|\n|$)", 0.75),
+            (
+                r"(?i)\b(have\s+(?:\w+\s+)?(?:to\s+)?(?:review|check|look at|approve|sign off on)\s+.{3,50})(?:[.!?]|\n|$)",
+                0.75,
+            ),
         ];
 
         patterns
@@ -272,14 +330,25 @@ impl ActionDetector {
     fn default_reminder_patterns() -> Vec<ReminderPattern> {
         let patterns = [
             // Explicit reminders
-            (r"(?i)\b((?:don't forget|remember|remind me)\s+to\s+.{5,60})(?:[.!?]|\n|$)", 0.9),
+            (
+                r"(?i)\b((?:don't forget|remember|remind me)\s+to\s+.{5,60})(?:[.!?]|\n|$)",
+                0.9,
+            ),
             (r"(?i)\b(make sure\s+(?:to\s+)?.{5,60})(?:[.!?]|\n|$)", 0.85),
-            (r"(?i)\b(note(?:\s+to\s+self)?:\s*.{5,80})(?:[.!?]|\n|$)", 0.85),
-            (r"(?i)(?:^|\n)\s*(?:NOTE|NB)\s*[:;]\s*(.{5,80})(?:\n|$)", 0.85),
+            (
+                r"(?i)\b(note(?:\s+to\s+self)?:\s*.{5,80})(?:[.!?]|\n|$)",
+                0.85,
+            ),
+            (
+                r"(?i)(?:^|\n)\s*(?:NOTE|NB)\s*[:;]\s*(.{5,80})(?:\n|$)",
+                0.85,
+            ),
             (r"(?i)\b(important:\s*.{5,80})(?:[.!?]|\n|$)", 0.8),
-
             // Don't/avoid patterns (negative reminders)
-            (r"(?i)\b(don't\s+(?:forget|miss|skip|overlook)\s+.{5,50})(?:[.!?]|\n|$)", 0.85),
+            (
+                r"(?i)\b(don't\s+(?:forget|miss|skip|overlook)\s+.{5,50})(?:[.!?]|\n|$)",
+                0.85,
+            ),
             (r"(?i)\b(be sure to\s+.{5,50})(?:[.!?]|\n|$)", 0.8),
         ];
 
@@ -352,7 +421,8 @@ impl ActionDetector {
                         // Minimum length check
                         let full_match = cap.get(0).unwrap();
                         // Include both the preceding context and the full match for priority detection
-                        let context = format!("{} {}", &text[..full_match.start()], full_match.as_str());
+                        let context =
+                            format!("{} {}", &text[..full_match.start()], full_match.as_str());
                         let priority = self.detect_priority(&description, &context);
                         let energy = Self::estimate_energy(&description);
 
@@ -537,26 +607,9 @@ impl ActionDetector {
 
         // Low energy tasks (routine, simple)
         let low_energy_words = [
-            "email",
-            "send",
-            "reply",
-            "forward",
-            "file",
-            "organize",
-            "sort",
-            "update",
-            "check",
-            "confirm",
-            "schedule",
-            "book",
-            "remind",
-            "note",
-            "log",
-            "record",
-            "approve",
-            "sign",
-            "submit",
-            "pay",
+            "email", "send", "reply", "forward", "file", "organize", "sort", "update", "check",
+            "confirm", "schedule", "book", "remind", "note", "log", "record", "approve", "sign",
+            "submit", "pay",
         ];
 
         for word in &high_energy_words {
@@ -666,7 +719,9 @@ mod tests {
         let actions = detector.detect(text);
 
         assert!(!actions.is_empty());
-        assert!(actions.iter().any(|a| a.action_type == ActionType::Task && a.description.contains("quarterly report")));
+        assert!(actions.iter().any(
+            |a| a.action_type == ActionType::Task && a.description.contains("quarterly report")
+        ));
         assert!(actions[0].confidence > 0.9);
     }
 
@@ -677,7 +732,8 @@ mod tests {
         let actions = detector.detect(text);
 
         // Should detect at least one checkbox task
-        let checkbox_tasks: Vec<_> = actions.iter()
+        let checkbox_tasks: Vec<_> = actions
+            .iter()
             .filter(|a| a.action_type == ActionType::Task)
             .collect();
         assert!(!checkbox_tasks.is_empty(), "Should detect checkbox tasks");
@@ -744,14 +800,26 @@ mod tests {
             .iter()
             .filter(|a| a.priority == Priority::Critical || a.priority == Priority::High)
             .collect();
-        assert!(!urgent.is_empty(), "Should detect urgent/high priority task");
+        assert!(
+            !urgent.is_empty(),
+            "Should detect urgent/high priority task"
+        );
     }
 
     #[test]
     fn test_estimate_energy() {
-        assert_eq!(ActionDetector::estimate_energy("design the new API"), EnergyLevel::High);
-        assert_eq!(ActionDetector::estimate_energy("send an email to John"), EnergyLevel::Low);
-        assert_eq!(ActionDetector::estimate_energy("do something"), EnergyLevel::Medium);
+        assert_eq!(
+            ActionDetector::estimate_energy("design the new API"),
+            EnergyLevel::High
+        );
+        assert_eq!(
+            ActionDetector::estimate_energy("send an email to John"),
+            EnergyLevel::Low
+        );
+        assert_eq!(
+            ActionDetector::estimate_energy("do something"),
+            EnergyLevel::Medium
+        );
     }
 
     #[test]
@@ -759,7 +827,10 @@ mod tests {
         // Test explicit pattern with "with"
         let result = ActionDetector::extract_person_name("follow up with John Smith");
         assert!(result.is_some(), "Should extract name from 'with' pattern");
-        assert!(result.unwrap().starts_with("John"), "Should extract John's name");
+        assert!(
+            result.unwrap().starts_with("John"),
+            "Should extract John's name"
+        );
 
         // Test pattern with "email"
         let result = ActionDetector::extract_person_name("email Sarah");

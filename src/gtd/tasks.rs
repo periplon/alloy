@@ -184,10 +184,12 @@ impl TaskManager {
 
     /// Get quick wins (2-minute tasks).
     pub async fn get_quick_wins(&self) -> Result<Vec<Task>> {
-        let tasks = self.list(TaskFilter {
-            status: Some(TaskStatus::Next),
-            ..Default::default()
-        }).await?;
+        let tasks = self
+            .list(TaskFilter {
+                status: Some(TaskStatus::Next),
+                ..Default::default()
+            })
+            .await?;
 
         Ok(tasks
             .into_iter()
@@ -197,10 +199,12 @@ impl TaskManager {
 
     /// Get overdue tasks.
     pub async fn get_overdue(&self) -> Result<Vec<Task>> {
-        let tasks = self.list(TaskFilter {
-            status: Some(TaskStatus::Next),
-            ..Default::default()
-        }).await?;
+        let tasks = self
+            .list(TaskFilter {
+                status: Some(TaskStatus::Next),
+                ..Default::default()
+            })
+            .await?;
 
         Ok(tasks.into_iter().filter(|t| t.is_overdue()).collect())
     }
@@ -211,7 +215,8 @@ impl TaskManager {
             contexts: vec![context.to_string()],
             status: Some(TaskStatus::Next),
             ..Default::default()
-        }).await
+        })
+        .await
     }
 
     /// Get tasks for a specific project.
@@ -219,7 +224,8 @@ impl TaskManager {
         self.list(TaskFilter {
             project_id: Some(project_id.to_string()),
             ..Default::default()
-        }).await
+        })
+        .await
     }
 
     // Helper methods
@@ -309,7 +315,10 @@ impl TaskManager {
         if let Some(ref energy) = params.energy_level {
             if task.energy_level == *energy {
                 score += 20.0;
-                reasons.push(format!("Matches your {} energy level", format!("{:?}", energy).to_lowercase()));
+                reasons.push(format!(
+                    "Matches your {} energy level",
+                    format!("{:?}", energy).to_lowercase()
+                ));
             } else if *energy == EnergyLevel::Low && task.energy_level == EnergyLevel::Medium {
                 // Medium tasks are ok when low energy
                 score += 5.0;
@@ -584,5 +593,4 @@ mod tests {
         assert_eq!(quick.len(), 1);
         assert_eq!(quick[0].description, "Quick");
     }
-
 }

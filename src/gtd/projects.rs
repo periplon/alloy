@@ -7,9 +7,7 @@ use std::sync::Arc;
 use tokio::sync::RwLock;
 
 use crate::error::Result;
-use crate::gtd::types::{
-    Project, ProjectFilter, ProjectHealth, ProjectStatus, Task,
-};
+use crate::gtd::types::{Project, ProjectFilter, ProjectHealth, ProjectStatus, Task};
 use crate::ontology::{
     EmbeddedOntologyStore, Entity, EntityFilter, EntityType, EntityUpdate, OntologyStore,
     RelationType, Relationship,
@@ -66,9 +64,7 @@ impl ProjectManager {
         let entity = store.get_entity(id).await?;
 
         match entity {
-            Some(e) if e.entity_type == EntityType::Project => {
-                Self::entity_to_project(&e)
-            }
+            Some(e) if e.entity_type == EntityType::Project => Self::entity_to_project(&e),
             _ => Ok(None),
         }
     }
@@ -154,7 +150,8 @@ impl ProjectManager {
         let recent_activity = project.updated_at > (Utc::now() - Duration::days(7));
 
         // Check for clear outcome
-        let clear_outcome = project.outcome.is_some() && !project.outcome.as_ref().unwrap().is_empty();
+        let clear_outcome =
+            project.outcome.is_some() && !project.outcome.as_ref().unwrap().is_empty();
 
         // Check for reasonable scope (max 20 tasks)
         let tasks = self.get_tasks_for_project(&store, id).await?;
@@ -182,7 +179,8 @@ impl ProjectManager {
             status: Some(ProjectStatus::Active),
             stalled_days: Some(days),
             ..Default::default()
-        }).await
+        })
+        .await
     }
 
     /// Get projects without a next action.
@@ -191,7 +189,8 @@ impl ProjectManager {
             status: Some(ProjectStatus::Active),
             has_next_action: Some(false),
             ..Default::default()
-        }).await
+        })
+        .await
     }
 
     /// Archive a project.
@@ -227,7 +226,12 @@ impl ProjectManager {
 
     // Helper methods
 
-    async fn link_to_area(&self, store: &EmbeddedOntologyStore, project_id: &str, area: &str) -> Result<()> {
+    async fn link_to_area(
+        &self,
+        store: &EmbeddedOntologyStore,
+        project_id: &str,
+        area: &str,
+    ) -> Result<()> {
         // Find or create the area entity
         let area_entities = store.find_entities_by_name(area, 1).await?;
         let area_id = if let Some(area_entity) = area_entities.first() {
@@ -244,7 +248,12 @@ impl ProjectManager {
         Ok(())
     }
 
-    async fn link_to_goal(&self, store: &EmbeddedOntologyStore, project_id: &str, goal: &str) -> Result<()> {
+    async fn link_to_goal(
+        &self,
+        store: &EmbeddedOntologyStore,
+        project_id: &str,
+        goal: &str,
+    ) -> Result<()> {
         // Find or create the goal entity
         let goal_entities = store.find_entities_by_name(goal, 1).await?;
         let goal_id = if let Some(goal_entity) = goal_entities.first() {
@@ -261,7 +270,11 @@ impl ProjectManager {
         Ok(())
     }
 
-    async fn get_tasks_for_project(&self, store: &EmbeddedOntologyStore, project_id: &str) -> Result<Vec<Task>> {
+    async fn get_tasks_for_project(
+        &self,
+        store: &EmbeddedOntologyStore,
+        project_id: &str,
+    ) -> Result<Vec<Task>> {
         // Get all relationships where tasks belong to this project
         let relationships = store.get_relationships_to(project_id).await?;
 
@@ -340,8 +353,7 @@ mod tests {
     async fn test_create_and_get_project() {
         let manager = create_test_manager().await;
 
-        let project = Project::new("Test Project")
-            .with_outcome("Complete the test");
+        let project = Project::new("Test Project").with_outcome("Complete the test");
 
         let created = manager.create(project.clone()).await.unwrap();
         assert_eq!(created.name, "Test Project");
@@ -377,8 +389,7 @@ mod tests {
     async fn test_project_health() {
         let manager = create_test_manager().await;
 
-        let project = Project::new("Test")
-            .with_outcome("Clear outcome");
+        let project = Project::new("Test").with_outcome("Clear outcome");
         let created = manager.create(project).await.unwrap();
 
         let health = manager.get_health(&created.id).await.unwrap();

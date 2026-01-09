@@ -44,7 +44,8 @@ impl WaitingManager {
         store.create_entity(entity).await?;
 
         // Create relationship to person
-        self.link_to_person(&store, &item.id, &item.delegated_to).await?;
+        self.link_to_person(&store, &item.id, &item.delegated_to)
+            .await?;
 
         // Create relationship to project if specified
         if let Some(ref project_id) = item.project_id {
@@ -152,7 +153,8 @@ impl WaitingManager {
         self.list(WaitingFilter {
             overdue_only: true,
             ..Default::default()
-        }).await
+        })
+        .await
     }
 
     /// Get waiting items for a specific person.
@@ -161,7 +163,8 @@ impl WaitingManager {
             delegated_to: Some(person.to_string()),
             status: Some(WaitingStatus::Pending),
             ..Default::default()
-        }).await
+        })
+        .await
     }
 
     /// Get waiting items for a specific project.
@@ -169,15 +172,18 @@ impl WaitingManager {
         self.list(WaitingFilter {
             project_id: Some(project_id.to_string()),
             ..Default::default()
-        }).await
+        })
+        .await
     }
 
     /// Get all pending waiting items that need follow-up.
     pub async fn get_needing_follow_up(&self, days_since_last: i64) -> Result<Vec<WaitingFor>> {
-        let items = self.list(WaitingFilter {
-            status: Some(WaitingStatus::Pending),
-            ..Default::default()
-        }).await?;
+        let items = self
+            .list(WaitingFilter {
+                status: Some(WaitingStatus::Pending),
+                ..Default::default()
+            })
+            .await?;
 
         let threshold = Utc::now() - chrono::Duration::days(days_since_last);
 
@@ -219,10 +225,7 @@ impl WaitingManager {
         }
 
         // Filter overdue only
-        if filter.overdue_only
-            && !item.is_overdue()
-            && item.status != WaitingStatus::Overdue
-        {
+        if filter.overdue_only && !item.is_overdue() && item.status != WaitingStatus::Overdue {
             return false;
         }
 

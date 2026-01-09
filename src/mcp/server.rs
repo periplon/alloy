@@ -3183,7 +3183,9 @@ impl AlloyServer {
                     Ok(Some(project)) => {
                         GtdProjectsResponse::success_single(project, "Project retrieved")
                     }
-                    Ok(None) => GtdProjectsResponse::error(format!("Project not found: {}", project_id)),
+                    Ok(None) => {
+                        GtdProjectsResponse::error(format!("Project not found: {}", project_id))
+                    }
                     Err(e) => GtdProjectsResponse::error(format!("Failed to get project: {}", e)),
                 }
             }
@@ -3202,11 +3204,12 @@ impl AlloyServer {
                     project = project.with_goal(goal);
                 }
                 match manager.create(project).await {
-                    Ok(created) => GtdProjectsResponse::success_single(
-                        created,
-                        "Project created successfully",
-                    ),
-                    Err(e) => GtdProjectsResponse::error(format!("Failed to create project: {}", e)),
+                    Ok(created) => {
+                        GtdProjectsResponse::success_single(created, "Project created successfully")
+                    }
+                    Err(e) => {
+                        GtdProjectsResponse::error(format!("Failed to create project: {}", e))
+                    }
                 }
             }
             ProjectAction::Update => {
@@ -3231,11 +3234,17 @@ impl AlloyServer {
                             project.status = status;
                         }
                         match manager.update(&project_id, project).await {
-                            Ok(updated) => GtdProjectsResponse::success_single(updated, "Project updated"),
-                            Err(e) => GtdProjectsResponse::error(format!("Failed to update: {}", e)),
+                            Ok(updated) => {
+                                GtdProjectsResponse::success_single(updated, "Project updated")
+                            }
+                            Err(e) => {
+                                GtdProjectsResponse::error(format!("Failed to update: {}", e))
+                            }
                         }
                     }
-                    Ok(None) => GtdProjectsResponse::error(format!("Project not found: {}", project_id)),
+                    Ok(None) => {
+                        GtdProjectsResponse::error(format!("Project not found: {}", project_id))
+                    }
                     Err(e) => GtdProjectsResponse::error(format!("Failed to get project: {}", e)),
                 }
             }
@@ -3247,7 +3256,9 @@ impl AlloyServer {
                     Ok(Some(project)) => {
                         GtdProjectsResponse::success_single(project, "Project archived")
                     }
-                    Ok(None) => GtdProjectsResponse::error(format!("Project not found: {}", project_id)),
+                    Ok(None) => {
+                        GtdProjectsResponse::error(format!("Project not found: {}", project_id))
+                    }
                     Err(e) => GtdProjectsResponse::error(format!("Failed to archive: {}", e)),
                 }
             }
@@ -3259,7 +3270,9 @@ impl AlloyServer {
                     Ok(Some(project)) => {
                         GtdProjectsResponse::success_single(project, "Project completed")
                     }
-                    Ok(None) => GtdProjectsResponse::error(format!("Project not found: {}", project_id)),
+                    Ok(None) => {
+                        GtdProjectsResponse::error(format!("Project not found: {}", project_id))
+                    }
                     Err(e) => GtdProjectsResponse::error(format!("Failed to complete: {}", e)),
                 }
             }
@@ -3268,12 +3281,15 @@ impl AlloyServer {
                     McpError::invalid_params("project_id is required for 'health' action", None)
                 })?;
                 match manager.get_health(&project_id).await {
-                    Ok(Some(health)) => GtdProjectsResponse::success_health(
-                        health,
-                        "Project health calculated",
-                    ),
-                    Ok(None) => GtdProjectsResponse::error(format!("Project not found: {}", project_id)),
-                    Err(e) => GtdProjectsResponse::error(format!("Failed to calculate health: {}", e)),
+                    Ok(Some(health)) => {
+                        GtdProjectsResponse::success_health(health, "Project health calculated")
+                    }
+                    Ok(None) => {
+                        GtdProjectsResponse::error(format!("Project not found: {}", project_id))
+                    }
+                    Err(e) => {
+                        GtdProjectsResponse::error(format!("Failed to calculate health: {}", e))
+                    }
                 }
             }
         };
@@ -3392,7 +3408,9 @@ impl AlloyServer {
                             task.priority = priority;
                         }
                         match manager.update(&task_id, task).await {
-                            Ok(updated) => GtdTasksResponse::success_single(updated, "Task updated"),
+                            Ok(updated) => {
+                                GtdTasksResponse::success_single(updated, "Task updated")
+                            }
                             Err(e) => GtdTasksResponse::error(format!("Failed to update: {}", e)),
                         }
                     }
@@ -3439,27 +3457,25 @@ impl AlloyServer {
                         recs.clone(),
                         format!("{} recommendations", recs.len()),
                     ),
-                    Err(e) => GtdTasksResponse::error(format!("Failed to get recommendations: {}", e)),
+                    Err(e) => {
+                        GtdTasksResponse::error(format!("Failed to get recommendations: {}", e))
+                    }
                 }
             }
-            TaskAction::QuickWins => {
-                match manager.get_quick_wins().await {
-                    Ok(tasks) => GtdTasksResponse::success_list(
-                        tasks.clone(),
-                        format!("{} quick wins (≤2 min)", tasks.len()),
-                    ),
-                    Err(e) => GtdTasksResponse::error(format!("Failed to get quick wins: {}", e)),
-                }
-            }
-            TaskAction::Overdue => {
-                match manager.get_overdue().await {
-                    Ok(tasks) => GtdTasksResponse::success_list(
-                        tasks.clone(),
-                        format!("{} overdue tasks", tasks.len()),
-                    ),
-                    Err(e) => GtdTasksResponse::error(format!("Failed to get overdue: {}", e)),
-                }
-            }
+            TaskAction::QuickWins => match manager.get_quick_wins().await {
+                Ok(tasks) => GtdTasksResponse::success_list(
+                    tasks.clone(),
+                    format!("{} quick wins (≤2 min)", tasks.len()),
+                ),
+                Err(e) => GtdTasksResponse::error(format!("Failed to get quick wins: {}", e)),
+            },
+            TaskAction::Overdue => match manager.get_overdue().await {
+                Ok(tasks) => GtdTasksResponse::success_list(
+                    tasks.clone(),
+                    format!("{} overdue tasks", tasks.len()),
+                ),
+                Err(e) => GtdTasksResponse::error(format!("Failed to get overdue: {}", e)),
+            },
         };
 
         Ok(CallToolResult::success(vec![Content::text(
@@ -3529,7 +3545,9 @@ impl AlloyServer {
                     item = item.with_expected_by(expected);
                 }
                 match manager.create(item).await {
-                    Ok(created) => GtdWaitingResponse::success_single(created, "Waiting item added"),
+                    Ok(created) => {
+                        GtdWaitingResponse::success_single(created, "Waiting item added")
+                    }
                     Err(e) => GtdWaitingResponse::error(format!("Failed to add: {}", e)),
                 }
             }
@@ -3538,7 +3556,9 @@ impl AlloyServer {
                     McpError::invalid_params("item_id is required for 'follow_up' action", None)
                 })?;
                 match manager.record_follow_up(&item_id).await {
-                    Ok(Some(item)) => GtdWaitingResponse::success_single(item, "Follow-up recorded"),
+                    Ok(Some(item)) => {
+                        GtdWaitingResponse::success_single(item, "Follow-up recorded")
+                    }
                     Ok(None) => GtdWaitingResponse::error(format!("Item not found: {}", item_id)),
                     Err(e) => GtdWaitingResponse::error(format!("Failed to record: {}", e)),
                 }
@@ -3554,15 +3574,13 @@ impl AlloyServer {
                     Err(e) => GtdWaitingResponse::error(format!("Failed to resolve: {}", e)),
                 }
             }
-            WaitingAction::Overdue => {
-                match manager.get_overdue().await {
-                    Ok(items) => GtdWaitingResponse::success_list(
-                        items.clone(),
-                        format!("{} overdue items", items.len()),
-                    ),
-                    Err(e) => GtdWaitingResponse::error(format!("Failed to get overdue: {}", e)),
-                }
-            }
+            WaitingAction::Overdue => match manager.get_overdue().await {
+                Ok(items) => GtdWaitingResponse::success_list(
+                    items.clone(),
+                    format!("{} overdue items", items.len()),
+                ),
+                Err(e) => GtdWaitingResponse::error(format!("Failed to get overdue: {}", e)),
+            },
         };
 
         Ok(CallToolResult::success(vec![Content::text(
@@ -3653,7 +3671,9 @@ impl AlloyServer {
                             item.review_date = Some(review);
                         }
                         match manager.update(&item_id, item).await {
-                            Ok(updated) => GtdSomedayResponse::success_single(updated, "Item updated"),
+                            Ok(updated) => {
+                                GtdSomedayResponse::success_single(updated, "Item updated")
+                            }
                             Err(e) => GtdSomedayResponse::error(format!("Failed to update: {}", e)),
                         }
                     }
@@ -3691,24 +3711,20 @@ impl AlloyServer {
                     Err(e) => GtdSomedayResponse::error(format!("Failed to archive: {}", e)),
                 }
             }
-            SomedayAction::Categories => {
-                match manager.get_categories().await {
-                    Ok(cats) => GtdSomedayResponse::success_categories(
-                        cats.clone(),
-                        format!("{} categories", cats.len()),
-                    ),
-                    Err(e) => GtdSomedayResponse::error(format!("Failed to get categories: {}", e)),
-                }
-            }
-            SomedayAction::DueForReview => {
-                match manager.get_due_for_review().await {
-                    Ok(items) => GtdSomedayResponse::success_list(
-                        items.clone(),
-                        format!("{} items due for review", items.len()),
-                    ),
-                    Err(e) => GtdSomedayResponse::error(format!("Failed to get: {}", e)),
-                }
-            }
+            SomedayAction::Categories => match manager.get_categories().await {
+                Ok(cats) => GtdSomedayResponse::success_categories(
+                    cats.clone(),
+                    format!("{} categories", cats.len()),
+                ),
+                Err(e) => GtdSomedayResponse::error(format!("Failed to get categories: {}", e)),
+            },
+            SomedayAction::DueForReview => match manager.get_due_for_review().await {
+                Ok(items) => GtdSomedayResponse::success_list(
+                    items.clone(),
+                    format!("{} items due for review", items.len()),
+                ),
+                Err(e) => GtdSomedayResponse::error(format!("Failed to get: {}", e)),
+            },
         };
 
         Ok(CallToolResult::success(vec![Content::text(

@@ -6,31 +6,37 @@
 //! - **Tasks**: Single next actions
 //! - **Waiting For**: Delegated items
 //! - **Someday/Maybe**: Deferred items for future consideration
+//! - **Inbox Processing**: Intelligent classification of new items
+//! - **Recommendations**: Context and energy-aware task suggestions
+//! - **Weekly Review**: Comprehensive GTD system review
 //!
 //! # Architecture
 //!
 //! ```text
-//! ┌─────────────────────────────────────────────────────────┐
-//! │                     GTD Layer                            │
-//! │  ┌───────────────┐ ┌───────────────┐ ┌───────────────┐  │
-//! │  │ ProjectManager│ │  TaskManager  │ │WaitingManager │  │
-//! │  └───────────────┘ └───────────────┘ └───────────────┘  │
-//! │  ┌───────────────┐                                      │
-//! │  │SomedayManager │                                      │
-//! │  └───────────────┘                                      │
-//! │                           │                              │
-//! │                           ▼                              │
-//! │  ┌─────────────────────────────────────────────────────┐│
-//! │  │              Ontology Store                         ││
-//! │  │  (Entities: Project, Task, WaitingFor, SomedayMaybe)││
-//! │  └─────────────────────────────────────────────────────┘│
-//! └─────────────────────────────────────────────────────────┘
+//! ┌─────────────────────────────────────────────────────────────┐
+//! │                     GTD Layer                                │
+//! │  ┌───────────────┐ ┌───────────────┐ ┌───────────────┐      │
+//! │  │ ProjectManager│ │  TaskManager  │ │WaitingManager │      │
+//! │  └───────────────┘ └───────────────┘ └───────────────┘      │
+//! │  ┌───────────────┐ ┌───────────────┐ ┌───────────────┐      │
+//! │  │SomedayManager │ │ InboxManager  │ │ ReviewManager │      │
+//! │  └───────────────┘ └───────────────┘ └───────────────┘      │
+//! │  ┌─────────────────────────────────────────────────────────┐│
+//! │  │           RecommendationEngine                          ││
+//! │  └─────────────────────────────────────────────────────────┘│
+//! │                           │                                  │
+//! │                           ▼                                  │
+//! │  ┌─────────────────────────────────────────────────────────┐│
+//! │  │              Ontology Store                              ││
+//! │  │  (Entities: Project, Task, WaitingFor, SomedayMaybe)    ││
+//! │  └─────────────────────────────────────────────────────────┘│
+//! └─────────────────────────────────────────────────────────────┘
 //! ```
 //!
 //! # Usage
 //!
 //! ```ignore
-//! use alloy::gtd::{ProjectManager, TaskManager, Project, Task};
+//! use alloy::gtd::{ProjectManager, TaskManager, Project, Task, InboxManager, ReviewManager};
 //! use std::sync::Arc;
 //! use tokio::sync::RwLock;
 //!
@@ -38,6 +44,8 @@
 //! let store = Arc::new(RwLock::new(EmbeddedOntologyStore::new()));
 //! let projects = ProjectManager::new(store.clone());
 //! let tasks = TaskManager::new(store.clone());
+//! let inbox = InboxManager::new(store.clone());
+//! let review = ReviewManager::new(store.clone());
 //!
 //! // Create a project
 //! let project = Project::new("Website Redesign")
@@ -56,15 +64,41 @@
 //!     energy_level: Some(EnergyLevel::High),
 //!     ..Default::default()
 //! }).await?;
+//!
+//! // Process inbox items
+//! let result = inbox.process(ProcessInboxParams::default()).await?;
+//!
+//! // Generate weekly review
+//! let report = review.generate_weekly_review(WeeklyReviewParams::default()).await?;
 //! ```
 
+pub mod inbox;
 mod projects;
+pub mod recommend;
+pub mod review;
 mod someday;
 mod tasks;
 pub mod types;
 mod waiting;
 
+pub use inbox::{
+    ClassificationResult, InboxItem, InboxManager, ProcessInboxParams, ProcessInboxResponse,
+    ProcessingSummary, ProjectSuggestion, SuggestedGtdType,
+};
 pub use projects::ProjectManager;
+// The recommend module provides an advanced recommendation engine.
+// Use recommend::RecommendParams (not types::RecommendParams) for the full engine.
+pub use recommend::RecommendParams as AdvancedRecommendParams;
+pub use recommend::TaskRecommendation as DetailedTaskRecommendation;
+pub use recommend::{
+    RecommendContext, RecommendResponse, RecommendationEngine, ScoreBreakdown, ScoreWeights,
+};
+pub use review::{
+    AreaStatus, AreasSummary, CompletedTasksSummary, HealthRating, InboxStatus, ProjectWithHealth,
+    ProjectsSummary, Recommendation, ReviewManager, ReviewPeriod, ReviewSection,
+    SomedayMaybeSummary, SystemHealth, SystemHealthFactors, UpcomingDeadline, UpcomingSummary,
+    WaitingForSummary, WeeklyReviewParams, WeeklyReviewReport,
+};
 pub use someday::SomedayManager;
 pub use tasks::TaskManager;
 pub use types::*;

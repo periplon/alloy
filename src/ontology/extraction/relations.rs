@@ -120,7 +120,6 @@ impl RelationExtractor {
                 0.7,
                 true,
             ),
-
             // AuthoredBy patterns
             (
                 r"(?i)(?:written|authored|created|by)\s+(\b[A-Z][a-z]+(?:\s+[A-Z][a-z]+)*)",
@@ -128,7 +127,6 @@ impl RelationExtractor {
                 0.8,
                 false,
             ),
-
             // Mentions patterns
             (
                 r"(?i)(?:mentioned|discussed|talked about|regarding)\s+(\b[A-Z][a-z]+(?:\s+[A-Z][a-z]+)*)",
@@ -136,7 +134,6 @@ impl RelationExtractor {
                 0.75,
                 false,
             ),
-
             // BelongsToProject patterns
             (
                 r"(?i)(\b[A-Z][a-z]+(?:\s+[A-Z][a-z]+)*)\s+(?:for|on|in)\s+(?:the\s+)?(\b[A-Z][a-z]+(?:\s+[A-Z][a-z]+)*)\s+project",
@@ -144,7 +141,6 @@ impl RelationExtractor {
                 0.8,
                 true,
             ),
-
             // WaitingOn patterns
             (
                 r"(?i)waiting\s+(?:for|on)\s+(\b[A-Z][a-z]+(?:\s+[A-Z][a-z]+)*)",
@@ -158,7 +154,6 @@ impl RelationExtractor {
                 0.85,
                 false,
             ),
-
             // DelegatedTo patterns
             (
                 r"(?i)(?:assigned|delegated|given)\s+to\s+(\b[A-Z][a-z]+(?:\s+[A-Z][a-z]+)*)",
@@ -172,7 +167,6 @@ impl RelationExtractor {
                 0.75,
                 true,
             ),
-
             // LocatedAt patterns
             (
                 r"(?i)(\b[A-Z][a-z]+(?:\s+[A-Z][a-z]+)*)\s+(?:is\s+)?(?:in|at|located\s+(?:in|at))\s+(\b[A-Z][a-z]+(?:\s+[A-Z][a-z]+)*)",
@@ -180,7 +174,6 @@ impl RelationExtractor {
                 0.7,
                 true,
             ),
-
             // AboutTopic patterns
             (
                 r"(?i)(?:about|regarding|concerning|related to)\s+(\b[A-Z][a-z]+(?:\s+[A-Z][a-z]+)*)",
@@ -188,7 +181,6 @@ impl RelationExtractor {
                 0.7,
                 false,
             ),
-
             // PartOf patterns
             (
                 r"(?i)(\b[A-Z][a-z]+(?:\s+[A-Z][a-z]+)*)\s+(?:is\s+)?(?:part of|belongs to|member of)\s+(\b[A-Z][a-z]+(?:\s+[A-Z][a-z]+)*)",
@@ -196,7 +188,6 @@ impl RelationExtractor {
                 0.8,
                 true,
             ),
-
             // References patterns
             (
                 r"(?i)(?:see|refer to|check|review)\s+(\b[A-Z][a-z]+(?:\s+[A-Z][a-z]+)*)",
@@ -204,7 +195,6 @@ impl RelationExtractor {
                 0.7,
                 false,
             ),
-
             // DependsOn patterns
             (
                 r"(?i)(?:depends on|requires|needs|blocked by)\s+(\b[A-Z][a-z]+(?:\s+[A-Z][a-z]+)*)",
@@ -212,7 +202,6 @@ impl RelationExtractor {
                 0.8,
                 false,
             ),
-
             // SupportsGoal patterns
             (
                 r"(?i)(?:supports?|contributes? to|helps? with)\s+(\b[A-Z][a-z]+(?:\s+[A-Z][a-z]+)*)\s+goal",
@@ -220,7 +209,6 @@ impl RelationExtractor {
                 0.75,
                 false,
             ),
-
             // HasContext patterns
             (
                 r"(?i)@(home|work|phone|computer|office|errand|anywhere)\b",
@@ -275,11 +263,12 @@ impl RelationExtractor {
                         // Extract text between entities for context
                         let context_start = (*end_a).min(*end_b);
                         let context_end = (*start_a).max(*start_b);
-                        let source_text = if context_end > context_start && context_end <= text.len() {
-                            Some(text[context_start..context_end].to_string())
-                        } else {
-                            None
-                        };
+                        let source_text =
+                            if context_end > context_start && context_end <= text.len() {
+                                Some(text[context_start..context_end].to_string())
+                            } else {
+                                None
+                            };
 
                         candidates.push(RelationshipCandidate {
                             source_entity_id: entity_a.id.clone(),
@@ -356,7 +345,8 @@ impl RelationExtractor {
             (_, EntityType::Topic) => Some((RelationType::AboutTopic, 0.5 * distance_factor)),
 
             // Entity + Date -> ScheduledFor or DueOn
-            (EntityType::Task, EntityType::Date) | (EntityType::CalendarEvent, EntityType::Date) => {
+            (EntityType::Task, EntityType::Date)
+            | (EntityType::CalendarEvent, EntityType::Date) => {
                 Some((RelationType::ScheduledFor, 0.6 * distance_factor))
             }
 
@@ -475,10 +465,7 @@ impl SemanticRelationExtractor {
     }
 
     /// Find semantically related entity pairs.
-    pub fn find_related_pairs(
-        &self,
-        entities: &[Entity],
-    ) -> Vec<RelationshipCandidate> {
+    pub fn find_related_pairs(&self, entities: &[Entity]) -> Vec<RelationshipCandidate> {
         let mut candidates = Vec::new();
 
         for i in 0..entities.len() {
@@ -549,14 +536,19 @@ mod tests {
         let text = "John Smith works at Acme Corp. He is a great developer.";
 
         let entities = vec![
-            (make_entity("1", "John Smith", EntityType::Person), 0usize, 10usize),
-            (make_entity("2", "Acme Corp", EntityType::Organization), 20usize, 29usize),
+            (
+                make_entity("1", "John Smith", EntityType::Person),
+                0usize,
+                10usize,
+            ),
+            (
+                make_entity("2", "Acme Corp", EntityType::Organization),
+                20usize,
+                29usize,
+            ),
         ];
 
-        let entity_refs: Vec<_> = entities
-            .iter()
-            .map(|(e, s, end)| (e, *s, *end))
-            .collect();
+        let entity_refs: Vec<_> = entities.iter().map(|(e, s, end)| (e, *s, *end)).collect();
 
         let candidates = extractor.extract_from_cooccurrence(text, &entity_refs);
 
@@ -633,8 +625,7 @@ mod tests {
                 .with_embedding(vec![1.0, 0.0, 0.0]),
             make_entity("2", "Deep Learning", EntityType::Topic)
                 .with_embedding(vec![0.95, 0.1, 0.0]),
-            make_entity("3", "Cooking", EntityType::Topic)
-                .with_embedding(vec![0.0, 1.0, 0.0]),
+            make_entity("3", "Cooking", EntityType::Topic).with_embedding(vec![0.0, 1.0, 0.0]),
         ];
 
         let candidates = extractor.find_related_pairs(&entities);
@@ -648,9 +639,9 @@ mod tests {
         });
         assert!(ml_dl_related);
 
-        let _cooking_related = candidates.iter().any(|c| {
-            c.source_entity_id == "3" || c.target_entity_id == "3"
-        });
+        let _cooking_related = candidates
+            .iter()
+            .any(|c| c.source_entity_id == "3" || c.target_entity_id == "3");
         // Cooking should not be related (similarity < threshold)
         // Note: This depends on threshold, with 0.7 it shouldn't be related
     }
@@ -663,7 +654,11 @@ mod tests {
         let text = "John at Acme Corp";
         let entities_close = vec![
             (make_entity("1", "John", EntityType::Person), 0usize, 4usize),
-            (make_entity("2", "Acme Corp", EntityType::Organization), 8usize, 17usize),
+            (
+                make_entity("2", "Acme Corp", EntityType::Organization),
+                8usize,
+                17usize,
+            ),
         ];
 
         let entity_refs: Vec<_> = entities_close
@@ -677,7 +672,11 @@ mod tests {
         let text_far = "John said something interesting. After a long time Acme Corp responded.";
         let entities_far = vec![
             (make_entity("1", "John", EntityType::Person), 0usize, 4usize),
-            (make_entity("2", "Acme Corp", EntityType::Organization), 50usize, 59usize),
+            (
+                make_entity("2", "Acme Corp", EntityType::Organization),
+                50usize,
+                59usize,
+            ),
         ];
 
         let entity_refs: Vec<_> = entities_far
@@ -732,8 +731,6 @@ mod tests {
         );
 
         // Opposite vectors
-        assert!(
-            SemanticRelationExtractor::cosine_similarity(&[1.0, 0.0], &[-1.0, 0.0]) < 0.0
-        );
+        assert!(SemanticRelationExtractor::cosine_similarity(&[1.0, 0.0], &[-1.0, 0.0]) < 0.0);
     }
 }

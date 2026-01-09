@@ -196,7 +196,8 @@ impl ProjectHealth {
         if reasonable_scope {
             score += 15.0;
         } else {
-            recommendations.push("Consider breaking this project into smaller projects".to_string());
+            recommendations
+                .push("Consider breaking this project into smaller projects".to_string());
         }
 
         if no_blockers {
@@ -839,19 +840,17 @@ mod tests {
     #[test]
     fn test_project_health() {
         let health = ProjectHealth::calculate(
-            true,  // has_next_action
-            true,  // recent_activity
-            true,  // clear_outcome
-            true,  // reasonable_scope
-            true,  // no_blockers
-            true,  // linked_to_goal
+            true, // has_next_action
+            true, // recent_activity
+            true, // clear_outcome
+            true, // reasonable_scope
+            true, // no_blockers
+            true, // linked_to_goal
         );
         assert_eq!(health.score, 100.0);
         assert!(health.recommendations.is_empty());
 
-        let unhealthy = ProjectHealth::calculate(
-            false, false, false, false, false, false,
-        );
+        let unhealthy = ProjectHealth::calculate(false, false, false, false, false, false);
         assert_eq!(unhealthy.score, 0.0);
         assert!(!unhealthy.recommendations.is_empty());
     }

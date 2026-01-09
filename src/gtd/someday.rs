@@ -125,8 +125,7 @@ impl SomedayManager {
         let store = self.store.read().await;
 
         // Create a new task from the someday item
-        let task = Task::new(&item.description)
-            .with_status(TaskStatus::Next);
+        let task = Task::new(&item.description).with_status(TaskStatus::Next);
 
         // Create task entity
         let mut entity = Entity::new(EntityType::Task, &task.description)
@@ -148,7 +147,8 @@ impl SomedayManager {
         self.list(SomedayFilter {
             due_for_review: true,
             ..Default::default()
-        }).await
+        })
+        .await
     }
 
     /// Get items by category.
@@ -156,17 +156,15 @@ impl SomedayManager {
         self.list(SomedayFilter {
             category: Some(category.to_string()),
             ..Default::default()
-        }).await
+        })
+        .await
     }
 
     /// Get all unique categories.
     pub async fn get_categories(&self) -> Result<Vec<String>> {
         let items = self.list(SomedayFilter::default()).await?;
 
-        let mut categories: Vec<String> = items
-            .into_iter()
-            .filter_map(|i| i.category)
-            .collect();
+        let mut categories: Vec<String> = items.into_iter().filter_map(|i| i.category).collect();
 
         categories.sort();
         categories.dedup();
@@ -246,8 +244,7 @@ mod tests {
     async fn test_create_and_get_someday() {
         let manager = create_test_manager().await;
 
-        let item = SomedayItem::new("Learn Rust")
-            .with_category("Learning");
+        let item = SomedayItem::new("Learn Rust").with_category("Learning");
 
         let created = manager.create(item.clone()).await.unwrap();
         assert_eq!(created.description, "Learn Rust");

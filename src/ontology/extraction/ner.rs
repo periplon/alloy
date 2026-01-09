@@ -221,7 +221,9 @@ impl LocalNerExtractor {
         for cap in self.url_pattern.captures_iter(text) {
             let m = cap.get(0).unwrap();
             // Clean up trailing punctuation
-            let url = m.as_str().trim_end_matches(&['.', ',', ')', ']', '!', '?'][..]);
+            let url = m
+                .as_str()
+                .trim_end_matches(&['.', ',', ')', ']', '!', '?'][..]);
             entities.push(NamedEntity {
                 text: url.to_string(),
                 entity_type: NamedEntityType::Url,
@@ -307,15 +309,91 @@ impl LocalNerExtractor {
 
         // Skip words that are definitely not names
         let skip_words: std::collections::HashSet<&str> = [
-            "The", "This", "That", "These", "Those", "What", "Which", "Where", "When", "Why",
-            "How", "Who", "Whom", "I", "We", "You", "He", "She", "It", "They", "Monday", "Tuesday",
-            "Wednesday", "Thursday", "Friday", "Saturday", "Sunday", "January", "February",
-            "March", "April", "May", "June", "July", "August", "September", "October", "November",
-            "December", "Today", "Tomorrow", "Yesterday", "Next", "Last", "Every", "All", "Some",
-            "Any", "Each", "First", "Second", "Third", "New", "Old", "Good", "Bad", "Best",
-            "Worst", "Dear", "Hi", "Hello", "Thanks", "Thank", "Please", "Note", "Action",
-            "Todo", "Task", "Item", "Important", "Urgent", "Meeting", "Call", "Email", "Phone",
-            "But", "And", "For", "With", "From", "About", "After", "Before", "During", "Until",
+            "The",
+            "This",
+            "That",
+            "These",
+            "Those",
+            "What",
+            "Which",
+            "Where",
+            "When",
+            "Why",
+            "How",
+            "Who",
+            "Whom",
+            "I",
+            "We",
+            "You",
+            "He",
+            "She",
+            "It",
+            "They",
+            "Monday",
+            "Tuesday",
+            "Wednesday",
+            "Thursday",
+            "Friday",
+            "Saturday",
+            "Sunday",
+            "January",
+            "February",
+            "March",
+            "April",
+            "May",
+            "June",
+            "July",
+            "August",
+            "September",
+            "October",
+            "November",
+            "December",
+            "Today",
+            "Tomorrow",
+            "Yesterday",
+            "Next",
+            "Last",
+            "Every",
+            "All",
+            "Some",
+            "Any",
+            "Each",
+            "First",
+            "Second",
+            "Third",
+            "New",
+            "Old",
+            "Good",
+            "Bad",
+            "Best",
+            "Worst",
+            "Dear",
+            "Hi",
+            "Hello",
+            "Thanks",
+            "Thank",
+            "Please",
+            "Note",
+            "Action",
+            "Todo",
+            "Task",
+            "Item",
+            "Important",
+            "Urgent",
+            "Meeting",
+            "Call",
+            "Email",
+            "Phone",
+            "But",
+            "And",
+            "For",
+            "With",
+            "From",
+            "About",
+            "After",
+            "Before",
+            "During",
+            "Until",
         ]
         .into_iter()
         .collect();
@@ -774,8 +852,23 @@ John
         let entities = extractor.extract(text);
 
         // Should find various entity types
-        assert!(entities.iter().any(|e| e.entity_type == NamedEntityType::Email), "Should find emails");
-        assert!(entities.iter().any(|e| e.entity_type == NamedEntityType::Context), "Should find contexts");
-        assert!(entities.iter().any(|e| e.entity_type == NamedEntityType::Url), "Should find URLs");
+        assert!(
+            entities
+                .iter()
+                .any(|e| e.entity_type == NamedEntityType::Email),
+            "Should find emails"
+        );
+        assert!(
+            entities
+                .iter()
+                .any(|e| e.entity_type == NamedEntityType::Context),
+            "Should find contexts"
+        );
+        assert!(
+            entities
+                .iter()
+                .any(|e| e.entity_type == NamedEntityType::Url),
+            "Should find URLs"
+        );
     }
 }
