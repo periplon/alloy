@@ -95,6 +95,12 @@ ndarray = "0.15"
 # Search Enhancement - Text similarity for query expansion
 strsim = "0.11"
 
+# Hashing for deduplication and versioning
+sha2 = "0.10"
+
+# Text diff for versioning
+similar = "2"
+
 [dev-dependencies]
 tokio-test = "0.4"
 tempfile = "3"

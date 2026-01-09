@@ -8,6 +8,7 @@
 //! The `ProcessorRegistry` provides a unified interface to process any supported file type.
 
 mod chunker;
+pub mod dedup;
 mod document;
 mod image;
 mod registry;
@@ -15,6 +16,11 @@ mod text;
 mod traits;
 
 pub use chunker::{chunk_by_paragraphs, chunk_text};
+pub use dedup::{
+    CompositeDeduplicator, DeduplicationAction, DeduplicationConfig, DeduplicationResult,
+    DeduplicationStrategy, Deduplicator, ExactDeduplicator, MinHashDeduplicator,
+    SemanticDeduplicator,
+};
 pub use document::{DocxProcessor, PdfProcessor};
 pub use image::{ClipEmbedder, ImageProcessor, VisionApiClient};
 pub use registry::ProcessorRegistry;

@@ -124,6 +124,12 @@ pub enum StorageError {
     #[error("Document not found: {0}")]
     DocumentNotFound(String),
 
+    #[error("Not found: {0}")]
+    NotFound(String),
+
+    #[error("Invalid operation: {0}")]
+    InvalidOperation(String),
+
     #[error("Index error: {0}")]
     Index(String),
 

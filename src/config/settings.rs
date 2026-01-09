@@ -13,6 +13,7 @@ pub struct Config {
     pub storage: StorageConfig,
     pub processing: ProcessingConfig,
     pub search: SearchConfig,
+    pub indexing: IndexingConfig,
 }
 
 impl Config {
@@ -467,6 +468,170 @@ impl Default for CacheConfig {
             ttl_secs: 3600,
             cache_embeddings: true,
             cache_results: true,
+        }
+    }
+}
+
+// ============================================================================
+// Data Management Configuration
+// ============================================================================
+
+/// Data management configuration (indexing section).
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[serde(default)]
+pub struct IndexingConfig {
+    /// Incremental update settings.
+    pub incremental: IncrementalConfig,
+    /// Deduplication settings.
+    pub deduplication: DeduplicationConfig,
+    /// Versioning settings.
+    pub versioning: VersioningConfig,
+}
+
+/// Incremental indexing configuration.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(default)]
+pub struct IncrementalConfig {
+    /// Enable incremental indexing.
+    pub enabled: bool,
+    /// Change detection strategy.
+    pub change_detection: ChangeDetectionStrategy,
+    /// Whether to verify content hash even if mtime unchanged.
+    pub verify_hash: bool,
+}
+
+impl Default for IncrementalConfig {
+    fn default() -> Self {
+        Self {
+            enabled: true,
+            change_detection: ChangeDetectionStrategy::Both,
+            verify_hash: false,
+        }
+    }
+}
+
+/// Change detection strategy.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ChangeDetectionStrategy {
+    /// Use content hash (SHA-256).
+    Hash,
+    /// Use modification time only.
+    Mtime,
+    /// Use both hash and mtime (recommended).
+    Both,
+}
+
+/// Deduplication configuration.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(default)]
+pub struct DeduplicationConfig {
+    /// Enable deduplication.
+    pub enabled: bool,
+    /// Deduplication strategy.
+    pub strategy: DeduplicationStrategy,
+    /// Similarity threshold for fuzzy matching (0.0-1.0).
+    pub threshold: f32,
+    /// Action to take when duplicate is detected.
+    pub action: DeduplicationAction,
+    /// Number of hash functions for MinHash.
+    pub minhash_num_hashes: usize,
+    /// Shingle size for MinHash (number of consecutive tokens).
+    pub shingle_size: usize,
+}
+
+impl Default for DeduplicationConfig {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            strategy: DeduplicationStrategy::Exact,
+            threshold: 0.85,
+            action: DeduplicationAction::Skip,
+            minhash_num_hashes: 128,
+            shingle_size: 3,
+        }
+    }
+}
+
+/// Deduplication strategy.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum DeduplicationStrategy {
+    /// Exact content hash matching.
+    Exact,
+    /// MinHash locality-sensitive hashing.
+    MinHash,
+    /// Embedding cosine similarity.
+    Semantic,
+}
+
+/// Action to take when a duplicate is detected.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum DeduplicationAction {
+    /// Skip indexing duplicates.
+    Skip,
+    /// Index with reference to original.
+    Flag,
+    /// Update the existing document.
+    Update,
+}
+
+/// Document versioning configuration.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(default)]
+pub struct VersioningConfig {
+    /// Enable versioning.
+    pub enabled: bool,
+    /// Storage type: "memory" or "file".
+    pub storage: String,
+    /// Store full version every N versions (0 = always full).
+    pub delta_threshold: usize,
+    /// Retention policy settings.
+    pub retention: VersionRetentionConfig,
+}
+
+impl Default for VersioningConfig {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            storage: "memory".to_string(),
+            delta_threshold: 10,
+            retention: VersionRetentionConfig::default(),
+        }
+    }
+}
+
+/// Version retention policy configuration.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(default)]
+pub struct VersionRetentionConfig {
+    /// Minimum number of versions to keep.
+    pub min_versions: usize,
+    /// Maximum number of versions to keep (0 = unlimited).
+    pub max_versions: usize,
+    /// Keep versions newer than this many days.
+    pub min_age_days: u32,
+    /// Delete versions older than this many days.
+    pub max_age_days: u32,
+    /// Always keep full versions (for delta reconstruction).
+    pub keep_full_versions: bool,
+    /// Enable automatic cleanup.
+    pub auto_cleanup: bool,
+    /// Cleanup interval in hours.
+    pub cleanup_interval_hours: u32,
+}
+
+impl Default for VersionRetentionConfig {
+    fn default() -> Self {
+        Self {
+            min_versions: 5,
+            max_versions: 100,
+            min_age_days: 7,
+            max_age_days: 365,
+            keep_full_versions: true,
+            auto_cleanup: false,
+            cleanup_interval_hours: 24,
         }
     }
 }

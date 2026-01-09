@@ -12,6 +12,7 @@ pub mod processing;
 pub mod search;
 pub mod sources;
 pub mod storage;
+pub mod versioning;
 
 pub use config::Config;
 pub use coordinator::{IndexCoordinator, IndexCoordinatorBuilder, IndexProgress, IndexedSource};
