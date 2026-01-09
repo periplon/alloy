@@ -1,0 +1,97 @@
+[package]
+name = "alloy"
+version = "0.1.0"
+edition = "2021"
+description = "Hybrid document indexing MCP server with vector and full-text search"
+license = "MIT"
+
+[dependencies]
+# MCP - Official Rust SDK
+rmcp = { git = "https://github.com/modelcontextprotocol/rust-sdk", features = ["server", "client", "transport-io", "transport-streamable-http-server", "transport-streamable-http-client", "transport-streamable-http-client-reqwest", "macros", "schemars"] }
+
+# HTTP server for SSE transport
+axum = "0.8"
+tower = "0.5"
+schemars = "1.0"
+
+# Async
+tokio = { version = "1", features = ["full"] }
+async-trait = "0.1"
+futures = "0.3"
+
+# Serialization
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+toml = "0.8"
+
+# Error handling
+thiserror = "2"
+anyhow = "1"
+
+# Logging
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["json", "env-filter"] }
+
+# CLI
+clap = { version = "4", features = ["derive"] }
+
+# Utilities
+bytes = "1"
+chrono = { version = "0.4", features = ["serde"] }
+uuid = { version = "1", features = ["v4"] }
+dirs = "5"
+shellexpand = "3"
+mime_guess = "2"
+glob = "0.3"
+
+# File watching
+notify = "8"
+notify-debouncer-full = "0.5"
+
+# S3
+aws-sdk-s3 = "1"
+aws-config = "1"
+
+# Document Processing
+pdf-extract = "0.7"
+docx-rs = "0.4"
+
+# Image Processing
+image = "0.25"
+base64 = "0.22"
+
+# HTTP client for Vision API and Embedding API
+reqwest = { version = "0.12", features = ["json"] }
+
+# Local embeddings
+fastembed = "5"
+
+# Rate limiting
+governor = "0.8"
+
+# Storage - Full-text search
+tantivy = "0.24"
+
+# Storage - Vector database
+lancedb = "0.19"
+arrow = { version = "54", default-features = false, features = ["ipc"] }
+arrow-array = "54"
+arrow-schema = "54"
+
+# Storage - External vector database
+qdrant-client = { version = "1", default-features = false, features = ["default"] }
+
+# Async utilities
+parking_lot = "0.12"
+
+[dev-dependencies]
+tokio-test = "0.4"
+tempfile = "3"
+
+# Also needed at runtime for image embeddings
+[dependencies.tempfile]
+version = "3"
+
+[[bin]]
+name = "alloy"
+path = "src/main.rs"

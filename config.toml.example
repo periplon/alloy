@@ -1,0 +1,56 @@
+# Alloy MCP Server Configuration Example
+# Copy this file to config.toml and adjust as needed.
+
+[server]
+# Transport type: "stdio" or "http"
+transport = "stdio"
+# HTTP port (only used when transport is "http")
+http_port = 8080
+# Maximum concurrent indexing tasks
+max_concurrent_tasks = 4
+
+[embedding]
+# Provider type: "local" or "api"
+provider = "local"
+# Model name for local embeddings (fastembed)
+model = "BAAI/bge-small-en-v1.5"
+
+[embedding.api]
+# Base URL for embedding API (OpenAI-compatible)
+base_url = "https://api.openai.com/v1"
+# Model name for API embeddings
+model = "text-embedding-3-small"
+# API key (can also be set via OPENAI_API_KEY environment variable)
+# api_key = "sk-..."
+# Batch size for embedding requests
+batch_size = 100
+# Request timeout in seconds
+timeout_secs = 30
+
+[storage]
+# Backend type: "embedded" or "qdrant"
+backend = "embedded"
+# Data directory for embedded storage
+data_dir = "~/.local/share/alloy"
+
+[storage.qdrant]
+# Qdrant server URL
+url = "http://localhost:6334"
+# Collection name
+collection = "alloy"
+# API key (optional)
+# api_key = "..."
+
+[processing]
+# Chunk size in tokens
+chunk_size = 512
+# Overlap between chunks in tokens
+chunk_overlap = 64
+
+[processing.image]
+# Enable OCR for images
+ocr = true
+# Enable CLIP embeddings for images
+clip = true
+# Enable Vision API descriptions (requires API key)
+vision_api = false
