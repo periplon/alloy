@@ -23,8 +23,8 @@ use crate::embedding::{
 use crate::error::Result;
 use crate::processing::{ProcessorRegistry, TextChunk};
 use crate::search::{
-    HybridQuery, HybridSearchBuilder, HybridSearchOrchestrator, HybridSearchResponse,
-    HybridSearcher,
+    EnhancedHybridSearchBuilder, EnhancedHybridSearchOrchestrator, HybridQuery,
+    HybridSearchResponse, HybridSearcher,
 };
 use crate::sources::{
     LocalSource, LocalSourceConfig, S3Source, S3SourceConfig, Source, SourceEvent, SourceItem,
@@ -125,8 +125,8 @@ pub struct IndexCoordinator {
     watchers: RwLock<HashMap<String, mpsc::Sender<()>>>,
     /// Progress callback sender.
     progress_tx: Option<mpsc::UnboundedSender<IndexProgress>>,
-    /// Hybrid search orchestrator.
-    searcher: Arc<HybridSearchOrchestrator>,
+    /// Enhanced hybrid search orchestrator with reranking and query expansion.
+    searcher: Arc<EnhancedHybridSearchOrchestrator>,
 }
 
 impl IndexCoordinator {
@@ -184,10 +184,11 @@ impl IndexCoordinator {
         // Create processor registry
         let processors = ProcessorRegistry::new(&config.processing);
 
-        // Create hybrid searcher
-        let searcher = HybridSearchBuilder::new()
+        // Create enhanced hybrid searcher with reranking and query expansion support
+        let searcher = EnhancedHybridSearchBuilder::new()
             .storage(storage.clone())
             .embedder(embedder.clone())
+            .search_config(config.search.clone())
             .build()?;
 
         Ok(Self {
