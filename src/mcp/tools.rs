@@ -804,3 +804,146 @@ pub struct GenerateTokenResponse {
     /// Status message.
     pub message: String,
 }
+
+// ============================================================================
+// Webhook Types
+// ============================================================================
+
+/// List webhooks response.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ListWebhooksResponse {
+    /// List of configured webhooks.
+    pub webhooks: Vec<WebhookInfo>,
+    /// Status message.
+    pub message: String,
+}
+
+/// Webhook information.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct WebhookInfo {
+    /// Webhook ID.
+    pub id: String,
+    /// Target URL.
+    pub url: String,
+    /// Subscribed events.
+    pub events: Vec<String>,
+    /// Whether a secret is configured.
+    pub has_secret: bool,
+    /// Retry count.
+    pub retry_count: usize,
+    /// Timeout in seconds.
+    pub timeout_secs: u64,
+    /// Whether enabled.
+    pub enabled: bool,
+    /// Optional description.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub description: Option<String>,
+}
+
+/// Add webhook request.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AddWebhookRequest {
+    /// Target URL.
+    pub url: String,
+    /// Events to subscribe to.
+    pub events: Vec<String>,
+    /// Secret for HMAC signature.
+    #[serde(default)]
+    pub secret: Option<String>,
+    /// Number of retry attempts.
+    #[serde(default)]
+    pub retry_count: Option<usize>,
+    /// Timeout in seconds.
+    #[serde(default)]
+    pub timeout_secs: Option<u64>,
+    /// Optional description.
+    #[serde(default)]
+    pub description: Option<String>,
+}
+
+/// Add webhook response.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AddWebhookResponse {
+    /// Webhook ID.
+    pub webhook_id: String,
+    /// Whether successful.
+    pub success: bool,
+    /// Status message.
+    pub message: String,
+}
+
+/// Remove webhook response.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RemoveWebhookResponse {
+    /// Webhook ID.
+    pub webhook_id: String,
+    /// Whether successful.
+    pub success: bool,
+    /// Status message.
+    pub message: String,
+}
+
+/// Test webhook response.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TestWebhookResponse {
+    /// Webhook ID.
+    pub webhook_id: String,
+    /// Whether the test was successful.
+    pub success: bool,
+    /// HTTP status code if available.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub status_code: Option<u16>,
+    /// Error message if failed.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub error: Option<String>,
+    /// Duration in milliseconds.
+    pub duration_ms: u64,
+    /// Status message.
+    pub message: String,
+}
+
+/// Get webhook stats response.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct GetWebhookStatsResponse {
+    /// Whether webhooks are enabled.
+    pub enabled: bool,
+    /// Number of configured webhooks.
+    pub webhook_count: usize,
+    /// Total events dispatched.
+    pub events_dispatched: u64,
+    /// Successful deliveries.
+    pub successful_deliveries: u64,
+    /// Failed deliveries.
+    pub failed_deliveries: u64,
+    /// Total retries.
+    pub total_retries: u64,
+    /// Average delivery time in milliseconds.
+    pub avg_delivery_time_ms: f64,
+    /// Recent delivery results.
+    pub recent_deliveries: Vec<WebhookDeliveryInfo>,
+    /// Status message.
+    pub message: String,
+}
+
+/// Webhook delivery information.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct WebhookDeliveryInfo {
+    /// Webhook ID.
+    pub webhook_id: String,
+    /// Event type.
+    pub event: String,
+    /// Whether successful.
+    pub success: bool,
+    /// HTTP status code.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub status_code: Option<u16>,
+    /// Error message.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub error: Option<String>,
+    /// Number of attempts.
+    pub attempts: usize,
+    /// Duration in milliseconds.
+    pub duration_ms: u64,
+    /// Timestamp.
+    pub timestamp: DateTime<Utc>,
+}

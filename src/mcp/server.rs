@@ -19,20 +19,24 @@ use crate::auth::AuthContext;
 use crate::config::Config;
 use crate::coordinator::{IndexCoordinator, IndexProgress};
 use crate::mcp::tools::{
-    AclConfigInfo, AclEntryInfo, BackupInfo, CacheConfigInfo, CheckDuplicateResponse,
-    CheckPermissionResponse, ClearCacheResponse, ClearDeduplicationResponse,
-    ClusterDocumentsResponse, ClusterInfo, ClusterMetrics, ConfigureResponse, CreateBackupResponse,
-    DeduplicationStatsResponse, DeleteDocumentAclResponse, DiffStatsInfo, DiffVersionsResponse,
-    DocumentDetails, ExportDocumentsResponse, GetAclStatsResponse, GetCacheStatsResponse,
-    GetDocumentAclResponse, GetDocumentHistoryResponse, GetMetricsResponse,
-    GetVersionContentResponse, ImportDocumentsResponse, IndexPathResponse, IndexStats,
-    ListBackupsResponse, ListSourcesResponse, RemoveSourceResponse, RestoreBackupResponse,
-    RestoreVersionResponse, RoleInfo, SearchResponse, SearchResult, SetDocumentAclResponse,
-    SourceInfo, VersionInfo, VersioningRetentionInfo, VersioningStatsResponse,
+    AclConfigInfo, AclEntryInfo, AddWebhookResponse, BackupInfo, CacheConfigInfo,
+    CheckDuplicateResponse, CheckPermissionResponse, ClearCacheResponse,
+    ClearDeduplicationResponse, ClusterDocumentsResponse, ClusterInfo, ClusterMetrics,
+    ConfigureResponse, CreateBackupResponse, DeduplicationStatsResponse,
+    DeleteDocumentAclResponse, DiffStatsInfo, DiffVersionsResponse, DocumentDetails,
+    ExportDocumentsResponse, GetAclStatsResponse, GetCacheStatsResponse, GetDocumentAclResponse,
+    GetDocumentHistoryResponse, GetMetricsResponse, GetVersionContentResponse,
+    GetWebhookStatsResponse, ImportDocumentsResponse, IndexPathResponse, IndexStats,
+    ListBackupsResponse, ListSourcesResponse, ListWebhooksResponse, RemoveSourceResponse,
+    RemoveWebhookResponse, RestoreBackupResponse, RestoreVersionResponse, RoleInfo,
+    SearchResponse, SearchResult, SetDocumentAclResponse, SourceInfo, TestWebhookResponse,
+    VersionInfo, VersioningRetentionInfo, VersioningStatsResponse, WebhookDeliveryInfo,
+    WebhookInfo,
 };
 use crate::metrics::get_metrics;
 use crate::search::{HybridQuery, SearchFilter};
 use crate::sources::parse_s3_uri;
+use crate::webhooks::{SharedWebhookDispatcher, WebhookConfig, WebhookDispatcher};
 
 /// Alloy MCP server state.
 pub struct AlloyState {
@@ -48,6 +52,8 @@ pub struct AlloyState {
     pub acl_storage: Arc<dyn AclStorage>,
     /// ACL resolver for permission checks
     pub acl_resolver: Arc<AclResolver>,
+    /// Webhook dispatcher for sending notifications
+    pub webhook_dispatcher: SharedWebhookDispatcher,
 }
 
 impl AlloyState {
@@ -57,6 +63,28 @@ impl AlloyState {
             acl_storage.clone(),
             config.security.acl.clone(),
         ));
+
+        // Create webhook dispatcher from configuration
+        let webhook_configs: Vec<WebhookConfig> = config
+            .integration
+            .webhooks
+            .endpoints
+            .iter()
+            .map(|e| WebhookConfig {
+                id: uuid::Uuid::new_v4().to_string(),
+                url: e.url.clone(),
+                events: e.events.clone(),
+                secret: e.secret.clone(),
+                retry_count: config.integration.webhooks.max_retries,
+                timeout_secs: config.integration.webhooks.timeout_secs,
+                enabled: config.integration.webhooks.enabled,
+                description: e.description.clone(),
+                headers: std::collections::HashMap::new(),
+            })
+            .collect();
+
+        let webhook_dispatcher = Arc::new(WebhookDispatcher::new(webhook_configs));
+
         Self {
             config,
             start_time: Instant::now(),
@@ -64,6 +92,7 @@ impl AlloyState {
             progress_log: Vec::new(),
             acl_storage,
             acl_resolver,
+            webhook_dispatcher,
         }
     }
 }
@@ -340,6 +369,45 @@ pub struct CheckPermissionParams {
     pub roles: Option<Vec<String>>,
     /// Permission to check: "read", "write", "delete", "admin"
     pub permission: String,
+}
+
+// ============================================================================
+// Webhook Tool Parameters
+// ============================================================================
+
+// Parameters for add_webhook tool
+#[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema)]
+pub struct AddWebhookParams {
+    /// Target URL for webhook payloads
+    pub url: String,
+    /// Events to subscribe to (e.g., "document.indexed", "index.error")
+    pub events: Vec<String>,
+    /// Secret for HMAC signature (optional)
+    #[serde(default)]
+    pub secret: Option<String>,
+    /// Number of retry attempts on failure (default: 3)
+    #[serde(default)]
+    pub retry_count: Option<usize>,
+    /// Timeout in seconds (default: 30)
+    #[serde(default)]
+    pub timeout_secs: Option<u64>,
+    /// Optional description
+    #[serde(default)]
+    pub description: Option<String>,
+}
+
+// Parameters for remove_webhook tool
+#[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema)]
+pub struct RemoveWebhookParams {
+    /// Webhook ID to remove
+    pub webhook_id: String,
+}
+
+// Parameters for test_webhook tool
+#[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema)]
+pub struct TestWebhookParams {
+    /// Webhook ID to test
+    pub webhook_id: String,
 }
 
 #[tool_router]
@@ -2053,6 +2121,263 @@ impl AlloyServer {
                 )
             } else {
                 "ACL is not enabled. All documents are accessible to everyone.".to_string()
+            },
+        };
+
+        Ok(CallToolResult::success(vec![Content::text(
+            serde_json::to_string_pretty(&response).unwrap(),
+        )]))
+    }
+
+    // ========================================================================
+    // Webhook Tools
+    // ========================================================================
+
+    /// List all configured webhooks.
+    #[tool(description = "List all configured webhooks with their events and configuration.")]
+    async fn list_webhooks(&self) -> Result<CallToolResult, McpError> {
+        let state = self.state.read().await;
+
+        if !state.config.integration.webhooks.enabled {
+            return Ok(CallToolResult::success(vec![Content::text(
+                serde_json::to_string_pretty(&ListWebhooksResponse {
+                    webhooks: vec![],
+                    message: "Webhooks are not enabled. Enable them in config.toml with [integration.webhooks] enabled = true".to_string(),
+                })
+                .unwrap(),
+            )]));
+        }
+
+        let webhooks = state.webhook_dispatcher.list_webhooks().await;
+
+        let webhook_infos: Vec<WebhookInfo> = webhooks
+            .iter()
+            .map(|w| WebhookInfo {
+                id: w.id.clone(),
+                url: w.url.clone(),
+                events: w.events.clone(),
+                has_secret: w.secret.is_some(),
+                retry_count: w.retry_count,
+                timeout_secs: w.timeout_secs,
+                enabled: w.enabled,
+                description: w.description.clone(),
+            })
+            .collect();
+
+        let response = ListWebhooksResponse {
+            webhooks: webhook_infos.clone(),
+            message: format!("Found {} configured webhooks", webhook_infos.len()),
+        };
+
+        Ok(CallToolResult::success(vec![Content::text(
+            serde_json::to_string_pretty(&response).unwrap(),
+        )]))
+    }
+
+    /// Add a new webhook configuration.
+    #[tool(
+        description = "Add a new webhook to receive notifications for index events like document.indexed, source.added, index.error."
+    )]
+    async fn add_webhook(
+        &self,
+        Parameters(params): Parameters<AddWebhookParams>,
+    ) -> Result<CallToolResult, McpError> {
+        let state = self.state.read().await;
+
+        if !state.config.integration.webhooks.enabled {
+            return Ok(CallToolResult::success(vec![Content::text(
+                "Webhooks are not enabled. Enable them in config.toml with [integration.webhooks] enabled = true",
+            )]));
+        }
+
+        // Validate URL
+        if !params.url.starts_with("http://") && !params.url.starts_with("https://") {
+            return Ok(CallToolResult::success(vec![Content::text(
+                "Invalid webhook URL. Must start with http:// or https://",
+            )]));
+        }
+
+        // Validate events
+        let valid_events = [
+            "document.indexed",
+            "document.updated",
+            "document.deleted",
+            "source.added",
+            "source.removed",
+            "index.error",
+            "backup.created",
+            "search.performed",
+        ];
+
+        for event in &params.events {
+            if !valid_events.contains(&event.as_str()) {
+                return Ok(CallToolResult::success(vec![Content::text(format!(
+                    "Invalid event: {}. Valid events: {}",
+                    event,
+                    valid_events.join(", ")
+                ))]));
+            }
+        }
+
+        let config = WebhookConfig {
+            id: uuid::Uuid::new_v4().to_string(),
+            url: params.url.clone(),
+            events: params.events.clone(),
+            secret: params.secret,
+            retry_count: params.retry_count.unwrap_or(3),
+            timeout_secs: params.timeout_secs.unwrap_or(30),
+            enabled: true,
+            description: params.description,
+            headers: std::collections::HashMap::new(),
+        };
+
+        let webhook_id = state.webhook_dispatcher.add_webhook(config).await;
+
+        let response = AddWebhookResponse {
+            webhook_id: webhook_id.clone(),
+            success: true,
+            message: format!(
+                "Webhook {} added successfully for events: {}",
+                webhook_id,
+                params.events.join(", ")
+            ),
+        };
+
+        Ok(CallToolResult::success(vec![Content::text(
+            serde_json::to_string_pretty(&response).unwrap(),
+        )]))
+    }
+
+    /// Remove a webhook by ID.
+    #[tool(description = "Remove a webhook configuration by its ID.")]
+    async fn remove_webhook(
+        &self,
+        Parameters(params): Parameters<RemoveWebhookParams>,
+    ) -> Result<CallToolResult, McpError> {
+        let state = self.state.read().await;
+
+        if !state.config.integration.webhooks.enabled {
+            return Ok(CallToolResult::success(vec![Content::text(
+                "Webhooks are not enabled",
+            )]));
+        }
+
+        let removed = state
+            .webhook_dispatcher
+            .remove_webhook(&params.webhook_id)
+            .await;
+
+        let response = RemoveWebhookResponse {
+            webhook_id: params.webhook_id.clone(),
+            success: removed,
+            message: if removed {
+                format!("Webhook {} removed successfully", params.webhook_id)
+            } else {
+                format!("Webhook {} not found", params.webhook_id)
+            },
+        };
+
+        Ok(CallToolResult::success(vec![Content::text(
+            serde_json::to_string_pretty(&response).unwrap(),
+        )]))
+    }
+
+    /// Test a webhook by sending a test event.
+    #[tool(description = "Send a test event to a webhook to verify it's working correctly.")]
+    async fn test_webhook(
+        &self,
+        Parameters(params): Parameters<TestWebhookParams>,
+    ) -> Result<CallToolResult, McpError> {
+        let state = self.state.read().await;
+
+        if !state.config.integration.webhooks.enabled {
+            return Ok(CallToolResult::success(vec![Content::text(
+                "Webhooks are not enabled",
+            )]));
+        }
+
+        match state
+            .webhook_dispatcher
+            .test_webhook(&params.webhook_id)
+            .await
+        {
+            Some(result) => {
+                let error_msg = result.error.clone();
+                let message = if result.success {
+                    format!("Webhook test successful ({}ms)", result.duration_ms)
+                } else {
+                    format!(
+                        "Webhook test failed: {}",
+                        error_msg.as_deref().unwrap_or("Unknown error")
+                    )
+                };
+
+                let response = TestWebhookResponse {
+                    webhook_id: params.webhook_id.clone(),
+                    success: result.success,
+                    status_code: result.status_code,
+                    error: result.error,
+                    duration_ms: result.duration_ms,
+                    message,
+                };
+
+                Ok(CallToolResult::success(vec![Content::text(
+                    serde_json::to_string_pretty(&response).unwrap(),
+                )]))
+            }
+            None => Ok(CallToolResult::success(vec![Content::text(format!(
+                "Webhook {} not found",
+                params.webhook_id
+            ))])),
+        }
+    }
+
+    /// Get webhook statistics and recent delivery history.
+    #[tool(
+        description = "Get webhook delivery statistics including success/failure counts and recent deliveries."
+    )]
+    async fn get_webhook_stats(&self) -> Result<CallToolResult, McpError> {
+        let state = self.state.read().await;
+
+        let webhooks_enabled = state.config.integration.webhooks.enabled;
+        let webhook_count = state.webhook_dispatcher.list_webhooks().await.len();
+        let stats = state.webhook_dispatcher.stats().await;
+        let recent = state.webhook_dispatcher.recent_deliveries().await;
+
+        let recent_deliveries: Vec<WebhookDeliveryInfo> = recent
+            .iter()
+            .take(20)
+            .map(|d| WebhookDeliveryInfo {
+                webhook_id: d.webhook_id.clone(),
+                event: d.event.clone(),
+                success: d.success,
+                status_code: d.status_code,
+                error: d.error.clone(),
+                attempts: d.attempts,
+                duration_ms: d.duration_ms,
+                timestamp: d.timestamp,
+            })
+            .collect();
+
+        let response = GetWebhookStatsResponse {
+            enabled: webhooks_enabled,
+            webhook_count,
+            events_dispatched: stats.events_dispatched,
+            successful_deliveries: stats.successful_deliveries,
+            failed_deliveries: stats.failed_deliveries,
+            total_retries: stats.total_retries,
+            avg_delivery_time_ms: stats.avg_delivery_time_ms,
+            recent_deliveries,
+            message: if webhooks_enabled {
+                format!(
+                    "{} webhooks, {} events dispatched ({} successful, {} failed)",
+                    webhook_count,
+                    stats.events_dispatched,
+                    stats.successful_deliveries,
+                    stats.failed_deliveries
+                )
+            } else {
+                "Webhooks are not enabled".to_string()
             },
         };
 
