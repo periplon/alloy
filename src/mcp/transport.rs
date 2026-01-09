@@ -13,8 +13,10 @@ use rmcp::transport::streamable_http_server::tower::{
     StreamableHttpServerConfig, StreamableHttpService,
 };
 use rmcp::ServiceExt;
+use tower::ServiceBuilder;
 use tracing::info;
 
+use crate::auth::{AuthLayer, Authenticator};
 use crate::config::{Config, TransportType};
 use crate::mcp::AlloyServer;
 use crate::metrics::{get_metrics, HealthCheck, HealthState, HealthStatus, ReadinessStatus};
@@ -42,6 +44,19 @@ pub async fn run_http(config: Config, port: u16) -> Result<()> {
     // Create session manager for handling multiple connections
     let session_manager = Arc::new(LocalSessionManager::default());
 
+    // Create authenticator
+    let authenticator = Authenticator::new(config.security.auth.clone());
+    let auth_enabled = authenticator.is_enabled();
+
+    if auth_enabled {
+        info!(
+            "Authentication enabled with method: {:?}",
+            config.security.auth.method
+        );
+    } else {
+        info!("Authentication disabled");
+    }
+
     // We need to clone config for the factory closure
     let config_for_factory = config.clone();
 
@@ -56,13 +71,28 @@ pub async fn run_http(config: Config, port: u16) -> Result<()> {
         http_config,
     );
 
-    // Build axum router - use fallback_service instead of nest for tower services
-    let app = Router::new()
-        .route("/health", axum::routing::get(health_handler))
-        .route("/ready", axum::routing::get(readiness_handler))
-        .route("/metrics", axum::routing::get(metrics_handler))
-        .route("/", axum::routing::get(root_handler))
-        .fallback_service(http_service);
+    // Apply auth middleware if enabled
+    let app = if auth_enabled {
+        let auth_layer = AuthLayer::new(authenticator);
+        Router::new()
+            .route("/health", axum::routing::get(health_handler))
+            .route("/ready", axum::routing::get(readiness_handler))
+            .route("/metrics", axum::routing::get(metrics_handler))
+            .route("/", axum::routing::get(root_handler))
+            .route("/auth/status", axum::routing::get(auth_status_handler))
+            .fallback_service(
+                ServiceBuilder::new()
+                    .layer(auth_layer)
+                    .service(http_service),
+            )
+    } else {
+        Router::new()
+            .route("/health", axum::routing::get(health_handler))
+            .route("/ready", axum::routing::get(readiness_handler))
+            .route("/metrics", axum::routing::get(metrics_handler))
+            .route("/", axum::routing::get(root_handler))
+            .fallback_service(http_service)
+    };
 
     let addr = SocketAddr::from(([0, 0, 0, 0], port));
     info!("Alloy MCP server listening on http://{}", addr);
@@ -163,9 +193,34 @@ async fn root_handler() -> axum::Json<serde_json::Value> {
         "endpoints": {
             "health": "/health",
             "ready": "/ready",
-            "metrics": "/metrics"
+            "metrics": "/metrics",
+            "auth_status": "/auth/status"
         }
     }))
+}
+
+/// Auth status endpoint.
+///
+/// Returns authentication status from the request context.
+async fn auth_status_handler(req: axum::extract::Request) -> impl IntoResponse {
+    use crate::auth::AuthContext;
+
+    // Try to get auth context from extensions
+    let auth_ctx = req
+        .extensions()
+        .get::<AuthContext>()
+        .cloned()
+        .unwrap_or_else(AuthContext::anonymous);
+
+    let response = serde_json::json!({
+        "authenticated": !auth_ctx.anonymous,
+        "user_id": auth_ctx.user_id,
+        "roles": auth_ctx.roles,
+        "groups": auth_ctx.groups,
+        "method": auth_ctx.method
+    });
+
+    (StatusCode::OK, axum::Json(response))
 }
 
 /// Run the MCP server with the configured transport.

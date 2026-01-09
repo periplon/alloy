@@ -3,6 +3,8 @@
 //! A Rust MCP server for indexing local and S3 files with hybrid search
 //! combining vector similarity and full-text matching.
 
+pub mod acl;
+pub mod auth;
 pub mod backup;
 pub mod cache;
 pub mod config;
@@ -17,10 +19,15 @@ pub mod sources;
 pub mod storage;
 pub mod versioning;
 
+pub use acl::{
+    AclEntry, AclQueryFilter, AclResolver, AclStorage, DocumentAcl, MemoryAclStorage, Permission,
+    Principal, SourceAcl,
+};
+pub use auth::{AuthContext, AuthLayer, AuthMiddleware, Authenticator};
 pub use backup::{BackupManager, BackupResult, ExportFormat, ExportOptions, RestoreResult};
 pub use cache::{CacheStats, CachedEmbedder, QueryCache};
 pub use config::Config;
 pub use coordinator::{IndexCoordinator, IndexCoordinatorBuilder, IndexProgress, IndexedSource};
-pub use error::{AlloyError, Result};
+pub use error::{AclError, AlloyError, AuthError, Result};
 pub use mcp::{run_server, AlloyServer};
 pub use metrics::{get_metrics, HealthCheck, HealthState, HealthStatus, Metrics, MetricsSnapshot};

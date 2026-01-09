@@ -15,6 +15,7 @@ pub struct Config {
     pub search: SearchConfig,
     pub indexing: IndexingConfig,
     pub operations: OperationsConfig,
+    pub security: SecurityConfig,
 }
 
 impl Config {
@@ -723,6 +724,157 @@ impl Default for BackupConfig {
             compress: false,
         }
     }
+}
+
+// ============================================================================
+// Security Configuration
+// ============================================================================
+
+/// Security configuration (authentication and access control).
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[serde(default)]
+pub struct SecurityConfig {
+    /// Authentication configuration.
+    pub auth: AuthConfig,
+    /// Access control configuration.
+    pub acl: AclConfig,
+}
+
+/// Authentication configuration.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(default)]
+pub struct AuthConfig {
+    /// Enable authentication.
+    pub enabled: bool,
+    /// Authentication method.
+    pub method: AuthMethod,
+    /// API keys for API key authentication.
+    /// Can be loaded from environment variable ALLOY_API_KEYS (comma-separated).
+    #[serde(default)]
+    pub api_keys: Vec<String>,
+    /// JWT configuration.
+    pub jwt: JwtConfig,
+    /// Basic auth credentials (username -> password hash).
+    #[serde(default)]
+    pub basic_auth: std::collections::HashMap<String, String>,
+}
+
+impl Default for AuthConfig {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            method: AuthMethod::ApiKey,
+            api_keys: Vec::new(),
+            jwt: JwtConfig::default(),
+            basic_auth: std::collections::HashMap::new(),
+        }
+    }
+}
+
+/// Authentication method enum.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum AuthMethod {
+    /// API key authentication (X-API-Key header or Bearer token).
+    #[default]
+    ApiKey,
+    /// JWT (JSON Web Token) authentication.
+    Jwt,
+    /// Basic HTTP authentication.
+    Basic,
+}
+
+/// JWT configuration.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(default)]
+pub struct JwtConfig {
+    /// JWT secret (can be loaded from environment variable ALLOY_JWT_SECRET).
+    pub secret: String,
+    /// JWT issuer.
+    pub issuer: String,
+    /// JWT audience.
+    pub audience: String,
+    /// Token expiry in seconds (0 = no expiry check).
+    pub expiry_secs: u64,
+}
+
+impl Default for JwtConfig {
+    fn default() -> Self {
+        Self {
+            secret: String::new(),
+            issuer: "alloy".to_string(),
+            audience: "alloy-users".to_string(),
+            expiry_secs: 3600,
+        }
+    }
+}
+
+/// Access control list (ACL) configuration.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(default)]
+pub struct AclConfig {
+    /// Enable ACL enforcement.
+    pub enabled: bool,
+    /// Default public access for new documents.
+    pub default_public: bool,
+    /// Allow read access for any authenticated user by default.
+    pub default_authenticated_read: bool,
+    /// Enforce ACL on search operations.
+    pub enforce_on_search: bool,
+    /// Enforce ACL on document retrieval.
+    pub enforce_on_get: bool,
+    /// Enforce ACL on document deletion.
+    pub enforce_on_delete: bool,
+    /// Role definitions.
+    #[serde(default)]
+    pub roles: Vec<RoleDefinition>,
+}
+
+impl Default for AclConfig {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            default_public: true,
+            default_authenticated_read: true,
+            enforce_on_search: true,
+            enforce_on_get: true,
+            enforce_on_delete: true,
+            roles: vec![
+                RoleDefinition {
+                    name: "admin".to_string(),
+                    inherits_from: Vec::new(),
+                    permissions: vec![
+                        "read".to_string(),
+                        "write".to_string(),
+                        "delete".to_string(),
+                        "admin".to_string(),
+                    ],
+                },
+                RoleDefinition {
+                    name: "editor".to_string(),
+                    inherits_from: vec!["viewer".to_string()],
+                    permissions: vec!["write".to_string()],
+                },
+                RoleDefinition {
+                    name: "viewer".to_string(),
+                    inherits_from: Vec::new(),
+                    permissions: vec!["read".to_string()],
+                },
+            ],
+        }
+    }
+}
+
+/// Role definition for ACL.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RoleDefinition {
+    /// Role name.
+    pub name: String,
+    /// Roles this role inherits from.
+    #[serde(default)]
+    pub inherits_from: Vec<String>,
+    /// Direct permissions granted to this role.
+    pub permissions: Vec<String>,
 }
 
 #[cfg(test)]

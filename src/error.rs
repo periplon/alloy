@@ -23,6 +23,12 @@ pub enum AlloyError {
     #[error("Search error: {0}")]
     Search(#[from] SearchError),
 
+    #[error("Authentication error: {0}")]
+    Auth(#[from] AuthError),
+
+    #[error("Access control error: {0}")]
+    Acl(#[from] AclError),
+
     #[error("MCP error: {0}")]
     Mcp(String),
 
@@ -163,6 +169,53 @@ pub enum SearchError {
 
     #[error("Clustering error: {0}")]
     Clustering(String),
+}
+
+/// Authentication-related errors.
+#[derive(Error, Debug)]
+pub enum AuthError {
+    #[error("Missing credentials")]
+    MissingCredentials,
+
+    #[error("Invalid credentials")]
+    InvalidCredentials,
+
+    #[error("Invalid token: {0}")]
+    InvalidToken(String),
+
+    #[error("Token expired")]
+    TokenExpired,
+
+    #[error("Missing JWT secret")]
+    MissingSecret,
+
+    #[error("Token generation failed: {0}")]
+    TokenGeneration(String),
+
+    #[error("Unauthorized: {0}")]
+    Unauthorized(String),
+}
+
+/// Access control (ACL) related errors.
+#[derive(Error, Debug)]
+pub enum AclError {
+    #[error("Permission denied: {0}")]
+    PermissionDenied(String),
+
+    #[error("Document not found: {0}")]
+    DocumentNotFound(String),
+
+    #[error("Source not found: {0}")]
+    SourceNotFound(String),
+
+    #[error("Invalid principal: {0}")]
+    InvalidPrincipal(String),
+
+    #[error("Invalid permission: {0}")]
+    InvalidPermission(String),
+
+    #[error("ACL storage error: {0}")]
+    Storage(String),
 }
 
 /// Result type alias for Alloy operations.

@@ -610,3 +610,197 @@ pub struct ClearCacheResponse {
     /// Status message.
     pub message: String,
 }
+
+// ============================================================================
+// Security Types (Authentication and ACL)
+// ============================================================================
+
+/// Get authentication status response.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct GetAuthStatusResponse {
+    /// Whether authentication is enabled.
+    pub enabled: bool,
+    /// Authentication method.
+    pub method: String,
+    /// Whether the current request is authenticated.
+    pub is_authenticated: bool,
+    /// Current user ID (if authenticated).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub user_id: Option<String>,
+    /// Current user roles.
+    #[serde(default)]
+    pub roles: Vec<String>,
+    /// Status message.
+    pub message: String,
+}
+
+/// Set document ACL request.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SetDocumentAclRequest {
+    /// Document ID.
+    pub document_id: String,
+    /// Owner user ID (optional, uses current user if not set).
+    #[serde(default)]
+    pub owner: Option<String>,
+    /// ACL entries.
+    pub entries: Vec<AclEntryParam>,
+    /// Whether to inherit from source.
+    #[serde(default)]
+    pub inherit_from_source: Option<bool>,
+}
+
+/// ACL entry parameter.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AclEntryParam {
+    /// Principal type: "user", "role", "group", "everyone", "authenticated".
+    pub principal_type: String,
+    /// Principal ID (for user, role, group).
+    #[serde(default)]
+    pub principal_id: Option<String>,
+    /// Permissions: "read", "write", "delete", "admin".
+    pub permissions: Vec<String>,
+}
+
+/// Set document ACL response.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SetDocumentAclResponse {
+    /// Document ID.
+    pub document_id: String,
+    /// Whether the operation succeeded.
+    pub success: bool,
+    /// Number of ACL entries set.
+    pub entry_count: usize,
+    /// Status message.
+    pub message: String,
+}
+
+/// Get document ACL response.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct GetDocumentAclResponse {
+    /// Document ID.
+    pub document_id: String,
+    /// Owner user ID.
+    pub owner: String,
+    /// ACL entries.
+    pub entries: Vec<AclEntryInfo>,
+    /// Whether inheriting from source.
+    pub inherit_from_source: bool,
+    /// Whether the document is public.
+    pub is_public: bool,
+    /// When the ACL was created.
+    pub created_at: DateTime<Utc>,
+    /// When the ACL was last updated.
+    pub updated_at: DateTime<Utc>,
+    /// Status message.
+    pub message: String,
+}
+
+/// ACL entry info for responses.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AclEntryInfo {
+    /// Principal type.
+    pub principal_type: String,
+    /// Principal ID.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub principal_id: Option<String>,
+    /// Permissions.
+    pub permissions: Vec<String>,
+}
+
+/// Check permission request.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CheckPermissionRequest {
+    /// Document ID.
+    pub document_id: String,
+    /// User ID to check (optional, uses current user if not set).
+    #[serde(default)]
+    pub user_id: Option<String>,
+    /// Permission to check.
+    pub permission: String,
+}
+
+/// Check permission response.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CheckPermissionResponse {
+    /// Document ID.
+    pub document_id: String,
+    /// User ID that was checked.
+    pub user_id: String,
+    /// Permission that was checked.
+    pub permission: String,
+    /// Whether permission is granted.
+    pub allowed: bool,
+    /// Reason for the decision.
+    pub reason: String,
+    /// All permissions the user has on this document.
+    pub granted_permissions: Vec<String>,
+}
+
+/// Delete document ACL response.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DeleteDocumentAclResponse {
+    /// Document ID.
+    pub document_id: String,
+    /// Whether the operation succeeded.
+    pub success: bool,
+    /// Status message.
+    pub message: String,
+}
+
+/// Get ACL stats response.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct GetAclStatsResponse {
+    /// Whether ACL is enabled.
+    pub enabled: bool,
+    /// ACL configuration.
+    pub config: AclConfigInfo,
+    /// Number of documents with ACLs.
+    pub document_acl_count: usize,
+    /// Number of sources with ACLs.
+    pub source_acl_count: usize,
+    /// Role definitions.
+    pub roles: Vec<RoleInfo>,
+    /// Status message.
+    pub message: String,
+}
+
+/// ACL configuration info.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AclConfigInfo {
+    /// Default public access.
+    pub default_public: bool,
+    /// Default authenticated read.
+    pub default_authenticated_read: bool,
+    /// Enforce on search.
+    pub enforce_on_search: bool,
+    /// Enforce on get.
+    pub enforce_on_get: bool,
+    /// Enforce on delete.
+    pub enforce_on_delete: bool,
+}
+
+/// Role info.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RoleInfo {
+    /// Role name.
+    pub name: String,
+    /// Roles this role inherits from.
+    pub inherits_from: Vec<String>,
+    /// Direct permissions.
+    pub permissions: Vec<String>,
+}
+
+/// Generate token response.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct GenerateTokenResponse {
+    /// Generated JWT token.
+    pub token: String,
+    /// User ID.
+    pub user_id: String,
+    /// Roles.
+    pub roles: Vec<String>,
+    /// Expiry time (Unix timestamp).
+    pub expires_at: i64,
+    /// Status message.
+    pub message: String,
+}
