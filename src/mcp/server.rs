@@ -22,18 +22,19 @@ use crate::coordinator::{IndexCoordinator, IndexProgress};
 use crate::mcp::tools::{
     AclConfigInfo, AclEntryInfo, AddWebhookResponse, BackupInfo, CacheConfigInfo,
     CheckDuplicateResponse, CheckPermissionResponse, ClearCacheResponse,
-    ClearDeduplicationResponse, ClusterDocumentsResponse, ClusterInfo, ClusterMetrics,
-    ClusterOutlineInfo, ClusterVisualizationResponse, ConfigureResponse, CreateBackupResponse,
-    DeduplicationStatsResponse, DeleteDocumentAclResponse, DeleteSourceAclResponse, DiffStatsInfo,
-    DiffVersionsResponse, DocumentDetails, ExportDocumentsResponse, GetAclStatsResponse,
-    GetCacheStatsResponse, GetDocumentAclResponse, GetDocumentHistoryResponse, GetMetricsResponse,
-    GetSourceAclResponse, GetVersionContentResponse, GetWebhookStatsResponse,
+    ClearDeduplicationResponse, ClusterDocumentInfo, ClusterDocumentsResponse, ClusterInfo,
+    ClusterMetrics, ClusterOutlineInfo, ClusterVisualizationResponse, ConfigureResponse,
+    CreateBackupResponse, DeduplicationStatsResponse, DeleteDocumentAclResponse,
+    DeleteSourceAclResponse, DiffStatsInfo, DiffVersionsResponse, DocumentDetails,
+    ExportDocumentsResponse, FindSimilarClusterResponse, GetAclStatsResponse, GetCacheStatsResponse,
+    GetClusterDocumentsResponse, GetDocumentAclResponse, GetDocumentHistoryResponse,
+    GetMetricsResponse, GetSourceAclResponse, GetVersionContentResponse, GetWebhookStatsResponse,
     ImportDocumentsResponse, IndexPathResponse, IndexStats, ListBackupsResponse,
     ListSourcesResponse, ListWebhooksResponse, RemoveSourceResponse, RemoveWebhookResponse,
     RestoreBackupResponse, RestoreVersionResponse, RoleInfo, SearchResponse, SearchResult,
-    SetDocumentAclResponse, SetSourceAclResponse, SourceInfo, TestWebhookResponse, VersionInfo,
-    VersioningRetentionInfo, VersioningStatsResponse, VisualizationPoint, WebhookDeliveryInfo,
-    WebhookInfo,
+    SetDocumentAclResponse, SetSourceAclResponse, SimilarClusterInfo, SourceInfo,
+    TestWebhookResponse, VersionInfo, VersioningRetentionInfo, VersioningStatsResponse,
+    VisualizationPoint, WebhookDeliveryInfo, WebhookInfo,
 };
 use crate::metrics::get_metrics;
 use crate::search::{HybridQuery, SearchFilter};
@@ -341,12 +342,53 @@ pub struct GetClusterVisualizationParams {
     /// Optional filter by source ID
     #[serde(default)]
     pub source_id: Option<String>,
-    /// Clustering algorithm to use (kmeans or dbscan)
+    /// Clustering algorithm to use (kmeans, dbscan, or agglomerative)
     #[serde(default)]
     pub algorithm: Option<String>,
-    /// Number of clusters (for k-means, default: auto-detect)
+    /// Number of clusters (for k-means/agglomerative, default: auto-detect)
     #[serde(default)]
     pub num_clusters: Option<usize>,
+}
+
+// Parameters for find_similar_cluster tool
+#[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema)]
+pub struct FindSimilarClusterParams {
+    /// Query text to find similar cluster for
+    pub query: String,
+    /// Optional source ID to filter clusters
+    #[serde(default)]
+    pub source_id: Option<String>,
+    /// Algorithm used for clustering (kmeans, dbscan, or agglomerative)
+    #[serde(default)]
+    pub algorithm: Option<String>,
+    /// Number of clusters in the clustering
+    #[serde(default)]
+    pub num_clusters: Option<usize>,
+    /// Number of top similar clusters to return (default: 3)
+    #[serde(default)]
+    pub top_k: Option<usize>,
+}
+
+// Parameters for get_cluster_documents tool
+#[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema)]
+pub struct GetClusterDocumentsParams {
+    /// Cluster ID to get documents for
+    pub cluster_id: usize,
+    /// Optional source ID filter
+    #[serde(default)]
+    pub source_id: Option<String>,
+    /// Algorithm used for clustering
+    #[serde(default)]
+    pub algorithm: Option<String>,
+    /// Number of clusters in the clustering
+    #[serde(default)]
+    pub num_clusters: Option<usize>,
+    /// Maximum number of documents to return (default: 50)
+    #[serde(default)]
+    pub limit: Option<usize>,
+    /// Offset for pagination
+    #[serde(default)]
+    pub offset: Option<usize>,
 }
 
 // Parameters for check_duplicate tool
@@ -1201,6 +1243,169 @@ impl AlloyServer {
             }
             Err(e) => Ok(CallToolResult::success(vec![Content::text(format!(
                 "Visualization failed: {}",
+                e
+            ))])),
+        }
+    }
+
+    /// Find the most similar clusters for a given query.
+    #[tool(
+        description = "Find the most similar document clusters for a given query. Returns top-k clusters ranked by similarity."
+    )]
+    async fn find_similar_cluster(
+        &self,
+        Parameters(params): Parameters<FindSimilarClusterParams>,
+    ) -> Result<CallToolResult, McpError> {
+        // Ensure coordinator is initialized
+        self.ensure_coordinator().await?;
+
+        let state = self.state.read().await;
+        let coordinator = state.coordinator.as_ref().unwrap();
+
+        // Parse algorithm if provided
+        let algorithm = params.algorithm.as_deref().map(|algo| match algo {
+            "dbscan" => crate::config::ClusteringAlgorithm::Dbscan,
+            "agglomerative" => crate::config::ClusteringAlgorithm::Agglomerative,
+            _ => crate::config::ClusteringAlgorithm::KMeans,
+        });
+
+        let top_k = params.top_k.unwrap_or(3);
+
+        // First, get the clustering result
+        match coordinator
+            .cluster_documents(params.source_id.as_deref(), algorithm, params.num_clusters)
+            .await
+        {
+            Ok(clustering_result) => {
+                // Use the clustering engine to find similar clusters
+                match coordinator
+                    .find_similar_cluster(&params.query, &clustering_result, top_k)
+                    .await
+                {
+                    Ok(similarities) => {
+                        let similar_clusters: Vec<SimilarClusterInfo> = similarities
+                            .iter()
+                            .filter_map(|(cluster_id, similarity)| {
+                                clustering_result
+                                    .clusters
+                                    .iter()
+                                    .find(|c| c.cluster_id == *cluster_id)
+                                    .map(|c| SimilarClusterInfo {
+                                        cluster_id: c.cluster_id,
+                                        label: c.label.clone(),
+                                        similarity: *similarity,
+                                        keywords: c.keywords.clone(),
+                                        size: c.size,
+                                    })
+                            })
+                            .collect();
+
+                        let response = FindSimilarClusterResponse {
+                            query: params.query.clone(),
+                            similar_clusters,
+                            algorithm: clustering_result.algorithm_used.clone(),
+                        };
+
+                        Ok(CallToolResult::success(vec![Content::text(
+                            serde_json::to_string_pretty(&response).unwrap(),
+                        )]))
+                    }
+                    Err(e) => Ok(CallToolResult::success(vec![Content::text(format!(
+                        "Failed to find similar clusters: {}",
+                        e
+                    ))])),
+                }
+            }
+            Err(e) => Ok(CallToolResult::success(vec![Content::text(format!(
+                "Clustering failed: {}",
+                e
+            ))])),
+        }
+    }
+
+    /// Get documents in a specific cluster.
+    #[tool(
+        description = "Get the documents belonging to a specific cluster. Returns document IDs with distance from centroid."
+    )]
+    async fn get_cluster_documents(
+        &self,
+        Parameters(params): Parameters<GetClusterDocumentsParams>,
+    ) -> Result<CallToolResult, McpError> {
+        // Ensure coordinator is initialized
+        self.ensure_coordinator().await?;
+
+        let state = self.state.read().await;
+        let coordinator = state.coordinator.as_ref().unwrap();
+
+        // Parse algorithm if provided
+        let algorithm = params.algorithm.as_deref().map(|algo| match algo {
+            "dbscan" => crate::config::ClusteringAlgorithm::Dbscan,
+            "agglomerative" => crate::config::ClusteringAlgorithm::Agglomerative,
+            _ => crate::config::ClusteringAlgorithm::KMeans,
+        });
+
+        let limit = params.limit.unwrap_or(50);
+        let offset = params.offset.unwrap_or(0);
+
+        // Get the clustering result
+        match coordinator
+            .cluster_documents(params.source_id.as_deref(), algorithm, params.num_clusters)
+            .await
+        {
+            Ok(clustering_result) => {
+                // Find the requested cluster
+                if let Some(cluster) = clustering_result
+                    .clusters
+                    .iter()
+                    .find(|c| c.cluster_id == params.cluster_id)
+                {
+                    let total_count = cluster.document_ids.len();
+
+                    // Apply pagination
+                    let documents: Vec<ClusterDocumentInfo> = cluster
+                        .document_ids
+                        .iter()
+                        .skip(offset)
+                        .take(limit)
+                        .map(|doc_id| {
+                            let is_representative =
+                                cluster.representative_docs.contains(doc_id);
+                            ClusterDocumentInfo {
+                                document_id: doc_id.clone(),
+                                uri: doc_id.clone(), // Document ID is typically the URI
+                                distance_from_centroid: 0.0, // Would need embeddings to compute
+                                is_representative,
+                            }
+                        })
+                        .collect();
+
+                    let response = GetClusterDocumentsResponse {
+                        cluster_id: cluster.cluster_id,
+                        label: cluster.label.clone(),
+                        documents,
+                        total_count,
+                        offset,
+                        limit,
+                    };
+
+                    Ok(CallToolResult::success(vec![Content::text(
+                        serde_json::to_string_pretty(&response).unwrap(),
+                    )]))
+                } else {
+                    Ok(CallToolResult::success(vec![Content::text(format!(
+                        "Cluster {} not found. Available clusters: {}",
+                        params.cluster_id,
+                        clustering_result
+                            .clusters
+                            .iter()
+                            .map(|c| c.cluster_id.to_string())
+                            .collect::<Vec<_>>()
+                            .join(", ")
+                    ))]))
+                }
+            }
+            Err(e) => Ok(CallToolResult::success(vec![Content::text(format!(
+                "Clustering failed: {}",
                 e
             ))])),
         }

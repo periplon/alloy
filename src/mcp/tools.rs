@@ -316,6 +316,62 @@ pub struct ClusterVisualizationResponse {
     pub original_dimension: usize,
 }
 
+/// Find similar cluster response.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct FindSimilarClusterResponse {
+    /// Query that was searched
+    pub query: String,
+    /// Similar clusters ranked by similarity
+    pub similar_clusters: Vec<SimilarClusterInfo>,
+    /// Algorithm used for clustering
+    pub algorithm: String,
+}
+
+/// Information about a similar cluster.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SimilarClusterInfo {
+    /// Cluster ID
+    pub cluster_id: usize,
+    /// Cluster label
+    pub label: String,
+    /// Similarity score to query (0.0 to 1.0)
+    pub similarity: f64,
+    /// Keywords describing the cluster
+    pub keywords: Vec<String>,
+    /// Number of documents in this cluster
+    pub size: usize,
+}
+
+/// Get cluster documents response.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct GetClusterDocumentsResponse {
+    /// Cluster ID
+    pub cluster_id: usize,
+    /// Cluster label
+    pub label: String,
+    /// Documents in this cluster
+    pub documents: Vec<ClusterDocumentInfo>,
+    /// Total number of documents in cluster
+    pub total_count: usize,
+    /// Offset used for pagination
+    pub offset: usize,
+    /// Limit used for pagination
+    pub limit: usize,
+}
+
+/// Information about a document in a cluster.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ClusterDocumentInfo {
+    /// Document ID
+    pub document_id: String,
+    /// Document URI/path
+    pub uri: String,
+    /// Distance from cluster centroid (lower is closer)
+    pub distance_from_centroid: f64,
+    /// Whether this is a representative document
+    pub is_representative: bool,
+}
+
 // ============================================================================
 // Deduplication Types
 // ============================================================================

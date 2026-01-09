@@ -456,6 +456,344 @@ impl DocumentClusterer for DbscanClusterer {
     }
 }
 
+/// Agglomerative (hierarchical) clustering implementation.
+pub struct AgglomerativeClusterer {
+    /// Number of clusters (if None, uses distance threshold).
+    num_clusters: Option<usize>,
+    /// Distance threshold for cutting dendrogram.
+    #[allow(dead_code)] // Used for future distance-based clustering
+    distance_threshold: Option<f64>,
+    /// Linkage type.
+    linkage: crate::config::AgglomerativeLinkage,
+}
+
+impl AgglomerativeClusterer {
+    /// Create a new agglomerative clusterer.
+    pub fn new(
+        num_clusters: Option<usize>,
+        distance_threshold: Option<f64>,
+        linkage: crate::config::AgglomerativeLinkage,
+    ) -> Self {
+        Self {
+            num_clusters,
+            distance_threshold,
+            linkage,
+        }
+    }
+}
+
+impl Default for AgglomerativeClusterer {
+    fn default() -> Self {
+        Self::new(None, None, crate::config::AgglomerativeLinkage::Ward)
+    }
+}
+
+#[async_trait]
+impl DocumentClusterer for AgglomerativeClusterer {
+    async fn cluster(
+        &self,
+        inputs: Vec<ClusterInput>,
+        config: &ClusteringConfig,
+    ) -> Result<ClusteringResult> {
+        if inputs.is_empty() {
+            return Ok(ClusteringResult {
+                clusters: vec![],
+                outliers: vec![],
+                metrics: ClusteringMetrics {
+                    silhouette_score: 0.0,
+                    inertia: 0.0,
+                    calinski_harabasz_index: 0.0,
+                    davies_bouldin_index: 0.0,
+                    num_clusters: 0,
+                    num_outliers: 0,
+                    cluster_size_distribution: vec![],
+                },
+                algorithm_used: "agglomerative".to_string(),
+                total_documents: 0,
+                created_at: Utc::now(),
+            });
+        }
+
+        let num_docs = inputs.len();
+        let embedding_dim = inputs[0].embedding.len();
+
+        // Convert embeddings to ndarray
+        let mut data = Array2::zeros((num_docs, embedding_dim));
+        for (i, input) in inputs.iter().enumerate() {
+            for (j, &val) in input.embedding.iter().enumerate() {
+                data[[i, j]] = val as f64;
+            }
+        }
+
+        // Determine number of clusters
+        let target_clusters = self.num_clusters.unwrap_or_else(|| {
+            if config.default_num_clusters == 0 {
+                ((num_docs as f64 / 2.0).sqrt().ceil() as usize)
+                    .max(2)
+                    .min(num_docs)
+            } else {
+                config.default_num_clusters.min(num_docs)
+            }
+        });
+
+        // Perform agglomerative clustering using our own implementation
+        // since linfa-hierarchical is complex to integrate
+        let labels = agglomerative_cluster_impl(&data, target_clusters, &self.linkage);
+
+        // Group documents by cluster
+        let mut cluster_docs: HashMap<usize, Vec<(String, Option<String>)>> = HashMap::new();
+        for (i, label) in labels.iter().enumerate() {
+            cluster_docs
+                .entry(*label)
+                .or_default()
+                .push((inputs[i].document_id.clone(), inputs[i].text.clone()));
+        }
+
+        // Build clusters
+        let mut clusters = Vec::new();
+        let mut cluster_sizes = Vec::new();
+
+        for (cluster_id, docs) in &cluster_docs {
+            let centroid = compute_centroid(
+                &docs.iter().map(|(id, _)| id.as_str()).collect::<Vec<_>>(),
+                &inputs,
+            );
+
+            let keywords = if config.generate_labels {
+                extract_keywords(
+                    &docs
+                        .iter()
+                        .filter_map(|(_, t)| t.clone())
+                        .collect::<Vec<_>>(),
+                    config.max_keywords,
+                )
+            } else {
+                vec![]
+            };
+
+            let label = if keywords.is_empty() {
+                format!("Cluster {}", cluster_id)
+            } else {
+                keywords[..keywords.len().min(3)].join(", ")
+            };
+
+            let representative_docs = find_representative_docs(
+                &docs.iter().map(|(id, _)| id.clone()).collect::<Vec<_>>(),
+                &inputs,
+                &centroid,
+                3,
+            );
+
+            let coherence = compute_coherence(
+                &docs.iter().map(|(id, _)| id.as_str()).collect::<Vec<_>>(),
+                &inputs,
+                &centroid,
+            );
+
+            cluster_sizes.push(docs.len());
+            clusters.push(Cluster {
+                cluster_id: *cluster_id,
+                label,
+                keywords,
+                document_ids: docs.iter().map(|(id, _)| id.clone()).collect(),
+                size: docs.len(),
+                centroid: Some(centroid),
+                coherence_score: coherence,
+                representative_docs,
+            });
+        }
+
+        let num_clusters = clusters.len();
+
+        // Compute metrics
+        let silhouette = compute_silhouette_score(&data, &labels, num_clusters);
+        let calinski_harabasz = compute_calinski_harabasz(&data, &labels, num_clusters);
+
+        Ok(ClusteringResult {
+            clusters,
+            outliers: vec![], // Agglomerative clustering assigns all points
+            metrics: ClusteringMetrics {
+                silhouette_score: silhouette,
+                inertia: 0.0, // Not applicable for agglomerative
+                calinski_harabasz_index: calinski_harabasz,
+                davies_bouldin_index: 0.0, // Would need centroids array
+                num_clusters,
+                num_outliers: 0,
+                cluster_size_distribution: cluster_sizes,
+            },
+            algorithm_used: "agglomerative".to_string(),
+            total_documents: num_docs,
+            created_at: Utc::now(),
+        })
+    }
+
+    fn name(&self) -> &str {
+        "agglomerative"
+    }
+}
+
+/// Simple agglomerative clustering implementation using average linkage.
+fn agglomerative_cluster_impl(
+    data: &Array2<f64>,
+    num_clusters: usize,
+    linkage: &crate::config::AgglomerativeLinkage,
+) -> Vec<usize> {
+    let n = data.nrows();
+
+    if n <= num_clusters {
+        return (0..n).collect();
+    }
+
+    // Compute pairwise distances
+    let mut distances = Array2::zeros((n, n));
+    for i in 0..n {
+        for j in i + 1..n {
+            let d: f64 = (0..data.ncols())
+                .map(|k| (data[[i, k]] - data[[j, k]]).powi(2))
+                .sum::<f64>()
+                .sqrt();
+            distances[[i, j]] = d;
+            distances[[j, i]] = d;
+        }
+    }
+
+    // Initialize each point as its own cluster
+    let mut cluster_assignments: Vec<usize> = (0..n).collect();
+    let mut cluster_sizes: Vec<usize> = vec![1; n];
+    let mut active_clusters: Vec<bool> = vec![true; n];
+    let mut current_num_clusters = n;
+
+    // Merge clusters until we reach target
+    while current_num_clusters > num_clusters {
+        // Find closest pair of clusters
+        let mut min_dist = f64::MAX;
+        let mut merge_i = 0;
+        let mut merge_j = 0;
+
+        // Note: We need indices i and j to pass to cluster_distance and track merge targets
+        #[allow(clippy::needless_range_loop)]
+        for i in 0..n {
+            if !active_clusters[i] {
+                continue;
+            }
+            #[allow(clippy::needless_range_loop)]
+            for j in i + 1..n {
+                if !active_clusters[j] {
+                    continue;
+                }
+
+                let dist = cluster_distance(
+                    i,
+                    j,
+                    &cluster_assignments,
+                    &cluster_sizes,
+                    &distances,
+                    linkage,
+                );
+
+                if dist < min_dist {
+                    min_dist = dist;
+                    merge_i = i;
+                    merge_j = j;
+                }
+            }
+        }
+
+        // Merge cluster j into cluster i
+        for assignment in cluster_assignments.iter_mut() {
+            if *assignment == merge_j {
+                *assignment = merge_i;
+            }
+        }
+        cluster_sizes[merge_i] += cluster_sizes[merge_j];
+        cluster_sizes[merge_j] = 0;
+        active_clusters[merge_j] = false;
+        current_num_clusters -= 1;
+    }
+
+    // Renumber clusters to be contiguous 0..num_clusters
+    let mut cluster_map: HashMap<usize, usize> = HashMap::new();
+    let mut next_id = 0;
+
+    for assignment in &mut cluster_assignments {
+        if let Some(&mapped) = cluster_map.get(assignment) {
+            *assignment = mapped;
+        } else {
+            cluster_map.insert(*assignment, next_id);
+            *assignment = next_id;
+            next_id += 1;
+        }
+    }
+
+    cluster_assignments
+}
+
+/// Compute distance between two clusters based on linkage type.
+fn cluster_distance(
+    cluster_i: usize,
+    cluster_j: usize,
+    assignments: &[usize],
+    _sizes: &[usize],
+    distances: &Array2<f64>,
+    linkage: &crate::config::AgglomerativeLinkage,
+) -> f64 {
+    let points_i: Vec<usize> = assignments
+        .iter()
+        .enumerate()
+        .filter(|(_, &c)| c == cluster_i)
+        .map(|(idx, _)| idx)
+        .collect();
+    let points_j: Vec<usize> = assignments
+        .iter()
+        .enumerate()
+        .filter(|(_, &c)| c == cluster_j)
+        .map(|(idx, _)| idx)
+        .collect();
+
+    if points_i.is_empty() || points_j.is_empty() {
+        return f64::MAX;
+    }
+
+    match linkage {
+        crate::config::AgglomerativeLinkage::Single => {
+            // Minimum distance between any pair
+            let mut min_d = f64::MAX;
+            for &i in &points_i {
+                for &j in &points_j {
+                    min_d = min_d.min(distances[[i, j]]);
+                }
+            }
+            min_d
+        }
+        crate::config::AgglomerativeLinkage::Complete => {
+            // Maximum distance between any pair
+            let mut max_d = 0.0f64;
+            for &i in &points_i {
+                for &j in &points_j {
+                    max_d = max_d.max(distances[[i, j]]);
+                }
+            }
+            max_d
+        }
+        crate::config::AgglomerativeLinkage::Average | crate::config::AgglomerativeLinkage::Ward => {
+            // Average distance (Ward approximation using average linkage)
+            let mut sum = 0.0;
+            let mut count = 0;
+            for &i in &points_i {
+                for &j in &points_j {
+                    sum += distances[[i, j]];
+                    count += 1;
+                }
+            }
+            if count > 0 {
+                sum / count as f64
+            } else {
+                f64::MAX
+            }
+        }
+    }
+}
+
 /// Clustering engine with caching support.
 pub struct ClusteringEngine {
     embedder: Arc<dyn EmbeddingProvider>,
@@ -505,11 +843,16 @@ impl ClusteringEngine {
         // Create appropriate clusterer
         let clusterer: Box<dyn DocumentClusterer> = match config.algorithm {
             ClusteringAlgorithm::KMeans => Box::new(KMeansClusterer::new()),
-            ClusteringAlgorithm::Dbscan => Box::new(DbscanClusterer::default()),
+            ClusteringAlgorithm::Dbscan => Box::new(DbscanClusterer::new(config.dbscan_epsilon)),
             ClusteringAlgorithm::Gmm => {
                 // Fall back to K-Means for now (GMM requires additional implementation)
                 Box::new(KMeansClusterer::new())
             }
+            ClusteringAlgorithm::Agglomerative => Box::new(AgglomerativeClusterer::new(
+                Some(config.default_num_clusters),
+                config.agglomerative_distance_threshold,
+                config.agglomerative_linkage,
+            )),
         };
 
         // Perform clustering
@@ -548,6 +891,264 @@ impl ClusteringEngine {
     /// Clear the clustering cache.
     pub async fn clear_cache(&self) {
         self.cache.invalidate_all();
+    }
+
+    /// Find the most similar cluster for a query.
+    pub async fn find_similar_cluster(
+        &self,
+        query: &str,
+        clustering_result: &ClusteringResult,
+        top_k: usize,
+    ) -> Result<Vec<(usize, f64)>> {
+        // Embed the query
+        let query_embedding = self.embedder.embed(&[query.to_string()]).await?;
+        let query_vec = &query_embedding[0];
+
+        // Compare query embedding to cluster centroids
+        let mut similarities: Vec<(usize, f64)> = clustering_result
+            .clusters
+            .iter()
+            .filter_map(|cluster| {
+                cluster.centroid.as_ref().map(|centroid| {
+                    let sim = cosine_similarity(query_vec, centroid);
+                    (cluster.cluster_id, sim)
+                })
+            })
+            .collect();
+
+        // Sort by similarity (descending)
+        similarities.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
+
+        // Return top-k
+        Ok(similarities.into_iter().take(top_k).collect())
+    }
+
+    /// Re-generate labels for clusters using the configured labeling method.
+    pub async fn regenerate_labels(
+        &self,
+        result: &mut ClusteringResult,
+        labeler: &dyn ClusterLabeler,
+    ) -> Result<()> {
+        for cluster in &mut result.clusters {
+            let texts: Vec<&str> = cluster.document_ids.iter().map(|s| s.as_str()).collect();
+            if let Ok(label) = labeler.generate_label(&texts, &cluster.keywords).await {
+                cluster.label = label;
+            }
+        }
+        Ok(())
+    }
+}
+
+/// Trait for cluster label generation.
+#[async_trait]
+pub trait ClusterLabeler: Send + Sync {
+    /// Generate a descriptive label for a cluster.
+    async fn generate_label(&self, sample_texts: &[&str], keywords: &[String]) -> Result<String>;
+
+    /// Get the name of this labeler.
+    fn name(&self) -> &str;
+}
+
+/// Keyword-based cluster labeler (TF-IDF).
+pub struct KeywordLabeler {
+    max_keywords: usize,
+}
+
+impl KeywordLabeler {
+    /// Create a new keyword labeler.
+    pub fn new(max_keywords: usize) -> Self {
+        Self { max_keywords }
+    }
+}
+
+impl Default for KeywordLabeler {
+    fn default() -> Self {
+        Self::new(5)
+    }
+}
+
+#[async_trait]
+impl ClusterLabeler for KeywordLabeler {
+    async fn generate_label(&self, _sample_texts: &[&str], keywords: &[String]) -> Result<String> {
+        if keywords.is_empty() {
+            Ok("Unlabeled Cluster".to_string())
+        } else {
+            let label_keywords: Vec<&str> = keywords
+                .iter()
+                .take(self.max_keywords.min(3))
+                .map(|s| s.as_str())
+                .collect();
+            Ok(label_keywords.join(", "))
+        }
+    }
+
+    fn name(&self) -> &str {
+        "keyword"
+    }
+}
+
+/// LLM-based cluster labeler.
+pub struct LlmLabeler {
+    api_url: String,
+    api_key: String,
+    model: String,
+    client: reqwest::Client,
+}
+
+impl LlmLabeler {
+    /// Create a new LLM labeler.
+    pub fn new(api_url: &str, api_key: &str, model: &str) -> Self {
+        Self {
+            api_url: api_url.to_string(),
+            api_key: api_key.to_string(),
+            model: model.to_string(),
+            client: reqwest::Client::new(),
+        }
+    }
+
+    /// Create from configuration.
+    pub fn from_config(config: &crate::config::ClusterLabelingConfig) -> Option<Self> {
+        let api_url = config.llm_api_url.as_deref()
+            .unwrap_or("https://api.openai.com/v1");
+
+        // Try config API key first, then environment variable
+        let api_key = config.llm_api_key.clone()
+            .or_else(|| std::env::var("OPENAI_API_KEY").ok())?;
+
+        Some(Self::new(api_url, &api_key, &config.llm_model))
+    }
+}
+
+#[async_trait]
+impl ClusterLabeler for LlmLabeler {
+    async fn generate_label(&self, sample_texts: &[&str], keywords: &[String]) -> Result<String> {
+        let sample_text = sample_texts
+            .iter()
+            .take(5)
+            .cloned()
+            .collect::<Vec<_>>()
+            .join("\n---\n");
+
+        let prompt = format!(
+            "Generate a short (3-5 word) descriptive label for a cluster of documents.\n\n\
+            Keywords extracted from the cluster: {}\n\n\
+            Sample documents:\n{}\n\n\
+            Label (3-5 words only):",
+            keywords.join(", "),
+            sample_text
+        );
+
+        let request_body = serde_json::json!({
+            "model": self.model,
+            "messages": [
+                {
+                    "role": "system",
+                    "content": "You are a helpful assistant that generates concise, descriptive labels for document clusters. Respond with only the label, no explanation."
+                },
+                {
+                    "role": "user",
+                    "content": prompt
+                }
+            ],
+            "max_tokens": 20,
+            "temperature": 0.3
+        });
+
+        let response = self.client
+            .post(format!("{}/chat/completions", self.api_url))
+            .header("Authorization", format!("Bearer {}", self.api_key))
+            .header("Content-Type", "application/json")
+            .json(&request_body)
+            .send()
+            .await
+            .map_err(|e| crate::error::SearchError::Clustering(format!("LLM API request failed: {}", e)))?;
+
+        if !response.status().is_success() {
+            let status = response.status();
+            let body = response.text().await.unwrap_or_default();
+            return Err(crate::error::SearchError::Clustering(
+                format!("LLM API error {}: {}", status, body)
+            ).into());
+        }
+
+        let response_json: serde_json::Value = response.json().await
+            .map_err(|e| crate::error::SearchError::Clustering(format!("Failed to parse LLM response: {}", e)))?;
+
+        let label = response_json["choices"][0]["message"]["content"]
+            .as_str()
+            .unwrap_or("Unlabeled Cluster")
+            .trim()
+            .to_string();
+
+        Ok(label)
+    }
+
+    fn name(&self) -> &str {
+        "llm"
+    }
+}
+
+/// Hybrid labeler that combines keywords with LLM.
+pub struct HybridLabeler {
+    keyword_labeler: KeywordLabeler,
+    llm_labeler: Option<LlmLabeler>,
+}
+
+impl HybridLabeler {
+    /// Create a new hybrid labeler.
+    pub fn new(max_keywords: usize, llm_labeler: Option<LlmLabeler>) -> Self {
+        Self {
+            keyword_labeler: KeywordLabeler::new(max_keywords),
+            llm_labeler,
+        }
+    }
+}
+
+#[async_trait]
+impl ClusterLabeler for HybridLabeler {
+    async fn generate_label(&self, sample_texts: &[&str], keywords: &[String]) -> Result<String> {
+        // Try LLM first if available
+        if let Some(ref llm) = self.llm_labeler {
+            match llm.generate_label(sample_texts, keywords).await {
+                Ok(label) => return Ok(label),
+                Err(e) => {
+                    tracing::warn!("LLM labeling failed, falling back to keywords: {}", e);
+                }
+            }
+        }
+
+        // Fall back to keyword labeling
+        self.keyword_labeler.generate_label(sample_texts, keywords).await
+    }
+
+    fn name(&self) -> &str {
+        "hybrid"
+    }
+}
+
+/// Factory for creating labelers based on configuration.
+pub struct LabelerFactory;
+
+impl LabelerFactory {
+    /// Create a labeler based on configuration.
+    pub fn create(config: &crate::config::ClusterLabelingConfig) -> Box<dyn ClusterLabeler> {
+        match config.method {
+            crate::config::ClusterLabelingMethod::Keywords => {
+                Box::new(KeywordLabeler::new(config.max_keywords))
+            }
+            crate::config::ClusterLabelingMethod::Llm => {
+                if let Some(labeler) = LlmLabeler::from_config(config) {
+                    Box::new(labeler)
+                } else {
+                    tracing::warn!("LLM labeler not configured, falling back to keywords");
+                    Box::new(KeywordLabeler::new(config.max_keywords))
+                }
+            }
+            crate::config::ClusterLabelingMethod::Hybrid => {
+                let llm_labeler = LlmLabeler::from_config(config);
+                Box::new(HybridLabeler::new(config.max_keywords, llm_labeler))
+            }
+        }
     }
 }
 
@@ -970,8 +1571,13 @@ impl ClustererFactory {
     pub fn create(config: &ClusteringConfig) -> Box<dyn DocumentClusterer> {
         match config.algorithm {
             ClusteringAlgorithm::KMeans => Box::new(KMeansClusterer::new()),
-            ClusteringAlgorithm::Dbscan => Box::new(DbscanClusterer::default()),
+            ClusteringAlgorithm::Dbscan => Box::new(DbscanClusterer::new(config.dbscan_epsilon)),
             ClusteringAlgorithm::Gmm => Box::new(KMeansClusterer::new()), // Fallback
+            ClusteringAlgorithm::Agglomerative => Box::new(AgglomerativeClusterer::new(
+                Some(config.default_num_clusters),
+                config.agglomerative_distance_threshold,
+                config.agglomerative_linkage,
+            )),
         }
     }
 }

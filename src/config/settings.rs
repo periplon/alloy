@@ -414,10 +414,24 @@ pub struct ClusteringConfig {
     pub cache_results: bool,
     /// Cache TTL in seconds
     pub cache_ttl_secs: u64,
+    /// Maximum number of cached clustering results
+    pub max_cached_results: usize,
     /// Generate labels for clusters
     pub generate_labels: bool,
     /// Maximum keywords per cluster label
     pub max_keywords: usize,
+    /// Labeling configuration
+    pub labeling: ClusterLabelingConfig,
+    /// Automatically reduce dimensionality for large datasets
+    pub auto_reduce_above: usize,
+    /// Target dimensions for reduction
+    pub reduction_target_dims: usize,
+    /// Epsilon for DBSCAN (neighborhood distance)
+    pub dbscan_epsilon: f64,
+    /// Distance threshold for Agglomerative clustering
+    pub agglomerative_distance_threshold: Option<f64>,
+    /// Linkage type for Agglomerative clustering
+    pub agglomerative_linkage: AgglomerativeLinkage,
 }
 
 impl Default for ClusteringConfig {
@@ -429,10 +443,58 @@ impl Default for ClusteringConfig {
             min_cluster_size: 3,
             cache_results: true,
             cache_ttl_secs: 3600,
+            max_cached_results: 100,
             generate_labels: true,
             max_keywords: 5,
+            labeling: ClusterLabelingConfig::default(),
+            auto_reduce_above: 10000,
+            reduction_target_dims: 50,
+            dbscan_epsilon: 0.5,
+            agglomerative_distance_threshold: None,
+            agglomerative_linkage: AgglomerativeLinkage::Ward,
         }
     }
+}
+
+/// Cluster labeling configuration.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(default)]
+pub struct ClusterLabelingConfig {
+    /// Labeling method: keywords, llm, or hybrid
+    pub method: ClusterLabelingMethod,
+    /// Maximum keywords to extract per cluster
+    pub max_keywords: usize,
+    /// LLM model for label generation (when method is llm or hybrid)
+    pub llm_model: String,
+    /// LLM API URL for label generation
+    pub llm_api_url: Option<String>,
+    /// LLM API key for label generation
+    pub llm_api_key: Option<String>,
+}
+
+impl Default for ClusterLabelingConfig {
+    fn default() -> Self {
+        Self {
+            method: ClusterLabelingMethod::Keywords,
+            max_keywords: 5,
+            llm_model: "gpt-4o-mini".to_string(),
+            llm_api_url: None,
+            llm_api_key: None,
+        }
+    }
+}
+
+/// Cluster labeling method.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum ClusterLabelingMethod {
+    /// Extract top TF-IDF keywords
+    #[default]
+    Keywords,
+    /// Use LLM for descriptive labels
+    Llm,
+    /// Combine keywords and LLM
+    Hybrid,
 }
 
 /// Clustering algorithm enum.
@@ -445,6 +507,23 @@ pub enum ClusteringAlgorithm {
     Dbscan,
     /// Gaussian Mixture Model
     Gmm,
+    /// Agglomerative hierarchical clustering
+    Agglomerative,
+}
+
+/// Linkage type for agglomerative clustering.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum AgglomerativeLinkage {
+    /// Single linkage (minimum distance)
+    Single,
+    /// Complete linkage (maximum distance)
+    Complete,
+    /// Average linkage (mean distance)
+    Average,
+    /// Ward's method (minimizes variance)
+    #[default]
+    Ward,
 }
 
 /// Cache configuration for search operations.

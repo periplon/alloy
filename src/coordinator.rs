@@ -994,6 +994,28 @@ impl IndexCoordinator {
             .await
     }
 
+    /// Find the most similar clusters for a given query.
+    ///
+    /// Embeds the query and compares it against cluster centroids.
+    /// Returns top-k similar clusters with their similarity scores.
+    pub async fn find_similar_cluster(
+        &self,
+        query: &str,
+        clustering_result: &crate::search::ClusteringResult,
+        top_k: usize,
+    ) -> Result<Vec<(usize, f64)>> {
+        use crate::search::ClusteringEngine;
+
+        let engine = ClusteringEngine::new(
+            self.embedder.clone(),
+            self.config.search.clustering.clone(),
+        );
+
+        engine
+            .find_similar_cluster(query, clustering_result, top_k)
+            .await
+    }
+
     // ========================================================================
     // Deduplication Methods
     // ========================================================================
