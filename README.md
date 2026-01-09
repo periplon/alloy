@@ -62,6 +62,8 @@ alloy serve --transport http --port 8080 # HTTP transport
 
 Alloy provides direct CLI access to all functionality:
 
+### Core Commands
+
 | Command | Description |
 |---------|-------------|
 | `alloy index <path>` | Index a local path or S3 URI |
@@ -72,6 +74,49 @@ Alloy provides direct CLI access to all functionality:
 | `alloy stats` | Show index statistics |
 | `alloy serve` | Run as MCP server |
 
+### GTD & Productivity Commands
+
+| Command | Description |
+|---------|-------------|
+| `alloy gtd projects` | List and manage GTD projects |
+| `alloy gtd tasks` | List and manage tasks with context-aware recommendations |
+| `alloy gtd waiting` | Track delegated items |
+| `alloy gtd someday` | Manage someday/maybe items |
+| `alloy gtd review` | Run weekly review |
+| `alloy gtd horizons` | View GTD horizons (runway to life purpose) |
+| `alloy gtd commitments` | Track commitments made and received |
+| `alloy gtd dependencies` | Analyze task dependencies |
+| `alloy gtd attention` | Attention economics breakdown |
+| `alloy gtd areas` | Manage areas of focus |
+| `alloy gtd goals` | Manage 1-2 year goals |
+
+### Calendar Commands
+
+| Command | Description |
+|---------|-------------|
+| `alloy calendar today` | Today's events |
+| `alloy calendar week` | This week's events |
+| `alloy calendar range` | Events in date range |
+| `alloy calendar free` | Find free time slots |
+| `alloy calendar conflicts` | Check for scheduling conflicts |
+| `alloy calendar events` | Manage calendar events (CRUD) |
+
+### Knowledge & Ontology Commands
+
+| Command | Description |
+|---------|-------------|
+| `alloy knowledge search <query>` | Semantic knowledge search |
+| `alloy knowledge expert <topic>` | Find experts on a topic |
+| `alloy knowledge entity <name>` | Look up entity details |
+| `alloy knowledge connected <entity>` | Graph traversal |
+| `alloy ontology stats` | Ontology statistics |
+| `alloy ontology entities` | Manage entities |
+| `alloy ontology relationships` | Manage relationships |
+| `alloy ontology person <name>` | Add a person entity |
+| `alloy ontology organization <name>` | Add an organization |
+| `alloy ontology topic <name>` | Add a topic |
+| `alloy query <question>` | Natural language query |
+
 ### Global Flags
 
 | Flag | Description |
@@ -79,6 +124,72 @@ Alloy provides direct CLI access to all functionality:
 | `--config <path>` | Path to config file |
 | `--json` | Output as JSON |
 | `--remote <url>` | Connect to remote Alloy server via MCP |
+
+### GTD CLI Examples
+
+```bash
+# Get context-aware task recommendations
+alloy gtd tasks -a recommend --context @computer --energy low --time 30
+
+# Create a new project
+alloy gtd projects -a create \
+  --name "Website Redesign" \
+  --outcome "Launch new site with improved UX"
+
+# Create a task with full metadata
+alloy gtd tasks -a create \
+  --description "Review homepage mockups" \
+  --set-contexts "@computer,@work" \
+  --priority high \
+  --due 2024-02-01
+
+# Run weekly review
+alloy gtd review
+
+# Track a delegated item
+alloy gtd waiting -a add \
+  --description "Design mockups from Sarah" \
+  --delegated-to "Sarah" \
+  --expected-by 2024-01-25
+
+# View attention breakdown
+alloy gtd attention --period week --group-by area
+```
+
+### Calendar & Event Examples
+
+```bash
+# View today's schedule
+alloy calendar today
+
+# Find free time slots
+alloy calendar free --start 2024-01-15 --end 2024-01-19 --min-duration 60
+
+# Create a meeting
+alloy calendar events -a add \
+  --title "Team Standup" \
+  --event-type meeting \
+  --start "2024-01-20T09:00" \
+  --end "2024-01-20T09:30" \
+  --recurrence weekly
+```
+
+### Ontology & Knowledge Examples
+
+```bash
+# Add a person with their expertise
+alloy ontology person "Alice Chen" \
+  --organization "Acme Corp" \
+  --topics "Kubernetes,DevOps,AWS"
+
+# Find experts on a topic
+alloy knowledge expert "PostgreSQL"
+
+# Natural language queries
+alloy query "What should I work on now?"
+alloy query "Who knows about Kubernetes?"
+alloy query "What's blocking the website project?"
+```
 
 ### Remote Mode
 
@@ -90,8 +201,8 @@ alloy serve --transport http --port 8080
 
 # Query from another machine (or same machine)
 alloy --remote http://localhost:8080 search "query"
-alloy --remote http://server:8080 stats
-alloy -r http://localhost:8080 sources
+alloy --remote http://server:8080 gtd projects
+alloy -r http://localhost:8080 query "What should I work on?"
 ```
 
 ## MCP Tools

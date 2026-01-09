@@ -302,17 +302,121 @@ auto_link_references = true
 extract_on_index = true
 ```
 
+## CLI Usage
+
+All GTD features are available via the command line with the `alloy gtd` command group.
+
+### Daily Workflow
+
+```bash
+# Get task recommendations based on context
+alloy gtd tasks -a recommend --context @computer --energy medium --time 60
+
+# Check overdue waiting items
+alloy gtd waiting --status overdue
+
+# View today's calendar
+alloy calendar today
+```
+
+### Creating GTD Items
+
+```bash
+# Create a project
+alloy gtd projects -a create \
+  --name "Website Redesign" \
+  --outcome "Launch new site with improved UX" \
+  --set-area "Marketing"
+
+# Create a task
+alloy gtd tasks -a create \
+  --description "Review homepage mockups" \
+  --set-contexts "@computer,@work" \
+  --priority high \
+  --due 2024-02-01 \
+  --assign-project proj_abc123
+
+# Track a waiting-for item
+alloy gtd waiting -a add \
+  --description "Design mockups from Sarah" \
+  --delegated-to "Sarah" \
+  --expected-by 2024-01-25
+
+# Add someday/maybe item
+alloy gtd someday -a add \
+  --description "Learn Kubernetes" \
+  --set-category "Learning" \
+  --trigger "When current project wraps up"
+
+# Track a commitment
+alloy gtd commitments -a add \
+  --description "Send quarterly report" \
+  --commitment-type made \
+  --person "Management" \
+  --due 2024-01-31
+```
+
+### Weekly Review via CLI
+
+```bash
+# Run full weekly review
+alloy gtd review
+
+# Check stalled projects
+alloy gtd projects --stalled 7
+
+# Find projects without next actions
+alloy gtd projects --no-next-action
+
+# View attention breakdown
+alloy gtd attention --period week --group-by area
+```
+
+### Project & Task Management
+
+```bash
+# List all active projects
+alloy gtd projects
+
+# List tasks for a project
+alloy gtd tasks --project proj_website
+
+# Complete a task
+alloy gtd tasks -a complete --id task_xyz
+
+# Archive a project
+alloy gtd projects -a archive --id proj_old
+
+# View dependencies
+alloy gtd dependencies --project proj_website --critical-path
+```
+
+### JSON Output for Scripting
+
+```bash
+# Export projects as JSON
+alloy --json gtd projects > projects.json
+
+# Get stalled project names
+alloy --json gtd projects --stalled 7 | jq '.[].name'
+
+# Weekly review as JSON
+alloy --json gtd review | jq '.suggestions'
+```
+
+See the [CLI Reference](cli.md#gtd-commands) for complete command documentation.
+
 ## Best Practices
 
 ### Daily Usage
 
-1. Start with `gtd_tasks(action: "recommend")` for task suggestions
-2. Check `gtd_waiting(filters: { status: "overdue" })` for follow-ups
-3. Process inbox items with `gtd_process_inbox`
+1. Start with `alloy gtd tasks -a recommend` for task suggestions
+2. Check `alloy gtd waiting --status overdue` for follow-ups
+3. Review today's calendar with `alloy calendar today`
 
 ### Weekly Review
 
-1. Run `gtd_weekly_review()` for full report
+1. Run `alloy gtd review` for full report
 2. Address stalled projects first
 3. Follow up on overdue waiting items
 4. Review someday/maybe list

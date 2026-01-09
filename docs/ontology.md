@@ -399,6 +399,154 @@ max_tokens_per_doc = 4000
 rate_limit_rpm = 60
 ```
 
+## CLI Usage
+
+All ontology and knowledge features are available via CLI.
+
+### Entity Management
+
+```bash
+# View ontology statistics
+alloy ontology stats
+
+# List all entities
+alloy ontology entities
+
+# Filter by type
+alloy ontology entities --entity-type Person
+
+# Search by name
+alloy ontology entities --name-contains "Alice"
+```
+
+### Creating Entities
+
+```bash
+# Add a person
+alloy ontology person "Alice Chen" \
+  --organization "Acme Corp" \
+  --email "alice@acme.com" \
+  --topics "Kubernetes,DevOps,AWS" \
+  --aliases "A. Chen"
+
+# Add an organization
+alloy ontology organization "Acme Corp" \
+  --org-type company \
+  --aliases "Acme,Acme Corporation"
+
+# Add a topic
+alloy ontology topic "Machine Learning" \
+  --description "AI and ML technologies" \
+  --aliases "ML,AI"
+
+# Add a custom entity
+alloy ontology entities -a add \
+  --set-type Concept \
+  --name "Microservices Architecture" \
+  --aliases "microservices,MSA"
+```
+
+### Managing Relationships
+
+```bash
+# List all relationships
+alloy ontology relationships
+
+# Filter by entity
+alloy ontology relationships --source entity_alice
+
+# Create a relationship
+alloy ontology relationships -a add \
+  --from-entity entity_alice \
+  --to-entity entity_acme \
+  --set-type works_for
+
+# Delete a relationship
+alloy ontology relationships -a delete --id rel_xyz
+```
+
+### Entity Extraction
+
+```bash
+# Extract entities from a document
+alloy ontology extract doc_xyz
+
+# Extract with confidence scores
+alloy ontology extract doc_xyz --show-confidence
+
+# Extract and auto-add to ontology
+alloy ontology extract doc_xyz --auto-add
+```
+
+### Knowledge Queries
+
+```bash
+# Semantic search
+alloy knowledge search "machine learning best practices"
+
+# Find experts on a topic
+alloy knowledge expert "PostgreSQL"
+
+# Look up an entity
+alloy knowledge entity "Alice Chen" --relationships
+
+# Explore connected entities
+alloy knowledge connected "Project Alpha" --depth 3
+
+# Topic summary
+alloy knowledge topic "authentication"
+```
+
+### Calendar Queries
+
+```bash
+# Today's events
+alloy calendar today
+
+# This week
+alloy calendar week
+
+# Events in date range
+alloy calendar range --start 2024-01-15 --end 2024-01-31
+
+# Find free time
+alloy calendar free --start 2024-01-15 --end 2024-01-19 --min-duration 60
+
+# Check conflicts
+alloy calendar conflicts
+
+# Create an event
+alloy calendar events -a add \
+  --title "Team Meeting" \
+  --event-type meeting \
+  --start "2024-01-20T09:00" \
+  --end "2024-01-20T10:00"
+```
+
+### Natural Language Queries
+
+```bash
+# Auto-routed queries
+alloy query "What do I know about machine learning?"
+alloy query "Who can help with the AWS migration?"
+alloy query "What's blocking the website project?"
+```
+
+### JSON Output for Scripting
+
+```bash
+# Export entities as JSON
+alloy --json ontology entities > entities.json
+
+# Find person names
+alloy --json ontology entities --entity-type Person | jq '.[].name'
+
+# Export relationships
+alloy --json ontology relationships > relationships.json
+```
+
+See the [CLI Reference](cli.md#ontology-commands) for complete command documentation.
+
 ## Best Practices
 
 ### Indexing for Knowledge
