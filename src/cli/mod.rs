@@ -7,5 +7,6 @@ mod commands;
 mod local;
 mod output;
 mod remote;
+pub mod types;
 
 pub use commands::*;

@@ -1,6 +1,6 @@
 # Tools Reference
 
-Alloy exposes the following MCP tools for document indexing and search.
+Alloy exposes MCP tools for document indexing, search, GTD workflow, calendar intelligence, and knowledge queries.
 
 ## index_path
 
@@ -250,3 +250,685 @@ Update runtime configuration settings.
   "message": "Configuration update acknowledged"
 }
 ```
+
+---
+
+# GTD Tools
+
+## gtd_projects
+
+Manage GTD projects with health scoring and filtering.
+
+### Parameters
+
+| Name | Type | Required | Default | Description |
+|------|------|----------|---------|-------------|
+| `action` | string | Yes | - | Action: `list`, `get`, `create`, `update`, `archive` |
+| `project_id` | string | No | - | Project ID (for get/update/archive) |
+| `filters` | object | No | - | Filter criteria |
+
+#### Filter Options
+
+| Name | Type | Description |
+|------|------|-------------|
+| `status` | string | `active`, `on_hold`, `completed`, `archived` |
+| `area` | string | Filter by area of focus |
+| `has_next_action` | boolean | Projects with/without defined next actions |
+| `stalled_days` | integer | Projects without activity for N days |
+
+### Response
+
+```json
+{
+  "projects": [
+    {
+      "id": "proj_abc123",
+      "name": "Website Redesign",
+      "outcome": "Launch new company website with improved UX",
+      "status": "active",
+      "area": "Marketing",
+      "health_score": 85,
+      "health": {
+        "has_next_action": true,
+        "recent_activity": true,
+        "clear_outcome": true,
+        "reasonable_scope": true,
+        "no_blockers": false,
+        "linked_to_goal": true,
+        "recommendations": ["Resolve blocking task: waiting on design assets"]
+      },
+      "task_count": 12,
+      "next_action": {
+        "id": "task_xyz",
+        "description": "Review homepage mockups"
+      },
+      "created_at": "2024-01-10T09:00:00Z",
+      "last_activity": "2024-01-14T15:30:00Z"
+    }
+  ]
+}
+```
+
+### Examples
+
+```
+# List active projects
+gtd_projects(action: "list", filters: { status: "active" })
+
+# Get stalled projects (no activity in 7+ days)
+gtd_projects(action: "list", filters: { stalled_days: 7 })
+
+# Projects without next actions (need attention)
+gtd_projects(action: "list", filters: { has_next_action: false })
+
+# Create a new project
+gtd_projects(action: "create", project: {
+  name: "Q2 Product Launch",
+  outcome: "Successfully launch v2.0 to market",
+  area: "Product"
+})
+```
+
+## gtd_tasks
+
+Manage tasks with context filtering, energy levels, and recommendations.
+
+### Parameters
+
+| Name | Type | Required | Default | Description |
+|------|------|----------|---------|-------------|
+| `action` | string | Yes | - | Action: `list`, `get`, `create`, `update`, `complete`, `recommend` |
+| `task_id` | string | No | - | Task ID (for get/update/complete) |
+| `filters` | object | No | - | Filter criteria |
+
+#### Filter Options
+
+| Name | Type | Description |
+|------|------|-------------|
+| `contexts` | array | Context tags: `@home`, `@work`, `@phone`, `@computer`, `@errand` |
+| `project` | string | Filter by project ID |
+| `status` | string | `next`, `scheduled`, `waiting`, `someday`, `done` |
+| `energy_level` | string | `low`, `medium`, `high` |
+| `time_available` | integer | Maximum duration in minutes |
+| `due_before` | string | ISO date for deadline filter |
+| `priority` | string | `low`, `medium`, `high`, `critical` |
+
+### Response
+
+```json
+{
+  "tasks": [
+    {
+      "id": "task_xyz789",
+      "description": "Review homepage mockups",
+      "project": "proj_abc123",
+      "contexts": ["@computer"],
+      "status": "next",
+      "energy_level": "medium",
+      "estimated_duration": 30,
+      "due_date": "2024-01-20T17:00:00Z",
+      "priority": "high",
+      "source_document": "doc_meeting_notes",
+      "created_at": "2024-01-14T10:00:00Z"
+    }
+  ]
+}
+```
+
+### Task Recommendations
+
+When using `action: "recommend"`, the system scores tasks based on:
+- Context match (+30 points)
+- Energy level match (+20 points)
+- Time available fit (+15 points)
+- Due date urgency (+20 points)
+- Priority (+15 points)
+
+### Examples
+
+```
+# Get tasks for @computer context
+gtd_tasks(action: "list", filters: { contexts: ["@computer"] })
+
+# Low energy tasks I can do quickly
+gtd_tasks(action: "list", filters: { energy_level: "low", time_available: 15 })
+
+# Get smart recommendations for current context
+gtd_tasks(action: "recommend", filters: {
+  contexts: ["@computer"],
+  energy_level: "medium",
+  time_available: 60
+})
+
+# Tasks due this week
+gtd_tasks(action: "list", filters: { due_before: "2024-01-21" })
+```
+
+## gtd_waiting
+
+Track delegated items and follow-ups.
+
+### Parameters
+
+| Name | Type | Required | Default | Description |
+|------|------|----------|---------|-------------|
+| `action` | string | Yes | - | Action: `list`, `add`, `resolve`, `remind` |
+| `waiting_id` | string | No | - | Waiting item ID |
+| `filters` | object | No | - | Filter criteria |
+
+#### Filter Options
+
+| Name | Type | Description |
+|------|------|-------------|
+| `status` | string | `pending`, `overdue`, `resolved` |
+| `delegated_to` | string | Person name or ID |
+| `project` | string | Project ID |
+
+### Response
+
+```json
+{
+  "waiting_items": [
+    {
+      "id": "wait_abc123",
+      "description": "Design mockups for landing page",
+      "delegated_to": { "name": "Sarah", "id": "person_sarah" },
+      "project": "proj_website",
+      "delegated_date": "2024-01-10T09:00:00Z",
+      "expected_by": "2024-01-17T17:00:00Z",
+      "follow_up_dates": ["2024-01-14T10:00:00Z"],
+      "status": "overdue",
+      "days_waiting": 7
+    }
+  ]
+}
+```
+
+### Examples
+
+```
+# List all overdue items
+gtd_waiting(action: "list", filters: { status: "overdue" })
+
+# Items waiting on specific person
+gtd_waiting(action: "list", filters: { delegated_to: "John" })
+
+# Add new waiting item
+gtd_waiting(action: "add", item: {
+  description: "Budget approval",
+  delegated_to: "Finance Team",
+  expected_by: "2024-01-25"
+})
+
+# Mark as resolved
+gtd_waiting(action: "resolve", waiting_id: "wait_abc123", resolution: "Received mockups")
+```
+
+## gtd_someday
+
+Manage someday/maybe items for future consideration.
+
+### Parameters
+
+| Name | Type | Required | Default | Description |
+|------|------|----------|---------|-------------|
+| `action` | string | Yes | - | Action: `list`, `add`, `activate`, `archive` |
+| `item_id` | string | No | - | Item ID |
+| `category` | string | No | - | Filter by category |
+
+### Response
+
+```json
+{
+  "items": [
+    {
+      "id": "someday_xyz",
+      "description": "Learn Rust for embedded systems",
+      "category": "Learning",
+      "trigger": "When current project wraps up",
+      "review_date": "2024-03-01",
+      "created_at": "2024-01-01T10:00:00Z"
+    }
+  ]
+}
+```
+
+### Examples
+
+```
+# List all someday items
+gtd_someday(action: "list")
+
+# Filter by category
+gtd_someday(action: "list", category: "Travel")
+
+# Add new item
+gtd_someday(action: "add", item: {
+  description: "Write a technical blog",
+  category: "Side Projects",
+  trigger: "When I have consistent free weekends"
+})
+
+# Activate (move to active projects)
+gtd_someday(action: "activate", item_id: "someday_xyz")
+```
+
+## gtd_weekly_review
+
+Generate comprehensive weekly review reports.
+
+### Parameters
+
+| Name | Type | Required | Default | Description |
+|------|------|----------|---------|-------------|
+| `week_ending` | string | No | today | End date of review week |
+| `sections` | array | No | all | Sections to include |
+
+#### Available Sections
+
+- `inbox_status` - Unprocessed items count
+- `completed_tasks` - Tasks completed this week
+- `projects_review` - Active project health
+- `stalled_projects` - Projects needing attention
+- `waiting_for` - Overdue delegations
+- `upcoming_calendar` - Next week preview
+- `someday_maybe` - Deferred items review
+- `areas_check` - Area of focus balance
+
+### Response
+
+```json
+{
+  "period": {
+    "start": "2024-01-08",
+    "end": "2024-01-14"
+  },
+  "inbox_count": 5,
+  "tasks_completed": 23,
+  "projects_active": 8,
+  "stalled_projects": [
+    {
+      "id": "proj_xyz",
+      "name": "Mobile App",
+      "days_stalled": 12,
+      "recommendation": "Define next physical action"
+    }
+  ],
+  "waiting_overdue": [
+    {
+      "description": "Contract review",
+      "delegated_to": "Legal",
+      "days_overdue": 3
+    }
+  ],
+  "upcoming_events": 4,
+  "suggestions": [
+    "Process 5 inbox items to achieve inbox zero",
+    "Follow up on 2 overdue waiting items",
+    "Review Mobile App project - stalled 12 days"
+  ],
+  "areas_needing_attention": ["Health", "Learning"]
+}
+```
+
+### Examples
+
+```
+# Full weekly review
+gtd_weekly_review()
+
+# Focus on specific sections
+gtd_weekly_review(sections: ["projects_review", "waiting_for", "stalled_projects"])
+
+# Review for specific week
+gtd_weekly_review(week_ending: "2024-01-14")
+```
+
+## gtd_horizons
+
+View commitments across GTD's 6 horizons of focus.
+
+### Parameters
+
+| Name | Type | Required | Default | Description |
+|------|------|----------|---------|-------------|
+| `level` | string | No | - | Specific horizon level |
+| `include_entities` | boolean | No | true | Include entity details |
+
+#### Horizon Levels
+
+| Level | Name | Description |
+|-------|------|-------------|
+| `runway` | Current Actions | Tasks and next actions |
+| `h10k` | Projects | Current projects |
+| `h20k` | Areas | Areas of focus/responsibility |
+| `h30k` | Goals | 1-2 year goals |
+| `h40k` | Vision | 3-5 year vision |
+| `h50k` | Purpose | Life purpose and principles |
+
+### Response
+
+```json
+{
+  "horizons": [
+    {
+      "level": "runway",
+      "name": "Current Actions",
+      "count": 45,
+      "entities": [...]
+    },
+    {
+      "level": "h10k",
+      "name": "Projects",
+      "count": 12,
+      "entities": [...]
+    }
+  ]
+}
+```
+
+## gtd_commitments
+
+Track promises made and received.
+
+### Parameters
+
+| Name | Type | Required | Default | Description |
+|------|------|----------|---------|-------------|
+| `action` | string | Yes | - | Action: `list`, `add`, `resolve` |
+| `commitment_type` | string | No | - | `made` or `received` |
+| `filters` | object | No | - | Filter criteria |
+
+### Response
+
+```json
+{
+  "commitments": [
+    {
+      "id": "commit_abc",
+      "type": "made",
+      "description": "Send quarterly report by Friday",
+      "to_person": "Management",
+      "due_date": "2024-01-19",
+      "status": "pending",
+      "source_document": "email_thread_xyz",
+      "extracted_text": "I'll have the quarterly report to you by end of day Friday"
+    }
+  ]
+}
+```
+
+## gtd_dependencies
+
+Analyze task dependencies and blockers.
+
+### Parameters
+
+| Name | Type | Required | Default | Description |
+|------|------|----------|---------|-------------|
+| `project_id` | string | No | - | Analyze specific project |
+| `include_critical_path` | boolean | No | true | Calculate critical path |
+
+### Response
+
+```json
+{
+  "graph": {
+    "nodes": [...],
+    "edges": [...]
+  },
+  "critical_path": ["task_a", "task_b", "task_c"],
+  "blockers": [
+    {
+      "blocked_task": "task_xyz",
+      "blocked_by": "task_abc",
+      "days_blocked": 5,
+      "impact": ["task_xyz", "task_def", "task_ghi"]
+    }
+  ]
+}
+```
+
+## gtd_attention
+
+Analyze attention distribution across areas and projects.
+
+### Parameters
+
+| Name | Type | Required | Default | Description |
+|------|------|----------|---------|-------------|
+| `period` | string | No | `week` | Analysis period: `day`, `week`, `month` |
+| `group_by` | string | No | `area` | Group by: `area`, `project` |
+
+### Response
+
+```json
+{
+  "period": "2024-01-08 to 2024-01-14",
+  "by_area": {
+    "Work": { "tasks_completed": 15, "score": 0.45 },
+    "Health": { "tasks_completed": 3, "score": 0.08 },
+    "Learning": { "tasks_completed": 5, "score": 0.15 }
+  },
+  "imbalances": [
+    {
+      "area": "Health",
+      "expected": 0.20,
+      "actual": 0.08,
+      "gap": -0.12,
+      "suggestion": "Health area receiving less attention than prioritized"
+    }
+  ]
+}
+```
+
+---
+
+# Calendar Tools
+
+## calendar_query
+
+Query calendar events with flexible filtering.
+
+### Parameters
+
+| Name | Type | Required | Default | Description |
+|------|------|----------|---------|-------------|
+| `query_type` | string | Yes | - | Query type (see below) |
+| `date_range` | object | No | - | Start and end dates |
+| `filters` | object | No | - | Additional filters |
+
+#### Query Types
+
+| Type | Description |
+|------|-------------|
+| `upcoming` | Next N events |
+| `today` | Today's events |
+| `this_week` | This week's events |
+| `date_range` | Events in date range |
+| `free_time` | Find available slots |
+| `conflicts` | Detect scheduling conflicts |
+| `commitments` | Time-specific commitments |
+
+### Response
+
+```json
+{
+  "events": [
+    {
+      "id": "event_abc",
+      "title": "Team Standup",
+      "event_type": "meeting",
+      "start": "2024-01-15T09:00:00Z",
+      "end": "2024-01-15T09:30:00Z",
+      "location": "Zoom",
+      "participants": ["Alice", "Bob"],
+      "recurrence": "weekly",
+      "related_project": "proj_xyz"
+    }
+  ],
+  "conflicts": [],
+  "stats": {
+    "total_events": 15,
+    "meetings": 10,
+    "blocked_time": 5
+  }
+}
+```
+
+### Examples
+
+```
+# Today's events
+calendar_query(query_type: "today")
+
+# This week
+calendar_query(query_type: "this_week")
+
+# Find free time slots
+calendar_query(query_type: "free_time", date_range: {
+  start: "2024-01-15",
+  end: "2024-01-19"
+})
+
+# Check for conflicts
+calendar_query(query_type: "conflicts")
+
+# Specific date range
+calendar_query(query_type: "date_range", date_range: {
+  start: "2024-02-01",
+  end: "2024-02-29"
+})
+```
+
+---
+
+# Knowledge Tools
+
+## knowledge_query
+
+Query the knowledge graph with semantic search and relationship traversal.
+
+### Parameters
+
+| Name | Type | Required | Default | Description |
+|------|------|----------|---------|-------------|
+| `query` | string | Yes | - | Natural language query |
+| `query_type` | string | No | `semantic_search` | Query type (see below) |
+| `entity_types` | array | No | - | Filter to specific entity types |
+| `limit` | integer | No | 10 | Maximum results |
+
+#### Query Types
+
+| Type | Description |
+|------|-------------|
+| `semantic_search` | "What do I know about X?" |
+| `entity_lookup` | Find specific entity by name |
+| `relationship_query` | "Who works with person X?" |
+| `topic_summary` | Summarize knowledge on topic |
+| `connected_entities` | Graph traversal from entity |
+| `expert_finding` | "Who knows about X?" |
+
+### Response
+
+```json
+{
+  "entities": [
+    {
+      "id": "entity_abc",
+      "type": "Person",
+      "name": "Alice Chen",
+      "aliases": ["A. Chen"],
+      "metadata": {
+        "organization": "Engineering",
+        "topics": ["Kubernetes", "DevOps"]
+      }
+    }
+  ],
+  "relationships": [
+    {
+      "source": "Alice Chen",
+      "type": "works_for",
+      "target": "Acme Corp"
+    }
+  ],
+  "source_documents": [
+    {
+      "id": "doc_xyz",
+      "path": "/meetings/2024-01-10.md",
+      "relevance": 0.92
+    }
+  ],
+  "summary": "Alice Chen is a DevOps engineer at Acme Corp, frequently mentioned in discussions about Kubernetes deployments...",
+  "confidence": 0.85
+}
+```
+
+### Examples
+
+```
+# Semantic search
+knowledge_query(query: "machine learning projects")
+
+# Find experts
+knowledge_query(query: "Who knows about Kubernetes?", query_type: "expert_finding")
+
+# Topic summary
+knowledge_query(query: "authentication", query_type: "topic_summary")
+
+# Entity relationships
+knowledge_query(query: "Alice Chen", query_type: "connected_entities")
+
+# Filter by entity type
+knowledge_query(query: "database", entity_types: ["Person", "Organization"])
+```
+
+---
+
+# Natural Language Query
+
+## query
+
+Unified natural language interface that routes to appropriate subsystem.
+
+### Parameters
+
+| Name | Type | Required | Default | Description |
+|------|------|----------|---------|-------------|
+| `query` | string | Yes | - | Natural language query |
+| `query_mode` | string | No | `auto` | Force mode: `auto`, `gtd`, `calendar`, `knowledge` |
+
+### Examples
+
+The query tool automatically routes based on intent:
+
+```
+# GTD queries (auto-routes to GTD)
+query(query: "What should I work on now?")
+query(query: "What's blocking the website project?")
+query(query: "Show me stalled projects")
+query(query: "What's waiting on John?")
+
+# Calendar queries (auto-routes to calendar)
+query(query: "What's on my calendar this week?")
+query(query: "When am I free tomorrow?")
+
+# Knowledge queries (auto-routes to knowledge)
+query(query: "What do I know about machine learning?")
+query(query: "Who can help with AWS migration?")
+
+# Force specific mode
+query(query: "review", query_mode: "gtd")
+```
+
+### Intent Classification
+
+The query tool uses pattern matching and semantic analysis to classify intent:
+
+| Pattern | Routed To |
+|---------|-----------|
+| "what should I...", "recommend", "next action" | GTD tasks |
+| "blocking", "stalled", "project health" | GTD projects |
+| "waiting on", "delegated to" | GTD waiting |
+| "calendar", "schedule", "meeting", "free time" | Calendar |
+| "who knows", "expert", "what do I know" | Knowledge |

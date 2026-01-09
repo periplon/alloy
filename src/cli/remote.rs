@@ -296,3 +296,165 @@ pub async fn list_backups(url: &str) -> Result<ListBackupsResponse> {
         .call_tool("list_backups", serde_json::json!({}))
         .await
 }
+
+// ============================================================================
+// GTD, Calendar, Knowledge, Query, Ontology Commands
+// ============================================================================
+
+use super::types::{CalendarResult, GtdResult, KnowledgeResult, OntologyResult, QueryResult};
+use crate::{CalendarCommand, GtdCommand, KnowledgeCommand, OntologyCommand};
+
+/// Execute GTD commands via remote MCP server.
+pub async fn gtd(url: &str, command: GtdCommand) -> Result<GtdResult> {
+    // Stub - will be implemented to call appropriate MCP tools
+    let message = match &command {
+        GtdCommand::Projects { action, .. } => {
+            format!("GTD projects: {} (remote not implemented)", action)
+        }
+        GtdCommand::Tasks { action, .. } => {
+            format!("GTD tasks: {} (remote not implemented)", action)
+        }
+        GtdCommand::Waiting { action, .. } => {
+            format!("GTD waiting: {} (remote not implemented)", action)
+        }
+        GtdCommand::Someday { action, .. } => {
+            format!("GTD someday: {} (remote not implemented)", action)
+        }
+        GtdCommand::Review { .. } => "GTD review (remote not implemented)".to_string(),
+        GtdCommand::Horizons { action, .. } => {
+            format!("GTD horizons: {} (remote not implemented)", action)
+        }
+        GtdCommand::Commitments { action, .. } => {
+            format!("GTD commitments: {} (remote not implemented)", action)
+        }
+        GtdCommand::Dependencies { action, .. } => {
+            format!("GTD dependencies: {} (remote not implemented)", action)
+        }
+        GtdCommand::Attention { .. } => "GTD attention (remote not implemented)".to_string(),
+        GtdCommand::Areas { action, .. } => {
+            format!("GTD areas: {} (remote not implemented)", action)
+        }
+        GtdCommand::Goals { action, .. } => {
+            format!("GTD goals: {} (remote not implemented)", action)
+        }
+    };
+
+    // Suppress unused warning for url
+    let _ = url;
+
+    Ok(GtdResult {
+        success: false,
+        message,
+        data: serde_json::Value::Null,
+    })
+}
+
+/// Execute Calendar commands via remote MCP server.
+pub async fn calendar(url: &str, command: CalendarCommand) -> Result<CalendarResult> {
+    let message = match &command {
+        CalendarCommand::Today => "Calendar today (remote not implemented)".to_string(),
+        CalendarCommand::Week => "Calendar week (remote not implemented)".to_string(),
+        CalendarCommand::Range { start, end } => {
+            format!("Calendar range {}-{} (remote not implemented)", start, end)
+        }
+        CalendarCommand::Free { start, end, .. } => {
+            format!("Calendar free {}-{} (remote not implemented)", start, end)
+        }
+        CalendarCommand::Conflicts => "Calendar conflicts (remote not implemented)".to_string(),
+        CalendarCommand::Upcoming { limit } => {
+            format!("Calendar upcoming {} (remote not implemented)", limit)
+        }
+        CalendarCommand::Events { action, .. } => {
+            format!("Calendar events: {} (remote not implemented)", action)
+        }
+    };
+
+    let _ = url;
+
+    Ok(CalendarResult {
+        success: false,
+        message,
+        data: serde_json::Value::Null,
+    })
+}
+
+/// Execute Knowledge commands via remote MCP server.
+pub async fn knowledge(url: &str, command: KnowledgeCommand) -> Result<KnowledgeResult> {
+    let message = match &command {
+        KnowledgeCommand::Search { query, .. } => {
+            format!("Knowledge search '{}' (remote not implemented)", query)
+        }
+        KnowledgeCommand::Entity { name, .. } => {
+            format!("Knowledge entity '{}' (remote not implemented)", name)
+        }
+        KnowledgeCommand::Expert { topic, .. } => {
+            format!("Knowledge expert '{}' (remote not implemented)", topic)
+        }
+        KnowledgeCommand::Topic { topic } => {
+            format!("Knowledge topic '{}' (remote not implemented)", topic)
+        }
+        KnowledgeCommand::Connected { entity, depth } => format!(
+            "Knowledge connected '{}' depth {} (remote not implemented)",
+            entity, depth
+        ),
+    };
+
+    let _ = url;
+
+    Ok(KnowledgeResult {
+        success: false,
+        message,
+        data: serde_json::Value::Null,
+    })
+}
+
+/// Execute natural language query via remote MCP server.
+pub async fn query(
+    url: &str,
+    query_text: String,
+    query_mode: Option<String>,
+) -> Result<QueryResult> {
+    let _ = url;
+
+    Ok(QueryResult {
+        success: false,
+        query: query_text,
+        mode: query_mode.unwrap_or_else(|| "auto".to_string()),
+        message: "Natural language query (remote not implemented)".to_string(),
+        data: serde_json::Value::Null,
+    })
+}
+
+/// Execute Ontology commands via remote MCP server.
+pub async fn ontology(url: &str, command: OntologyCommand) -> Result<OntologyResult> {
+    let message = match &command {
+        OntologyCommand::Stats => "Ontology stats (remote not implemented)".to_string(),
+        OntologyCommand::Entities { action, .. } => {
+            format!("Ontology entities: {} (remote not implemented)", action)
+        }
+        OntologyCommand::Relationships { action, .. } => format!(
+            "Ontology relationships: {} (remote not implemented)",
+            action
+        ),
+        OntologyCommand::Extract { document, .. } => {
+            format!("Ontology extract '{}' (remote not implemented)", document)
+        }
+        OntologyCommand::Person { name, .. } => {
+            format!("Ontology person '{}' (remote not implemented)", name)
+        }
+        OntologyCommand::Organization { name, .. } => {
+            format!("Ontology organization '{}' (remote not implemented)", name)
+        }
+        OntologyCommand::Topic { name, .. } => {
+            format!("Ontology topic '{}' (remote not implemented)", name)
+        }
+    };
+
+    let _ = url;
+
+    Ok(OntologyResult {
+        success: false,
+        message,
+        data: serde_json::Value::Null,
+    })
+}

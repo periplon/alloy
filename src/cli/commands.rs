@@ -197,3 +197,76 @@ pub async fn run_list_backups(mode: ExecutionMode, json_output: bool) -> Result<
     output::print_list_backups_result(&result, json_output);
     Ok(())
 }
+
+// ============================================================================
+// GTD Commands
+// ============================================================================
+
+use crate::{CalendarCommand, GtdCommand, KnowledgeCommand, OntologyCommand};
+
+/// Run GTD commands.
+pub async fn run_gtd(mode: ExecutionMode, command: GtdCommand, json_output: bool) -> Result<()> {
+    let result = match mode {
+        ExecutionMode::Local(config) => local::gtd(*config, command).await?,
+        ExecutionMode::Remote(url) => remote::gtd(&url, command).await?,
+    };
+    output::print_gtd_result(&result, json_output);
+    Ok(())
+}
+
+/// Run Calendar commands.
+pub async fn run_calendar(
+    mode: ExecutionMode,
+    command: CalendarCommand,
+    json_output: bool,
+) -> Result<()> {
+    let result = match mode {
+        ExecutionMode::Local(config) => local::calendar(*config, command).await?,
+        ExecutionMode::Remote(url) => remote::calendar(&url, command).await?,
+    };
+    output::print_calendar_result(&result, json_output);
+    Ok(())
+}
+
+/// Run Knowledge commands.
+pub async fn run_knowledge(
+    mode: ExecutionMode,
+    command: KnowledgeCommand,
+    json_output: bool,
+) -> Result<()> {
+    let result = match mode {
+        ExecutionMode::Local(config) => local::knowledge(*config, command).await?,
+        ExecutionMode::Remote(url) => remote::knowledge(&url, command).await?,
+    };
+    output::print_knowledge_result(&result, json_output);
+    Ok(())
+}
+
+/// Run natural language query.
+pub async fn run_query(
+    mode: ExecutionMode,
+    query: String,
+    query_mode: Option<String>,
+    json_output: bool,
+) -> Result<()> {
+    let result = match mode {
+        ExecutionMode::Local(config) => local::query(*config, query, query_mode).await?,
+        ExecutionMode::Remote(url) => remote::query(&url, query, query_mode).await?,
+    };
+    output::print_query_result(&result, json_output);
+    Ok(())
+}
+
+/// Run Ontology commands.
+pub async fn run_ontology(
+    mode: ExecutionMode,
+    command: OntologyCommand,
+    json_output: bool,
+) -> Result<()> {
+    let result = match mode {
+        ExecutionMode::Local(config) => local::ontology(*config, command).await?,
+        ExecutionMode::Remote(url) => remote::ontology(&url, command).await?,
+    };
+    output::print_ontology_result(&result, json_output);
+    Ok(())
+}

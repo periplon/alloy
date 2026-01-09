@@ -465,3 +465,147 @@ pub async fn list_backups(config: Config) -> Result<ListBackupsResponse> {
         message: format!("Found {} backups", backups.len()),
     })
 }
+
+// ============================================================================
+// GTD, Calendar, Knowledge, Query, Ontology Commands
+// ============================================================================
+
+use super::types::{CalendarResult, GtdResult, KnowledgeResult, OntologyResult, QueryResult};
+use crate::{CalendarCommand, GtdCommand, KnowledgeCommand, OntologyCommand};
+
+/// Execute GTD commands locally.
+pub async fn gtd(_config: Config, command: GtdCommand) -> Result<GtdResult> {
+    // Stub implementation - will be fully implemented in Phase 2
+    let message = match &command {
+        GtdCommand::Projects { action, .. } => {
+            format!("GTD projects: {} (not implemented)", action)
+        }
+        GtdCommand::Tasks { action, .. } => format!("GTD tasks: {} (not implemented)", action),
+        GtdCommand::Waiting { action, .. } => format!("GTD waiting: {} (not implemented)", action),
+        GtdCommand::Someday { action, .. } => format!("GTD someday: {} (not implemented)", action),
+        GtdCommand::Review { .. } => "GTD review (not implemented)".to_string(),
+        GtdCommand::Horizons { action, .. } => {
+            format!("GTD horizons: {} (not implemented)", action)
+        }
+        GtdCommand::Commitments { action, .. } => {
+            format!("GTD commitments: {} (not implemented)", action)
+        }
+        GtdCommand::Dependencies { action, .. } => {
+            format!("GTD dependencies: {} (not implemented)", action)
+        }
+        GtdCommand::Attention { .. } => "GTD attention (not implemented)".to_string(),
+        GtdCommand::Areas { action, .. } => format!("GTD areas: {} (not implemented)", action),
+        GtdCommand::Goals { action, .. } => format!("GTD goals: {} (not implemented)", action),
+    };
+
+    Ok(GtdResult {
+        success: false,
+        message,
+        data: serde_json::Value::Null,
+    })
+}
+
+/// Execute Calendar commands locally.
+pub async fn calendar(_config: Config, command: CalendarCommand) -> Result<CalendarResult> {
+    // Stub implementation - will be fully implemented in Phase 4
+    let message = match &command {
+        CalendarCommand::Today => "Calendar today (not implemented)".to_string(),
+        CalendarCommand::Week => "Calendar week (not implemented)".to_string(),
+        CalendarCommand::Range { start, end } => {
+            format!("Calendar range {}-{} (not implemented)", start, end)
+        }
+        CalendarCommand::Free { start, end, .. } => {
+            format!("Calendar free {}-{} (not implemented)", start, end)
+        }
+        CalendarCommand::Conflicts => "Calendar conflicts (not implemented)".to_string(),
+        CalendarCommand::Upcoming { limit } => {
+            format!("Calendar upcoming {} (not implemented)", limit)
+        }
+        CalendarCommand::Events { action, .. } => {
+            format!("Calendar events: {} (not implemented)", action)
+        }
+    };
+
+    Ok(CalendarResult {
+        success: false,
+        message,
+        data: serde_json::Value::Null,
+    })
+}
+
+/// Execute Knowledge commands locally.
+pub async fn knowledge(_config: Config, command: KnowledgeCommand) -> Result<KnowledgeResult> {
+    // Stub implementation - will be fully implemented in Phase 5
+    let message = match &command {
+        KnowledgeCommand::Search { query, .. } => {
+            format!("Knowledge search '{}' (not implemented)", query)
+        }
+        KnowledgeCommand::Entity { name, .. } => {
+            format!("Knowledge entity '{}' (not implemented)", name)
+        }
+        KnowledgeCommand::Expert { topic, .. } => {
+            format!("Knowledge expert '{}' (not implemented)", topic)
+        }
+        KnowledgeCommand::Topic { topic } => {
+            format!("Knowledge topic '{}' (not implemented)", topic)
+        }
+        KnowledgeCommand::Connected { entity, depth } => format!(
+            "Knowledge connected '{}' depth {} (not implemented)",
+            entity, depth
+        ),
+    };
+
+    Ok(KnowledgeResult {
+        success: false,
+        message,
+        data: serde_json::Value::Null,
+    })
+}
+
+/// Execute natural language query locally.
+pub async fn query(
+    _config: Config,
+    query_text: String,
+    query_mode: Option<String>,
+) -> Result<QueryResult> {
+    // Stub implementation - will be fully implemented in Phase 7
+    Ok(QueryResult {
+        success: false,
+        query: query_text,
+        mode: query_mode.unwrap_or_else(|| "auto".to_string()),
+        message: "Natural language query (not implemented)".to_string(),
+        data: serde_json::Value::Null,
+    })
+}
+
+/// Execute Ontology commands locally.
+pub async fn ontology(_config: Config, command: OntologyCommand) -> Result<OntologyResult> {
+    // Stub implementation - will be fully implemented in Phase 6
+    let message = match &command {
+        OntologyCommand::Stats => "Ontology stats (not implemented)".to_string(),
+        OntologyCommand::Entities { action, .. } => {
+            format!("Ontology entities: {} (not implemented)", action)
+        }
+        OntologyCommand::Relationships { action, .. } => {
+            format!("Ontology relationships: {} (not implemented)", action)
+        }
+        OntologyCommand::Extract { document, .. } => {
+            format!("Ontology extract '{}' (not implemented)", document)
+        }
+        OntologyCommand::Person { name, .. } => {
+            format!("Ontology person '{}' (not implemented)", name)
+        }
+        OntologyCommand::Organization { name, .. } => {
+            format!("Ontology organization '{}' (not implemented)", name)
+        }
+        OntologyCommand::Topic { name, .. } => {
+            format!("Ontology topic '{}' (not implemented)", name)
+        }
+    };
+
+    Ok(OntologyResult {
+        success: false,
+        message,
+        data: serde_json::Value::Null,
+    })
+}

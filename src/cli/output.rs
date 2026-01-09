@@ -331,3 +331,83 @@ pub fn print_list_backups_result(result: &ListBackupsResponse, json: bool) {
         println!("Total: {} backups", result.backups.len());
     }
 }
+
+// ============================================================================
+// GTD, Calendar, Knowledge, Query, Ontology Output Formatters
+// ============================================================================
+
+use super::types::{CalendarResult, GtdResult, KnowledgeResult, OntologyResult, QueryResult};
+
+/// Print GTD command result.
+pub fn print_gtd_result(result: &GtdResult, json: bool) {
+    if json {
+        println!("{}", serde_json::to_string_pretty(result).unwrap());
+    } else if result.success {
+        println!("{}", result.message);
+        if !result.data.is_null() {
+            println!("{}", serde_json::to_string_pretty(&result.data).unwrap());
+        }
+    } else {
+        println!("[Not Implemented] {}", result.message);
+    }
+}
+
+/// Print Calendar command result.
+pub fn print_calendar_result(result: &CalendarResult, json: bool) {
+    if json {
+        println!("{}", serde_json::to_string_pretty(result).unwrap());
+    } else if result.success {
+        println!("{}", result.message);
+        if !result.data.is_null() {
+            println!("{}", serde_json::to_string_pretty(&result.data).unwrap());
+        }
+    } else {
+        println!("[Not Implemented] {}", result.message);
+    }
+}
+
+/// Print Knowledge command result.
+pub fn print_knowledge_result(result: &KnowledgeResult, json: bool) {
+    if json {
+        println!("{}", serde_json::to_string_pretty(result).unwrap());
+    } else if result.success {
+        println!("{}", result.message);
+        if !result.data.is_null() {
+            println!("{}", serde_json::to_string_pretty(&result.data).unwrap());
+        }
+    } else {
+        println!("[Not Implemented] {}", result.message);
+    }
+}
+
+/// Print Query command result.
+pub fn print_query_result(result: &QueryResult, json: bool) {
+    if json {
+        println!("{}", serde_json::to_string_pretty(result).unwrap());
+    } else {
+        println!("Query: {}", result.query);
+        println!("Mode: {}", result.mode);
+        if result.success {
+            println!("{}", result.message);
+            if !result.data.is_null() {
+                println!("{}", serde_json::to_string_pretty(&result.data).unwrap());
+            }
+        } else {
+            println!("[Not Implemented] {}", result.message);
+        }
+    }
+}
+
+/// Print Ontology command result.
+pub fn print_ontology_result(result: &OntologyResult, json: bool) {
+    if json {
+        println!("{}", serde_json::to_string_pretty(result).unwrap());
+    } else if result.success {
+        println!("{}", result.message);
+        if !result.data.is_null() {
+            println!("{}", serde_json::to_string_pretty(&result.data).unwrap());
+        }
+    } else {
+        println!("[Not Implemented] {}", result.message);
+    }
+}
