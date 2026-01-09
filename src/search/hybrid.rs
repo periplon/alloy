@@ -122,6 +122,22 @@ impl SearchFilter {
     }
 }
 
+/// Query-level expansion options.
+#[derive(Debug, Clone, Default)]
+pub struct QueryExpansionOptions {
+    /// Enable query expansion for this query (overrides config).
+    pub enabled: Option<bool>,
+    /// Maximum expansion terms for this query (overrides config).
+    pub max_expansions: Option<usize>,
+}
+
+/// Query-level reranking options.
+#[derive(Debug, Clone, Default)]
+pub struct QueryRerankingOptions {
+    /// Enable reranking for this query (overrides config).
+    pub enabled: Option<bool>,
+}
+
 /// A hybrid search query.
 #[derive(Debug, Clone)]
 pub struct HybridQuery {
@@ -135,6 +151,10 @@ pub struct HybridQuery {
     pub filter: SearchFilter,
     /// Override fusion algorithm for this query.
     pub fusion_override: Option<FusionAlgorithm>,
+    /// Query-level expansion options.
+    pub expansion: QueryExpansionOptions,
+    /// Query-level reranking options.
+    pub reranking: QueryRerankingOptions,
 }
 
 impl HybridQuery {
@@ -146,6 +166,8 @@ impl HybridQuery {
             vector_weight: 0.5,
             filter: SearchFilter::default(),
             fusion_override: None,
+            expansion: QueryExpansionOptions::default(),
+            reranking: QueryRerankingOptions::default(),
         }
     }
 
@@ -182,6 +204,24 @@ impl HybridQuery {
     /// Override fusion algorithm.
     pub fn fusion(mut self, algorithm: FusionAlgorithm) -> Self {
         self.fusion_override = Some(algorithm);
+        self
+    }
+
+    /// Enable or disable query expansion for this query.
+    pub fn expand_query(mut self, enabled: bool) -> Self {
+        self.expansion.enabled = Some(enabled);
+        self
+    }
+
+    /// Set maximum expansion terms for this query.
+    pub fn max_expansions(mut self, max: usize) -> Self {
+        self.expansion.max_expansions = Some(max);
+        self
+    }
+
+    /// Enable or disable reranking for this query.
+    pub fn rerank(mut self, enabled: bool) -> Self {
+        self.reranking.enabled = Some(enabled);
         self
     }
 }
@@ -656,12 +696,31 @@ impl HybridSearcher for EnhancedHybridSearchOrchestrator {
     async fn search(&self, query: HybridQuery) -> Result<HybridSearchResponse> {
         let start_time = std::time::Instant::now();
 
+        // Determine if expansion is enabled (per-query override or config)
+        let expansion_enabled = query
+            .expansion
+            .enabled
+            .unwrap_or(self.search_config.expansion.enabled);
+
+        // Determine if reranking is enabled (per-query override or config)
+        let reranking_enabled = query
+            .reranking
+            .enabled
+            .unwrap_or(self.search_config.reranking.enabled);
+
         // Step 1: Query expansion (if enabled)
         let expansion_start = std::time::Instant::now();
-        let expanded = if let Some(ref expander) = self.expander {
-            expander
-                .expand(&query.text, &self.search_config.expansion)
-                .await?
+        let expanded = if expansion_enabled {
+            if let Some(ref expander) = self.expander {
+                // Create expansion config with per-query overrides
+                let mut expansion_config = self.search_config.expansion.clone();
+                if let Some(max) = query.expansion.max_expansions {
+                    expansion_config.max_expansions = max;
+                }
+                expander.expand(&query.text, &expansion_config).await?
+            } else {
+                ExpandedQuery::unchanged(&query.text)
+            }
         } else {
             ExpandedQuery::unchanged(&query.text)
         };
@@ -670,7 +729,7 @@ impl HybridSearcher for EnhancedHybridSearchOrchestrator {
         // Create modified query with expanded text
         let search_query = HybridQuery {
             text: expanded.expanded.clone(),
-            limit: if self.search_config.reranking.enabled {
+            limit: if reranking_enabled {
                 // Fetch more candidates for reranking
                 query.limit.max(self.search_config.reranking.top_k)
             } else {
@@ -679,6 +738,8 @@ impl HybridSearcher for EnhancedHybridSearchOrchestrator {
             vector_weight: query.vector_weight,
             filter: query.filter.clone(),
             fusion_override: query.fusion_override,
+            expansion: QueryExpansionOptions::default(),
+            reranking: QueryRerankingOptions::default(),
         };
 
         // Step 2: Execute base search
@@ -686,16 +747,21 @@ impl HybridSearcher for EnhancedHybridSearchOrchestrator {
 
         // Step 3: Reranking (if enabled)
         let reranking_start = std::time::Instant::now();
-        let reranked = if let Some(ref reranker) = self.reranker {
-            let reranked_results = reranker
-                .rerank(
-                    &query.text, // Use original query for reranking
-                    response.results,
-                    &self.search_config.reranking,
-                )
-                .await?;
-            response.results = reranked_results;
-            true
+        let reranked = if reranking_enabled {
+            if let Some(ref reranker) = self.reranker {
+                let reranked_results = reranker
+                    .rerank(
+                        &query.text, // Use original query for reranking
+                        response.results,
+                        &self.search_config.reranking,
+                    )
+                    .await?;
+                response.results = reranked_results;
+                true
+            } else {
+                response.results.truncate(query.limit);
+                false
+            }
         } else {
             // Just ensure we return the requested limit
             response.results.truncate(query.limit);
@@ -940,5 +1006,51 @@ mod tests {
         assert_eq!(results[0].score, 1.0);
         assert_eq!(results[1].score, 0.5);
         assert_eq!(results[2].score, 0.0);
+    }
+
+    #[test]
+    fn test_query_expansion_options() {
+        let query = HybridQuery::new("test query")
+            .expand_query(true)
+            .max_expansions(5);
+
+        assert_eq!(query.expansion.enabled, Some(true));
+        assert_eq!(query.expansion.max_expansions, Some(5));
+    }
+
+    #[test]
+    fn test_query_reranking_options() {
+        let query = HybridQuery::new("test query").rerank(true);
+
+        assert_eq!(query.reranking.enabled, Some(true));
+    }
+
+    #[test]
+    fn test_query_with_all_options() {
+        let query = HybridQuery::new("test query")
+            .limit(20)
+            .vector_weight(0.8)
+            .expand_query(true)
+            .max_expansions(3)
+            .rerank(true)
+            .filter(SearchFilter::new().source("test"));
+
+        assert_eq!(query.text, "test query");
+        assert_eq!(query.limit, 20);
+        assert_eq!(query.vector_weight, 0.8);
+        assert_eq!(query.expansion.enabled, Some(true));
+        assert_eq!(query.expansion.max_expansions, Some(3));
+        assert_eq!(query.reranking.enabled, Some(true));
+        assert_eq!(query.filter.source_id, Some("test".to_string()));
+    }
+
+    #[test]
+    fn test_query_expansion_options_default() {
+        let query = HybridQuery::new("test");
+
+        // Default should be None (use config settings)
+        assert_eq!(query.expansion.enabled, None);
+        assert_eq!(query.expansion.max_expansions, None);
+        assert_eq!(query.reranking.enabled, None);
     }
 }

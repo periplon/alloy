@@ -88,6 +88,17 @@ pub async fn search(
             .collect(),
         total_matches: response.results.len(),
         took_ms: start.elapsed().as_millis() as u64,
+        query_expanded: if response.stats.query_expanded {
+            Some(true)
+        } else {
+            None
+        },
+        expanded_query: response.stats.expanded_query.clone(),
+        reranked: if response.stats.reranked {
+            Some(true)
+        } else {
+            None
+        },
     })
 }
 

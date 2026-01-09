@@ -111,6 +111,15 @@ pub struct SearchParams {
     /// Filter by source ID
     #[serde(default)]
     pub source_id: Option<String>,
+    /// Enable query expansion to find more relevant results using synonyms and related terms
+    #[serde(default)]
+    pub expand_query: Option<bool>,
+    /// Maximum number of expansion terms to add (default: 3)
+    #[serde(default)]
+    pub max_expansions: Option<usize>,
+    /// Enable reranking for improved precision (requires reranking to be configured)
+    #[serde(default)]
+    pub rerank: Option<bool>,
 }
 
 // Parameters for get_document tool
@@ -240,6 +249,19 @@ impl AlloyServer {
             query = query.filter(SearchFilter::new().source(source_id));
         }
 
+        // Apply query expansion settings if specified
+        if let Some(expand) = params.expand_query {
+            query = query.expand_query(expand);
+        }
+        if let Some(max_expansions) = params.max_expansions {
+            query = query.max_expansions(max_expansions);
+        }
+
+        // Apply reranking settings if specified
+        if let Some(rerank) = params.rerank {
+            query = query.rerank(rerank);
+        }
+
         // Execute search
         let start_time = Instant::now();
         match coordinator.search(query).await {
@@ -275,6 +297,17 @@ impl AlloyServer {
                     results,
                     total_matches: response.results.len(),
                     took_ms: start_time.elapsed().as_millis() as u64,
+                    query_expanded: if response.stats.query_expanded {
+                        Some(true)
+                    } else {
+                        None
+                    },
+                    expanded_query: response.stats.expanded_query.clone(),
+                    reranked: if response.stats.reranked {
+                        Some(true)
+                    } else {
+                        None
+                    },
                 };
 
                 let message = if search_response.results.is_empty() {

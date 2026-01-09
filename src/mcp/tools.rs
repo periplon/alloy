@@ -97,6 +97,15 @@ pub struct SearchResponse {
     pub total_matches: usize,
     /// Query execution time in milliseconds
     pub took_ms: u64,
+    /// Whether query expansion was applied
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub query_expanded: Option<bool>,
+    /// Expanded query text (if expansion was applied)
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub expanded_query: Option<String>,
+    /// Whether reranking was applied
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub reranked: Option<bool>,
 }
 
 /// Get document request.

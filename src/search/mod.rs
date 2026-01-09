@@ -76,6 +76,26 @@
 //!     println!("{}: {:.3}", result.document_id, result.score);
 //! }
 //! ```
+//!
+//! ## Query Expansion Example
+//!
+//! ```rust,ignore
+//! // Enable query expansion to find more relevant results
+//! let query = HybridQuery::new("database error")
+//!     .expand_query(true)        // Enable expansion for this query
+//!     .max_expansions(5)         // Add up to 5 related terms
+//!     .rerank(true)              // Enable reranking for better precision
+//!     .limit(20);
+//!
+//! // Search will expand "database error" with related terms like
+//! // "exception", "failure", "storage", etc.
+//! let response = orchestrator.search(query).await?;
+//!
+//! // Check if expansion was applied
+//! if response.stats.query_expanded {
+//!     println!("Expanded query: {:?}", response.stats.expanded_query);
+//! }
+//! ```
 
 mod clustering;
 mod cross_encoder;
