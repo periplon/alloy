@@ -84,6 +84,17 @@ qdrant-client = { version = "1", default-features = false, features = ["default"
 # Async utilities
 parking_lot = "0.12"
 
+# Search Enhancement - Caching
+moka = { version = "0.12", features = ["future"] }
+
+# Search Enhancement - Clustering
+linfa = "0.7"
+linfa-clustering = "0.7"
+ndarray = "0.15"
+
+# Search Enhancement - Text similarity for query expansion
+strsim = "0.11"
+
 [dev-dependencies]
 tokio-test = "0.4"
 tempfile = "3"

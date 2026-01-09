@@ -148,6 +148,15 @@ pub enum SearchError {
 
     #[error("Timeout after {0}ms")]
     Timeout(u64),
+
+    #[error("Reranking error: {0}")]
+    Reranking(String),
+
+    #[error("Query expansion error: {0}")]
+    QueryExpansion(String),
+
+    #[error("Clustering error: {0}")]
+    Clustering(String),
 }
 
 /// Result type alias for Alloy operations.

@@ -12,6 +12,7 @@ pub struct Config {
     pub embedding: EmbeddingConfig,
     pub storage: StorageConfig,
     pub processing: ProcessingConfig,
+    pub search: SearchConfig,
 }
 
 impl Default for Config {
@@ -21,6 +22,7 @@ impl Default for Config {
             embedding: EmbeddingConfig::default(),
             storage: StorageConfig::default(),
             processing: ProcessingConfig::default(),
+            search: SearchConfig::default(),
         }
     }
 }
@@ -283,6 +285,191 @@ impl Default for ImageProcessingConfig {
             ocr: true,
             clip: true,
             vision_api: false,
+        }
+    }
+}
+
+/// Search configuration.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(default)]
+pub struct SearchConfig {
+    /// Reranking configuration
+    pub reranking: RerankerConfig,
+    /// Query expansion configuration
+    pub expansion: QueryExpansionConfig,
+    /// Clustering configuration
+    pub clustering: ClusteringConfig,
+    /// Caching configuration
+    pub cache: CacheConfig,
+}
+
+impl Default for SearchConfig {
+    fn default() -> Self {
+        Self {
+            reranking: RerankerConfig::default(),
+            expansion: QueryExpansionConfig::default(),
+            clustering: ClusteringConfig::default(),
+            cache: CacheConfig::default(),
+        }
+    }
+}
+
+/// Cross-encoder reranking configuration.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(default)]
+pub struct RerankerConfig {
+    /// Enable reranking
+    pub enabled: bool,
+    /// Reranker type
+    pub reranker_type: RerankerType,
+    /// Number of top candidates to rerank
+    pub top_k: usize,
+    /// Final number of results after reranking
+    pub final_k: usize,
+    /// Minimum score threshold for reranked results
+    pub min_score: Option<f32>,
+}
+
+impl Default for RerankerConfig {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            reranker_type: RerankerType::ScoreBased,
+            top_k: 100,
+            final_k: 10,
+            min_score: None,
+        }
+    }
+}
+
+/// Reranker type enum.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum RerankerType {
+    /// Score-based reranking using embedding similarity
+    ScoreBased,
+    /// Cross-encoder model (requires API)
+    CrossEncoder,
+    /// LLM-based reranking (requires API)
+    Llm,
+}
+
+/// Query expansion configuration.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(default)]
+pub struct QueryExpansionConfig {
+    /// Enable query expansion
+    pub enabled: bool,
+    /// Expansion method
+    pub method: QueryExpansionMethod,
+    /// Maximum number of expansion terms
+    pub max_expansions: usize,
+    /// Similarity threshold for embedding-based expansion
+    pub similarity_threshold: f32,
+    /// Use pseudo-relevance feedback (expand based on top results)
+    pub pseudo_relevance: bool,
+    /// Number of top documents to use for pseudo-relevance feedback
+    pub prf_top_k: usize,
+}
+
+impl Default for QueryExpansionConfig {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            method: QueryExpansionMethod::Embedding,
+            max_expansions: 3,
+            similarity_threshold: 0.7,
+            pseudo_relevance: false,
+            prf_top_k: 5,
+        }
+    }
+}
+
+/// Query expansion method enum.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum QueryExpansionMethod {
+    /// Use embedding similarity to find related terms
+    Embedding,
+    /// Use string similarity and word stems
+    Synonym,
+    /// Combine embedding and synonym approaches
+    Hybrid,
+}
+
+/// Semantic clustering configuration.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(default)]
+pub struct ClusteringConfig {
+    /// Enable clustering
+    pub enabled: bool,
+    /// Default clustering algorithm
+    pub algorithm: ClusteringAlgorithm,
+    /// Default number of clusters (0 = auto-detect)
+    pub default_num_clusters: usize,
+    /// Minimum cluster size for DBSCAN/HDBSCAN
+    pub min_cluster_size: usize,
+    /// Cache clustering results
+    pub cache_results: bool,
+    /// Cache TTL in seconds
+    pub cache_ttl_secs: u64,
+    /// Generate labels for clusters
+    pub generate_labels: bool,
+    /// Maximum keywords per cluster label
+    pub max_keywords: usize,
+}
+
+impl Default for ClusteringConfig {
+    fn default() -> Self {
+        Self {
+            enabled: true,
+            algorithm: ClusteringAlgorithm::KMeans,
+            default_num_clusters: 5,
+            min_cluster_size: 3,
+            cache_results: true,
+            cache_ttl_secs: 3600,
+            generate_labels: true,
+            max_keywords: 5,
+        }
+    }
+}
+
+/// Clustering algorithm enum.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ClusteringAlgorithm {
+    /// K-Means clustering
+    KMeans,
+    /// DBSCAN density-based clustering
+    Dbscan,
+    /// Gaussian Mixture Model
+    Gmm,
+}
+
+/// Cache configuration for search operations.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(default)]
+pub struct CacheConfig {
+    /// Enable caching
+    pub enabled: bool,
+    /// Maximum number of cached entries
+    pub max_entries: u64,
+    /// TTL for cached entries in seconds
+    pub ttl_secs: u64,
+    /// Cache embeddings
+    pub cache_embeddings: bool,
+    /// Cache search results
+    pub cache_results: bool,
+}
+
+impl Default for CacheConfig {
+    fn default() -> Self {
+        Self {
+            enabled: true,
+            max_entries: 10000,
+            ttl_secs: 3600,
+            cache_embeddings: true,
+            cache_results: true,
         }
     }
 }

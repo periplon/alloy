@@ -13,11 +13,14 @@ use async_trait::async_trait;
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 
+use crate::config::SearchConfig;
 use crate::embedding::EmbeddingProvider;
 use crate::error::{Result, SearchError};
 use crate::storage::StorageBackend;
 
+use super::expansion::{ExpandedQuery, QueryExpander, QueryExpanderFactory};
 use super::fusion::{dbsf_fusion, rrf_fusion, FusionAlgorithm};
+use super::reranker::{Reranker, RerankerFactory};
 
 /// Configuration for hybrid search.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -217,12 +220,22 @@ pub struct SearchStats {
     pub text_time_ms: u64,
     /// Fusion time in milliseconds.
     pub fusion_time_ms: u64,
+    /// Reranking time in milliseconds.
+    pub reranking_time_ms: u64,
+    /// Query expansion time in milliseconds.
+    pub expansion_time_ms: u64,
     /// Number of candidates from vector search.
     pub vector_candidates: usize,
     /// Number of candidates from text search.
     pub text_candidates: usize,
     /// Fusion algorithm used.
     pub fusion_algorithm: FusionAlgorithm,
+    /// Whether reranking was applied.
+    pub reranked: bool,
+    /// Whether query expansion was applied.
+    pub query_expanded: bool,
+    /// Expanded query (if expansion was applied).
+    pub expanded_query: Option<String>,
 }
 
 /// Response from hybrid search.
@@ -440,9 +453,14 @@ impl HybridSearcher for HybridSearchOrchestrator {
                 0
             },
             fusion_time_ms: 0, // Fusion happens in storage for now
+            reranking_time_ms: 0,
+            expansion_time_ms: 0,
             vector_candidates: results.iter().filter(|r| r.vector_score.is_some()).count(),
             text_candidates: results.iter().filter(|r| r.text_score.is_some()).count(),
             fusion_algorithm: algorithm,
+            reranked: false,
+            query_expanded: false,
+            expanded_query: None,
         };
 
         Ok(HybridSearchResponse { results, stats })
@@ -545,6 +563,233 @@ impl HybridSearchBuilder {
         })?;
 
         Ok(HybridSearchOrchestrator::new(storage, embedder, self.config))
+    }
+}
+
+/// Enhanced hybrid search orchestrator with reranking and query expansion.
+///
+/// This orchestrator extends the basic HybridSearchOrchestrator with:
+/// - Query expansion to improve recall
+/// - Reranking to improve precision
+/// - Configurable enhancement pipeline
+pub struct EnhancedHybridSearchOrchestrator {
+    /// Base orchestrator for core search functionality.
+    base: HybridSearchOrchestrator,
+    /// Search enhancement configuration.
+    search_config: SearchConfig,
+    /// Query expander (optional).
+    expander: Option<Box<dyn QueryExpander>>,
+    /// Reranker (optional).
+    reranker: Option<Box<dyn Reranker>>,
+}
+
+impl EnhancedHybridSearchOrchestrator {
+    /// Create a new enhanced hybrid search orchestrator.
+    pub fn new(
+        storage: Arc<dyn StorageBackend>,
+        embedder: Arc<dyn EmbeddingProvider>,
+        config: HybridSearchConfig,
+        search_config: SearchConfig,
+    ) -> Self {
+        let base = HybridSearchOrchestrator::new(storage, embedder.clone(), config);
+
+        // Create expander if enabled
+        let expander: Option<Box<dyn QueryExpander>> = if search_config.expansion.enabled {
+            Some(QueryExpanderFactory::create(&search_config.expansion, embedder.clone()))
+        } else {
+            None
+        };
+
+        // Create reranker if enabled
+        let reranker: Option<Box<dyn Reranker>> = if search_config.reranking.enabled {
+            Some(RerankerFactory::create(&search_config.reranking, embedder))
+        } else {
+            None
+        };
+
+        Self {
+            base,
+            search_config,
+            expander,
+            reranker,
+        }
+    }
+
+    /// Create with default configurations.
+    pub fn with_defaults(
+        storage: Arc<dyn StorageBackend>,
+        embedder: Arc<dyn EmbeddingProvider>,
+    ) -> Self {
+        Self::new(
+            storage,
+            embedder,
+            HybridSearchConfig::default(),
+            SearchConfig::default(),
+        )
+    }
+
+    /// Get the search configuration.
+    pub fn search_config(&self) -> &SearchConfig {
+        &self.search_config
+    }
+
+    /// Get the base configuration.
+    pub fn config(&self) -> &HybridSearchConfig {
+        self.base.config()
+    }
+
+    /// Get the base orchestrator for direct access.
+    pub fn base(&self) -> &HybridSearchOrchestrator {
+        &self.base
+    }
+}
+
+#[async_trait]
+impl HybridSearcher for EnhancedHybridSearchOrchestrator {
+    async fn search(&self, query: HybridQuery) -> Result<HybridSearchResponse> {
+        let start_time = std::time::Instant::now();
+
+        // Step 1: Query expansion (if enabled)
+        let expansion_start = std::time::Instant::now();
+        let expanded = if let Some(ref expander) = self.expander {
+            expander.expand(&query.text, &self.search_config.expansion).await?
+        } else {
+            ExpandedQuery::unchanged(&query.text)
+        };
+        let expansion_time = expansion_start.elapsed().as_millis() as u64;
+
+        // Create modified query with expanded text
+        let search_query = HybridQuery {
+            text: expanded.expanded.clone(),
+            limit: if self.search_config.reranking.enabled {
+                // Fetch more candidates for reranking
+                query.limit.max(self.search_config.reranking.top_k)
+            } else {
+                query.limit
+            },
+            vector_weight: query.vector_weight,
+            filter: query.filter.clone(),
+            fusion_override: query.fusion_override,
+        };
+
+        // Step 2: Execute base search
+        let mut response = self.base.search(search_query).await?;
+
+        // Step 3: Reranking (if enabled)
+        let reranking_start = std::time::Instant::now();
+        let reranked = if let Some(ref reranker) = self.reranker {
+            let reranked_results = reranker.rerank(
+                &query.text, // Use original query for reranking
+                response.results,
+                &self.search_config.reranking,
+            ).await?;
+            response.results = reranked_results;
+            true
+        } else {
+            // Just ensure we return the requested limit
+            response.results.truncate(query.limit);
+            false
+        };
+        let reranking_time = reranking_start.elapsed().as_millis() as u64;
+
+        // Update statistics
+        let total_time = start_time.elapsed().as_millis() as u64;
+        response.stats.total_time_ms = total_time;
+        response.stats.expansion_time_ms = expansion_time;
+        response.stats.reranking_time_ms = reranking_time;
+        response.stats.query_expanded = expanded.was_expanded;
+        response.stats.reranked = reranked;
+        response.stats.expanded_query = if expanded.was_expanded {
+            Some(expanded.expanded)
+        } else {
+            None
+        };
+
+        Ok(response)
+    }
+
+    async fn embed_query(&self, text: &str) -> Result<Vec<f32>> {
+        self.base.embed_query(text).await
+    }
+}
+
+/// Builder for creating an enhanced hybrid search orchestrator.
+pub struct EnhancedHybridSearchBuilder {
+    storage: Option<Arc<dyn StorageBackend>>,
+    embedder: Option<Arc<dyn EmbeddingProvider>>,
+    config: HybridSearchConfig,
+    search_config: SearchConfig,
+}
+
+impl Default for EnhancedHybridSearchBuilder {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl EnhancedHybridSearchBuilder {
+    /// Create a new builder.
+    pub fn new() -> Self {
+        Self {
+            storage: None,
+            embedder: None,
+            config: HybridSearchConfig::default(),
+            search_config: SearchConfig::default(),
+        }
+    }
+
+    /// Set the storage backend.
+    pub fn storage(mut self, storage: Arc<dyn StorageBackend>) -> Self {
+        self.storage = Some(storage);
+        self
+    }
+
+    /// Set the embedding provider.
+    pub fn embedder(mut self, embedder: Arc<dyn EmbeddingProvider>) -> Self {
+        self.embedder = Some(embedder);
+        self
+    }
+
+    /// Set the base configuration.
+    pub fn config(mut self, config: HybridSearchConfig) -> Self {
+        self.config = config;
+        self
+    }
+
+    /// Set the search enhancement configuration.
+    pub fn search_config(mut self, config: SearchConfig) -> Self {
+        self.search_config = config;
+        self
+    }
+
+    /// Enable reranking.
+    pub fn enable_reranking(mut self) -> Self {
+        self.search_config.reranking.enabled = true;
+        self
+    }
+
+    /// Enable query expansion.
+    pub fn enable_expansion(mut self) -> Self {
+        self.search_config.expansion.enabled = true;
+        self
+    }
+
+    /// Build the enhanced orchestrator.
+    pub fn build(self) -> Result<EnhancedHybridSearchOrchestrator> {
+        let storage = self.storage.ok_or_else(|| {
+            SearchError::InvalidQuery("Storage backend required".to_string())
+        })?;
+
+        let embedder = self.embedder.ok_or_else(|| {
+            SearchError::InvalidQuery("Embedding provider required".to_string())
+        })?;
+
+        Ok(EnhancedHybridSearchOrchestrator::new(
+            storage,
+            embedder,
+            self.config,
+            self.search_config,
+        ))
     }
 }
 
