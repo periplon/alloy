@@ -787,6 +787,11 @@ impl IndexCoordinator {
         self.embedder.dimension()
     }
 
+    /// Get access to the storage backend.
+    pub fn storage(&self) -> &dyn StorageBackend {
+        &*self.storage
+    }
+
     /// Handle a source event (for file watching).
     pub async fn handle_source_event(&self, source_id: &str, event: SourceEvent) -> Result<()> {
         match event {

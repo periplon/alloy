@@ -457,3 +457,156 @@ pub struct VersioningRetentionInfo {
     /// Auto cleanup enabled.
     pub auto_cleanup: bool,
 }
+
+// ============================================================================
+// Operations Types (Metrics, Backup, Cache)
+// ============================================================================
+
+/// Get metrics response.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct GetMetricsResponse {
+    /// Prometheus-format metrics text.
+    pub prometheus: String,
+    /// JSON-format metrics.
+    pub json: serde_json::Value,
+    /// Status message.
+    pub message: String,
+}
+
+/// Create backup response.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CreateBackupResponse {
+    /// Backup ID.
+    pub backup_id: String,
+    /// Path to the backup file.
+    pub path: String,
+    /// Number of documents in the backup.
+    pub document_count: usize,
+    /// Size in bytes.
+    pub size_bytes: u64,
+    /// Duration in milliseconds.
+    pub duration_ms: u64,
+    /// Success status.
+    pub success: bool,
+    /// Status message.
+    pub message: String,
+}
+
+/// List backups response.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ListBackupsResponse {
+    /// List of backup metadata.
+    pub backups: Vec<BackupInfo>,
+    /// Status message.
+    pub message: String,
+}
+
+/// Backup information.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct BackupInfo {
+    /// Backup ID.
+    pub backup_id: String,
+    /// When the backup was created.
+    pub created_at: DateTime<Utc>,
+    /// Alloy version.
+    pub version: String,
+    /// Number of documents.
+    pub document_count: usize,
+    /// Number of chunks.
+    pub chunk_count: usize,
+    /// Size in bytes.
+    pub size_bytes: u64,
+    /// Optional description.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub description: Option<String>,
+}
+
+/// Restore backup response.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RestoreBackupResponse {
+    /// Backup ID that was restored.
+    pub backup_id: String,
+    /// Number of documents restored.
+    pub documents_restored: usize,
+    /// Number of chunks restored.
+    pub chunks_restored: usize,
+    /// Duration in milliseconds.
+    pub duration_ms: u64,
+    /// Success status.
+    pub success: bool,
+    /// Status message.
+    pub message: String,
+}
+
+/// Export documents response.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ExportDocumentsResponse {
+    /// Path to the export file.
+    pub path: String,
+    /// Number of documents exported.
+    pub document_count: usize,
+    /// Size in bytes.
+    pub size_bytes: u64,
+    /// Duration in milliseconds.
+    pub duration_ms: u64,
+    /// Success status.
+    pub success: bool,
+    /// Status message.
+    pub message: String,
+}
+
+/// Import documents response.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ImportDocumentsResponse {
+    /// Number of documents imported.
+    pub documents_imported: usize,
+    /// Number of chunks imported.
+    pub chunks_imported: usize,
+    /// Duration in milliseconds.
+    pub duration_ms: u64,
+    /// Success status.
+    pub success: bool,
+    /// Status message.
+    pub message: String,
+}
+
+/// Get cache stats response.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct GetCacheStatsResponse {
+    /// Whether caching is enabled.
+    pub enabled: bool,
+    /// Number of embedding entries.
+    pub embedding_entries: u64,
+    /// Number of result entries.
+    pub result_entries: u64,
+    /// Approximate size of embedding cache in bytes.
+    pub embedding_size_bytes: u64,
+    /// Approximate size of result cache in bytes.
+    pub result_size_bytes: u64,
+    /// Cache configuration.
+    pub config: CacheConfigInfo,
+    /// Status message.
+    pub message: String,
+}
+
+/// Cache configuration info.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CacheConfigInfo {
+    /// Maximum entries.
+    pub max_entries: u64,
+    /// TTL in seconds.
+    pub ttl_secs: u64,
+    /// Whether embedding caching is enabled.
+    pub cache_embeddings: bool,
+    /// Whether result caching is enabled.
+    pub cache_results: bool,
+}
+
+/// Clear cache response.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ClearCacheResponse {
+    /// Success status.
+    pub success: bool,
+    /// Status message.
+    pub message: String,
+}

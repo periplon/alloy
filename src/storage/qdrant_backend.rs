@@ -348,6 +348,112 @@ impl StorageBackend for QdrantStorage {
 
         Ok(all_chunks)
     }
+
+    async fn get_all_documents(&self, source_id: Option<&str>) -> Result<Vec<IndexedDocument>> {
+        let docs = self.documents.read();
+
+        let filtered: Vec<IndexedDocument> = docs
+            .values()
+            .filter(|doc| {
+                if let Some(sid) = source_id {
+                    doc.source_id == sid
+                } else {
+                    true
+                }
+            })
+            .cloned()
+            .collect();
+
+        Ok(filtered)
+    }
+
+    async fn get_document_chunks(&self, doc_id: &str) -> Result<Vec<VectorChunk>> {
+        use qdrant_client::qdrant::ScrollPointsBuilder;
+
+        // Filter by document_id
+        let filter = Filter::must([qdrant_client::qdrant::Condition::matches(
+            "document_id",
+            doc_id.to_string(),
+        )]);
+
+        let mut chunks = Vec::new();
+        let mut offset: Option<qdrant_client::qdrant::PointId> = None;
+
+        loop {
+            let mut scroll_builder = ScrollPointsBuilder::new(&self.collection_name)
+                .limit(1000)
+                .filter(filter.clone())
+                .with_payload(true)
+                .with_vectors(true);
+
+            if let Some(off) = offset.clone() {
+                scroll_builder = scroll_builder.offset(off);
+            }
+
+            let scroll_result = self
+                .client
+                .scroll(scroll_builder)
+                .await
+                .map_err(|e| StorageError::Query(e.to_string()))?;
+
+            let result = scroll_result.result;
+
+            for point in &result {
+                let payload = &point.payload;
+
+                let chunk_id = payload
+                    .get("chunk_id")
+                    .and_then(|v| v.as_str())
+                    .map(|s| s.to_string())
+                    .unwrap_or_default();
+                let text = payload
+                    .get("text")
+                    .and_then(|v| v.as_str())
+                    .map(|s| s.to_string())
+                    .unwrap_or_default();
+                let start_offset = payload
+                    .get("start_offset")
+                    .and_then(|v| v.as_integer())
+                    .map(|i| i as usize)
+                    .unwrap_or(0);
+                let end_offset = payload
+                    .get("end_offset")
+                    .and_then(|v| v.as_integer())
+                    .map(|i| i as usize)
+                    .unwrap_or(0);
+
+                let vector = point
+                    .vectors
+                    .as_ref()
+                    .and_then(|v| v.get_vector())
+                    .and_then(|vec| {
+                        use qdrant_client::qdrant::vector_output::Vector;
+                        match vec {
+                            Vector::Dense(dense) => Some(dense.data.clone()),
+                            _ => None,
+                        }
+                    })
+                    .unwrap_or_default();
+
+                chunks.push(VectorChunk {
+                    id: chunk_id,
+                    document_id: doc_id.to_string(),
+                    text,
+                    vector,
+                    start_offset,
+                    end_offset,
+                });
+            }
+
+            if let Some(next_offset) = scroll_result.next_page_offset {
+                offset = Some(next_offset);
+            } else {
+                break;
+            }
+        }
+
+        Ok(chunks)
+    }
 }
 
 /// Qdrant hybrid storage with full-text support.
@@ -490,6 +596,14 @@ impl StorageBackend for QdrantHybridStorage {
     ) -> Result<Vec<crate::storage::ChunkWithEmbedding>> {
         // Delegate to the Qdrant storage
         self.qdrant.get_all_chunks_for_clustering(source_id).await
+    }
+
+    async fn get_all_documents(&self, source_id: Option<&str>) -> Result<Vec<IndexedDocument>> {
+        self.qdrant.get_all_documents(source_id).await
+    }
+
+    async fn get_document_chunks(&self, doc_id: &str) -> Result<Vec<VectorChunk>> {
+        self.qdrant.get_document_chunks(doc_id).await
     }
 }
 

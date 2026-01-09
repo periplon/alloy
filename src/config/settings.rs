@@ -14,6 +14,7 @@ pub struct Config {
     pub processing: ProcessingConfig,
     pub search: SearchConfig,
     pub indexing: IndexingConfig,
+    pub operations: OperationsConfig,
 }
 
 impl Config {
@@ -632,6 +633,94 @@ impl Default for VersionRetentionConfig {
             keep_full_versions: true,
             auto_cleanup: false,
             cleanup_interval_hours: 24,
+        }
+    }
+}
+
+// ============================================================================
+// Operations Configuration
+// ============================================================================
+
+/// Operations configuration (metrics, health, backup).
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[serde(default)]
+pub struct OperationsConfig {
+    /// Metrics configuration.
+    pub metrics: MetricsConfig,
+    /// Health check configuration.
+    pub health: HealthConfig,
+    /// Backup configuration.
+    pub backup: BackupConfig,
+}
+
+/// Metrics configuration.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(default)]
+pub struct MetricsConfig {
+    /// Enable metrics collection.
+    pub enabled: bool,
+    /// Enable Prometheus endpoint at /metrics.
+    pub prometheus_enabled: bool,
+    /// Metrics update interval in seconds.
+    pub update_interval_secs: u64,
+}
+
+impl Default for MetricsConfig {
+    fn default() -> Self {
+        Self {
+            enabled: true,
+            prometheus_enabled: true,
+            update_interval_secs: 15,
+        }
+    }
+}
+
+/// Health check configuration.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(default)]
+pub struct HealthConfig {
+    /// Enable health endpoints.
+    pub enabled: bool,
+    /// Health check timeout in milliseconds.
+    pub timeout_ms: u64,
+    /// Include detailed health checks (storage, embedding).
+    pub detailed_checks: bool,
+}
+
+impl Default for HealthConfig {
+    fn default() -> Self {
+        Self {
+            enabled: true,
+            timeout_ms: 5000,
+            detailed_checks: true,
+        }
+    }
+}
+
+/// Backup configuration.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(default)]
+pub struct BackupConfig {
+    /// Enable backup functionality.
+    pub enabled: bool,
+    /// Backup directory (defaults to data_dir/backups).
+    pub backup_dir: Option<String>,
+    /// Maximum number of backups to keep (0 = unlimited).
+    pub max_backups: usize,
+    /// Include embeddings in backup (increases size significantly).
+    pub include_embeddings: bool,
+    /// Compress backups.
+    pub compress: bool,
+}
+
+impl Default for BackupConfig {
+    fn default() -> Self {
+        Self {
+            enabled: true,
+            backup_dir: None,
+            max_backups: 10,
+            include_embeddings: true,
+            compress: false,
         }
     }
 }

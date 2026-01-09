@@ -4,6 +4,8 @@ use std::net::SocketAddr;
 use std::sync::Arc;
 
 use anyhow::Result;
+use axum::http::StatusCode;
+use axum::response::IntoResponse;
 use axum::Router;
 use rmcp::transport::stdio;
 use rmcp::transport::streamable_http_server::session::local::LocalSessionManager;
@@ -15,6 +17,7 @@ use tracing::info;
 
 use crate::config::{Config, TransportType};
 use crate::mcp::AlloyServer;
+use crate::metrics::{get_metrics, HealthCheck, HealthState, HealthStatus, ReadinessStatus};
 
 /// Run the MCP server with stdio transport.
 pub async fn run_stdio(server: AlloyServer) -> Result<()> {
@@ -55,7 +58,9 @@ pub async fn run_http(config: Config, port: u16) -> Result<()> {
 
     // Build axum router - use fallback_service instead of nest for tower services
     let app = Router::new()
-        .route("/health", axum::routing::get(health_check))
+        .route("/health", axum::routing::get(health_handler))
+        .route("/ready", axum::routing::get(readiness_handler))
+        .route("/metrics", axum::routing::get(metrics_handler))
         .route("/", axum::routing::get(root_handler))
         .fallback_service(http_service);
 
@@ -71,8 +76,82 @@ pub async fn run_http(config: Config, port: u16) -> Result<()> {
 }
 
 /// Health check endpoint.
-async fn health_check() -> &'static str {
-    "OK"
+///
+/// Returns detailed health status including individual component checks.
+async fn health_handler() -> impl IntoResponse {
+    let metrics = get_metrics();
+    metrics.update_uptime();
+
+    // Perform health checks
+    let mut checks = Vec::new();
+    let mut overall_status = HealthState::Healthy;
+
+    // Basic server check - always healthy if we can respond
+    checks.push(HealthCheck::healthy("server"));
+
+    // Metrics system check
+    checks.push(HealthCheck::healthy("metrics"));
+
+    // Calculate overall status
+    for check in &checks {
+        match check.status {
+            HealthState::Unhealthy => {
+                overall_status = HealthState::Unhealthy;
+                break;
+            }
+            HealthState::Degraded => {
+                if overall_status == HealthState::Healthy {
+                    overall_status = HealthState::Degraded;
+                }
+            }
+            HealthState::Healthy => {}
+        }
+    }
+
+    let health = HealthStatus {
+        status: overall_status,
+        version: env!("CARGO_PKG_VERSION").to_string(),
+        uptime_seconds: metrics.uptime_seconds.get(),
+        checks,
+    };
+
+    let status_code = match overall_status {
+        HealthState::Healthy | HealthState::Degraded => StatusCode::OK,
+        HealthState::Unhealthy => StatusCode::SERVICE_UNAVAILABLE,
+    };
+
+    (status_code, axum::Json(health))
+}
+
+/// Readiness check endpoint.
+///
+/// Returns whether the server is ready to accept requests.
+async fn readiness_handler() -> impl IntoResponse {
+    // The server is ready if it can respond
+    let status = ReadinessStatus::ready();
+
+    if status.ready {
+        (StatusCode::OK, axum::Json(status))
+    } else {
+        (StatusCode::SERVICE_UNAVAILABLE, axum::Json(status))
+    }
+}
+
+/// Prometheus metrics endpoint.
+///
+/// Returns metrics in Prometheus text format.
+async fn metrics_handler() -> impl IntoResponse {
+    let metrics = get_metrics();
+    let output = metrics.export_prometheus();
+
+    (
+        StatusCode::OK,
+        [(
+            axum::http::header::CONTENT_TYPE,
+            "text/plain; charset=utf-8",
+        )],
+        output,
+    )
 }
 
 /// Root handler with basic info.
@@ -82,7 +161,9 @@ async fn root_handler() -> axum::Json<serde_json::Value> {
         "version": env!("CARGO_PKG_VERSION"),
         "description": "Hybrid Document Indexing MCP Server",
         "endpoints": {
-            "health": "/health"
+            "health": "/health",
+            "ready": "/ready",
+            "metrics": "/metrics"
         }
     }))
 }

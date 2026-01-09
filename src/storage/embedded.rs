@@ -278,6 +278,45 @@ impl StorageBackend for EmbeddedStorage {
 
         Ok(filtered)
     }
+
+    async fn get_all_documents(&self, source_id: Option<&str>) -> Result<Vec<IndexedDocument>> {
+        let docs = self.documents.read().await;
+
+        let filtered: Vec<IndexedDocument> = docs
+            .values()
+            .filter(|doc| {
+                if let Some(sid) = source_id {
+                    doc.source_id == sid
+                } else {
+                    true
+                }
+            })
+            .cloned()
+            .collect();
+
+        Ok(filtered)
+    }
+
+    async fn get_document_chunks(&self, doc_id: &str) -> Result<Vec<VectorChunk>> {
+        let lance = self.lance.lock().await;
+        let chunks = lance.get_all_chunks(None).await?;
+
+        // Filter chunks belonging to this document
+        let doc_chunks: Vec<VectorChunk> = chunks
+            .into_iter()
+            .filter(|(_, did, _, _)| did == doc_id)
+            .map(|(chunk_id, document_id, text, embedding)| VectorChunk {
+                id: chunk_id,
+                document_id,
+                text,
+                vector: embedding,
+                start_offset: 0, // Not stored in lance
+                end_offset: 0,   // Not stored in lance
+            })
+            .collect();
+
+        Ok(doc_chunks)
+    }
 }
 
 #[cfg(test)]

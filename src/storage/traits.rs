@@ -132,4 +132,17 @@ pub trait StorageBackend: Send + Sync {
         &self,
         source_id: Option<&str>,
     ) -> crate::error::Result<Vec<ChunkWithEmbedding>>;
+
+    /// Get all documents, optionally filtered by source ID.
+    ///
+    /// Used for backup/export operations.
+    async fn get_all_documents(
+        &self,
+        source_id: Option<&str>,
+    ) -> crate::error::Result<Vec<IndexedDocument>>;
+
+    /// Get all chunks for a specific document.
+    ///
+    /// Used for backup/export operations.
+    async fn get_document_chunks(&self, doc_id: &str) -> crate::error::Result<Vec<VectorChunk>>;
 }

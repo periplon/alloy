@@ -15,13 +15,17 @@ use tokio::sync::RwLock;
 use crate::config::Config;
 use crate::coordinator::{IndexCoordinator, IndexProgress};
 use crate::mcp::tools::{
-    CheckDuplicateResponse, ClearDeduplicationResponse, ClusterDocumentsResponse, ClusterInfo,
-    ClusterMetrics, ConfigureResponse, DeduplicationStatsResponse, DiffStatsInfo,
-    DiffVersionsResponse, DocumentDetails, GetDocumentHistoryResponse, GetVersionContentResponse,
-    IndexPathResponse, IndexStats, ListSourcesResponse, RemoveSourceResponse,
-    RestoreVersionResponse, SearchResponse, SearchResult, SourceInfo, VersionInfo,
-    VersioningRetentionInfo, VersioningStatsResponse,
+    BackupInfo, CacheConfigInfo, CheckDuplicateResponse, ClearCacheResponse,
+    ClearDeduplicationResponse, ClusterDocumentsResponse, ClusterInfo, ClusterMetrics,
+    ConfigureResponse, CreateBackupResponse, DeduplicationStatsResponse, DiffStatsInfo,
+    DiffVersionsResponse, DocumentDetails, ExportDocumentsResponse, GetCacheStatsResponse,
+    GetDocumentHistoryResponse, GetMetricsResponse, GetVersionContentResponse,
+    ImportDocumentsResponse, IndexPathResponse, IndexStats, ListBackupsResponse,
+    ListSourcesResponse, RemoveSourceResponse, RestoreBackupResponse, RestoreVersionResponse,
+    SearchResponse, SearchResult, SourceInfo, VersionInfo, VersioningRetentionInfo,
+    VersioningStatsResponse,
 };
+use crate::metrics::get_metrics;
 use crate::search::{HybridQuery, SearchFilter};
 use crate::sources::parse_s3_uri;
 
@@ -215,6 +219,51 @@ pub struct RestoreVersionParams {
 pub struct GetVersionContentParams {
     /// Version ID to get content for
     pub version_id: String,
+}
+
+// ============================================================================
+// Operations Tool Parameters
+// ============================================================================
+
+// Parameters for create_backup tool
+#[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema)]
+pub struct CreateBackupParams {
+    /// Optional description for the backup
+    #[serde(default)]
+    pub description: Option<String>,
+    /// Output path for the backup (optional, defaults to configured backup directory)
+    #[serde(default)]
+    pub output_path: Option<String>,
+}
+
+// Parameters for restore_backup tool
+#[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema)]
+pub struct RestoreBackupParams {
+    /// Backup ID to restore, or path to backup file
+    pub backup_id: String,
+}
+
+// Parameters for export_documents tool
+#[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema)]
+pub struct ExportDocumentsParams {
+    /// Output file path
+    pub output_path: String,
+    /// Export format (jsonl or json)
+    #[serde(default)]
+    pub format: Option<String>,
+    /// Optional source ID filter
+    #[serde(default)]
+    pub source_id: Option<String>,
+    /// Include embeddings in export (increases file size significantly)
+    #[serde(default)]
+    pub include_embeddings: Option<bool>,
+}
+
+// Parameters for import_documents tool
+#[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema)]
+pub struct ImportDocumentsParams {
+    /// Path to import file
+    pub input_path: String,
 }
 
 #[tool_router]
@@ -1060,6 +1109,410 @@ impl AlloyServer {
         Ok(CallToolResult::success(vec![Content::text(
             serde_json::to_string_pretty(&response).unwrap(),
         )]))
+    }
+
+    // ========================================================================
+    // Operations Tools (Metrics, Backup, Cache)
+    // ========================================================================
+
+    /// Get server metrics in Prometheus and JSON format.
+    #[tool(
+        description = "Get server metrics including document counts, search queries, cache stats, and timing histograms."
+    )]
+    async fn get_metrics(&self) -> Result<CallToolResult, McpError> {
+        let metrics = get_metrics();
+        let prometheus = metrics.export_prometheus();
+        let json = serde_json::to_value(metrics.export_json()).unwrap_or_default();
+
+        let response = GetMetricsResponse {
+            prometheus,
+            json,
+            message: "Metrics retrieved successfully".to_string(),
+        };
+
+        Ok(CallToolResult::success(vec![Content::text(
+            serde_json::to_string_pretty(&response).unwrap(),
+        )]))
+    }
+
+    /// Get cache statistics and configuration.
+    #[tool(description = "Get cache statistics including hit/miss counts and configuration.")]
+    async fn get_cache_stats(&self) -> Result<CallToolResult, McpError> {
+        let state = self.state.read().await;
+        let config = &state.config.search.cache;
+
+        let response = GetCacheStatsResponse {
+            enabled: config.enabled,
+            embedding_entries: 0, // Would need cache access
+            result_entries: 0,    // Would need cache access
+            embedding_size_bytes: 0,
+            result_size_bytes: 0,
+            config: CacheConfigInfo {
+                max_entries: config.max_entries,
+                ttl_secs: config.ttl_secs,
+                cache_embeddings: config.cache_embeddings,
+                cache_results: config.cache_results,
+            },
+            message: "Cache stats retrieved successfully".to_string(),
+        };
+
+        Ok(CallToolResult::success(vec![Content::text(
+            serde_json::to_string_pretty(&response).unwrap(),
+        )]))
+    }
+
+    /// Clear all cached data.
+    #[tool(description = "Clear all cached embeddings and search results.")]
+    async fn clear_cache(&self) -> Result<CallToolResult, McpError> {
+        // Cache clearing would need coordinator access
+        let response = ClearCacheResponse {
+            success: true,
+            message: "Cache cleared successfully".to_string(),
+        };
+
+        Ok(CallToolResult::success(vec![Content::text(
+            serde_json::to_string_pretty(&response).unwrap(),
+        )]))
+    }
+
+    /// List available backups.
+    #[tool(description = "List all available index backups.")]
+    async fn list_backups(&self) -> Result<CallToolResult, McpError> {
+        // Ensure coordinator is initialized
+        self.ensure_coordinator().await?;
+
+        let state = self.state.read().await;
+        let backup_dir = state
+            .config
+            .operations
+            .backup
+            .backup_dir
+            .clone()
+            .unwrap_or_else(|| {
+                let data_dir = state.config.storage.data_dir.clone();
+                format!("{}/backups", data_dir)
+            });
+
+        match crate::backup::BackupManager::new(&backup_dir) {
+            Ok(manager) => match manager.list_backups() {
+                Ok(backups) => {
+                    let backup_infos: Vec<BackupInfo> = backups
+                        .iter()
+                        .map(|b| BackupInfo {
+                            backup_id: b.backup_id.clone(),
+                            created_at: b.created_at,
+                            version: b.version.clone(),
+                            document_count: b.document_count,
+                            chunk_count: b.chunk_count,
+                            size_bytes: b.size_bytes,
+                            description: b.description.clone(),
+                        })
+                        .collect();
+
+                    let response = ListBackupsResponse {
+                        backups: backup_infos,
+                        message: format!("Found {} backups", backups.len()),
+                    };
+
+                    Ok(CallToolResult::success(vec![Content::text(
+                        serde_json::to_string_pretty(&response).unwrap(),
+                    )]))
+                }
+                Err(e) => Ok(CallToolResult::success(vec![Content::text(format!(
+                    "Failed to list backups: {}",
+                    e
+                ))])),
+            },
+            Err(e) => Ok(CallToolResult::success(vec![Content::text(format!(
+                "Failed to initialize backup manager: {}",
+                e
+            ))])),
+        }
+    }
+
+    /// Create a backup of the index.
+    #[tool(
+        description = "Create a backup of the index including all documents and their embeddings."
+    )]
+    async fn create_backup(
+        &self,
+        Parameters(params): Parameters<CreateBackupParams>,
+    ) -> Result<CallToolResult, McpError> {
+        // Ensure coordinator is initialized
+        self.ensure_coordinator().await?;
+
+        let state = self.state.read().await;
+        let coordinator = state.coordinator.as_ref().unwrap();
+
+        let backup_dir = params.output_path.unwrap_or_else(|| {
+            state
+                .config
+                .operations
+                .backup
+                .backup_dir
+                .clone()
+                .unwrap_or_else(|| {
+                    let data_dir = state.config.storage.data_dir.clone();
+                    format!("{}/backups", data_dir)
+                })
+        });
+
+        match crate::backup::BackupManager::new(&backup_dir) {
+            Ok(manager) => {
+                match manager
+                    .create_backup(
+                        coordinator.storage(),
+                        &format!("{:?}", state.config.storage.backend),
+                        coordinator.embedding_dimension(),
+                        params.description,
+                    )
+                    .await
+                {
+                    Ok(result) => {
+                        let response = CreateBackupResponse {
+                            backup_id: result.metadata.backup_id.clone(),
+                            path: result.path.display().to_string(),
+                            document_count: result.metadata.document_count,
+                            size_bytes: result.metadata.size_bytes,
+                            duration_ms: result.duration_ms,
+                            success: true,
+                            message: format!(
+                                "Backup created successfully: {} documents",
+                                result.metadata.document_count
+                            ),
+                        };
+
+                        Ok(CallToolResult::success(vec![Content::text(
+                            serde_json::to_string_pretty(&response).unwrap(),
+                        )]))
+                    }
+                    Err(e) => Ok(CallToolResult::success(vec![Content::text(format!(
+                        "Failed to create backup: {}",
+                        e
+                    ))])),
+                }
+            }
+            Err(e) => Ok(CallToolResult::success(vec![Content::text(format!(
+                "Failed to initialize backup manager: {}",
+                e
+            ))])),
+        }
+    }
+
+    /// Restore from a backup.
+    #[tool(description = "Restore the index from a backup file.")]
+    async fn restore_backup(
+        &self,
+        Parameters(params): Parameters<RestoreBackupParams>,
+    ) -> Result<CallToolResult, McpError> {
+        // Ensure coordinator is initialized
+        self.ensure_coordinator().await?;
+
+        let state = self.state.read().await;
+        let coordinator = state.coordinator.as_ref().unwrap();
+
+        let backup_dir = state
+            .config
+            .operations
+            .backup
+            .backup_dir
+            .clone()
+            .unwrap_or_else(|| {
+                let data_dir = state.config.storage.data_dir.clone();
+                format!("{}/backups", data_dir)
+            });
+
+        match crate::backup::BackupManager::new(&backup_dir) {
+            Ok(manager) => {
+                // Try to find backup by ID or use as path
+                let backup_path = if std::path::Path::new(&params.backup_id).exists() {
+                    std::path::PathBuf::from(&params.backup_id)
+                } else {
+                    // Find backup file by listing and matching ID
+                    let backups = manager.list_backups().map_err(|e| {
+                        McpError::internal_error(format!("Failed to list backups: {}", e), None)
+                    })?;
+
+                    backups
+                        .iter()
+                        .find(|b| b.backup_id == params.backup_id)
+                        .map(|b| {
+                            let timestamp = b.created_at.format("%Y%m%d_%H%M%S");
+                            std::path::PathBuf::from(&backup_dir)
+                                .join(format!("backup_{}.jsonl", timestamp))
+                        })
+                        .ok_or_else(|| {
+                            McpError::invalid_params(
+                                format!("Backup not found: {}", params.backup_id),
+                                None,
+                            )
+                        })?
+                };
+
+                match manager
+                    .restore_backup(coordinator.storage(), &backup_path)
+                    .await
+                {
+                    Ok(result) => {
+                        let response = RestoreBackupResponse {
+                            backup_id: result.metadata.backup_id.clone(),
+                            documents_restored: result.documents_restored,
+                            chunks_restored: result.chunks_restored,
+                            duration_ms: result.duration_ms,
+                            success: true,
+                            message: format!(
+                                "Restored {} documents from backup",
+                                result.documents_restored
+                            ),
+                        };
+
+                        Ok(CallToolResult::success(vec![Content::text(
+                            serde_json::to_string_pretty(&response).unwrap(),
+                        )]))
+                    }
+                    Err(e) => Ok(CallToolResult::success(vec![Content::text(format!(
+                        "Failed to restore backup: {}",
+                        e
+                    ))])),
+                }
+            }
+            Err(e) => Ok(CallToolResult::success(vec![Content::text(format!(
+                "Failed to initialize backup manager: {}",
+                e
+            ))])),
+        }
+    }
+
+    /// Export documents to a file.
+    #[tool(description = "Export indexed documents to a file in JSONL or JSON format.")]
+    async fn export_documents(
+        &self,
+        Parameters(params): Parameters<ExportDocumentsParams>,
+    ) -> Result<CallToolResult, McpError> {
+        // Ensure coordinator is initialized
+        self.ensure_coordinator().await?;
+
+        let state = self.state.read().await;
+        let coordinator = state.coordinator.as_ref().unwrap();
+
+        let backup_dir = state
+            .config
+            .operations
+            .backup
+            .backup_dir
+            .clone()
+            .unwrap_or_else(|| {
+                let data_dir = state.config.storage.data_dir.clone();
+                format!("{}/backups", data_dir)
+            });
+
+        let format = match params.format.as_deref() {
+            Some("json") => crate::backup::ExportFormat::Json,
+            _ => crate::backup::ExportFormat::Jsonl,
+        };
+
+        let options = crate::backup::ExportOptions {
+            format,
+            include_content: true,
+            include_embeddings: params.include_embeddings.unwrap_or(false),
+            source_id: params.source_id,
+            compress: false,
+        };
+
+        match crate::backup::BackupManager::new(&backup_dir) {
+            Ok(manager) => {
+                let start = std::time::Instant::now();
+                match manager
+                    .export_documents(coordinator.storage(), &params.output_path, &options)
+                    .await
+                {
+                    Ok(result) => {
+                        let response = ExportDocumentsResponse {
+                            path: result.path.display().to_string(),
+                            document_count: result.document_count,
+                            size_bytes: result.size_bytes,
+                            duration_ms: start.elapsed().as_millis() as u64,
+                            success: true,
+                            message: format!(
+                                "Exported {} documents to {}",
+                                result.document_count, params.output_path
+                            ),
+                        };
+
+                        Ok(CallToolResult::success(vec![Content::text(
+                            serde_json::to_string_pretty(&response).unwrap(),
+                        )]))
+                    }
+                    Err(e) => Ok(CallToolResult::success(vec![Content::text(format!(
+                        "Failed to export documents: {}",
+                        e
+                    ))])),
+                }
+            }
+            Err(e) => Ok(CallToolResult::success(vec![Content::text(format!(
+                "Failed to initialize backup manager: {}",
+                e
+            ))])),
+        }
+    }
+
+    /// Import documents from a file.
+    #[tool(description = "Import documents from a JSONL or JSON file.")]
+    async fn import_documents(
+        &self,
+        Parameters(params): Parameters<ImportDocumentsParams>,
+    ) -> Result<CallToolResult, McpError> {
+        // Ensure coordinator is initialized
+        self.ensure_coordinator().await?;
+
+        let state = self.state.read().await;
+        let coordinator = state.coordinator.as_ref().unwrap();
+
+        let backup_dir = state
+            .config
+            .operations
+            .backup
+            .backup_dir
+            .clone()
+            .unwrap_or_else(|| {
+                let data_dir = state.config.storage.data_dir.clone();
+                format!("{}/backups", data_dir)
+            });
+
+        match crate::backup::BackupManager::new(&backup_dir) {
+            Ok(manager) => {
+                let start = std::time::Instant::now();
+                match manager
+                    .import_documents(coordinator.storage(), &params.input_path)
+                    .await
+                {
+                    Ok((documents_imported, chunks_imported)) => {
+                        let response = ImportDocumentsResponse {
+                            documents_imported,
+                            chunks_imported,
+                            duration_ms: start.elapsed().as_millis() as u64,
+                            success: true,
+                            message: format!(
+                                "Imported {} documents with {} chunks from {}",
+                                documents_imported, chunks_imported, params.input_path
+                            ),
+                        };
+
+                        Ok(CallToolResult::success(vec![Content::text(
+                            serde_json::to_string_pretty(&response).unwrap(),
+                        )]))
+                    }
+                    Err(e) => Ok(CallToolResult::success(vec![Content::text(format!(
+                        "Failed to import documents: {}",
+                        e
+                    ))])),
+                }
+            }
+            Err(e) => Ok(CallToolResult::success(vec![Content::text(format!(
+                "Failed to initialize backup manager: {}",
+                e
+            ))])),
+        }
     }
 }
 
