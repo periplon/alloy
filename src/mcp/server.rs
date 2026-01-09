@@ -12,17 +12,21 @@ use rmcp::{
 use serde::{Deserialize, Serialize};
 use tokio::sync::RwLock;
 
+use crate::acl::{AclEntry, AclResolver, AclStorage, DocumentAcl, MemoryAclStorage, Permission, Principal};
+use crate::auth::AuthContext;
 use crate::config::Config;
 use crate::coordinator::{IndexCoordinator, IndexProgress};
 use crate::mcp::tools::{
-    BackupInfo, CacheConfigInfo, CheckDuplicateResponse, ClearCacheResponse,
+    AclConfigInfo, AclEntryInfo, BackupInfo, CacheConfigInfo,
+    CheckDuplicateResponse, CheckPermissionResponse, ClearCacheResponse,
     ClearDeduplicationResponse, ClusterDocumentsResponse, ClusterInfo, ClusterMetrics,
-    ConfigureResponse, CreateBackupResponse, DeduplicationStatsResponse, DiffStatsInfo,
-    DiffVersionsResponse, DocumentDetails, ExportDocumentsResponse, GetCacheStatsResponse,
-    GetDocumentHistoryResponse, GetMetricsResponse, GetVersionContentResponse,
-    ImportDocumentsResponse, IndexPathResponse, IndexStats, ListBackupsResponse,
-    ListSourcesResponse, RemoveSourceResponse, RestoreBackupResponse, RestoreVersionResponse,
-    SearchResponse, SearchResult, SourceInfo, VersionInfo, VersioningRetentionInfo,
+    ConfigureResponse, CreateBackupResponse, DeduplicationStatsResponse, DeleteDocumentAclResponse,
+    DiffStatsInfo, DiffVersionsResponse, DocumentDetails, ExportDocumentsResponse,
+    GetAclStatsResponse, GetCacheStatsResponse, GetDocumentAclResponse, GetDocumentHistoryResponse,
+    GetMetricsResponse, GetVersionContentResponse, ImportDocumentsResponse, IndexPathResponse,
+    IndexStats, ListBackupsResponse, ListSourcesResponse, RemoveSourceResponse,
+    RestoreBackupResponse, RestoreVersionResponse, RoleInfo, SearchResponse, SearchResult,
+    SetDocumentAclResponse, SourceInfo, VersionInfo, VersioningRetentionInfo,
     VersioningStatsResponse,
 };
 use crate::metrics::get_metrics;
@@ -39,15 +43,26 @@ pub struct AlloyState {
     pub coordinator: Option<IndexCoordinator>,
     /// Progress events log (recent events)
     pub progress_log: Vec<IndexProgress>,
+    /// ACL storage backend
+    pub acl_storage: Arc<dyn AclStorage>,
+    /// ACL resolver for permission checks
+    pub acl_resolver: Arc<AclResolver>,
 }
 
 impl AlloyState {
     pub fn new(config: Config) -> Self {
+        let acl_storage: Arc<dyn AclStorage> = Arc::new(MemoryAclStorage::new());
+        let acl_resolver = Arc::new(AclResolver::new(
+            acl_storage.clone(),
+            config.security.acl.clone(),
+        ));
         Self {
             config,
             start_time: Instant::now(),
             coordinator: None,
             progress_log: Vec::new(),
+            acl_storage,
+            acl_resolver,
         }
     }
 }
@@ -266,6 +281,66 @@ pub struct ImportDocumentsParams {
     pub input_path: String,
 }
 
+// ============================================================================
+// ACL Tool Parameters
+// ============================================================================
+
+// Parameters for get_document_acl tool
+#[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema)]
+pub struct GetDocumentAclParams {
+    /// Document ID
+    pub document_id: String,
+}
+
+// Parameters for set_document_acl tool
+#[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema)]
+pub struct SetDocumentAclParams {
+    /// Document ID
+    pub document_id: String,
+    /// Owner user ID (optional, uses current user if not set)
+    #[serde(default)]
+    pub owner: Option<String>,
+    /// ACL entries
+    pub entries: Vec<AclEntryParamInput>,
+    /// Whether to inherit ACL from source
+    #[serde(default)]
+    pub inherit_from_source: Option<bool>,
+}
+
+// ACL entry parameter for input
+#[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema)]
+pub struct AclEntryParamInput {
+    /// Principal type: "user", "role", "group", "everyone", "authenticated"
+    pub principal_type: String,
+    /// Principal ID (for user, role, group)
+    #[serde(default)]
+    pub principal_id: Option<String>,
+    /// Permissions: "read", "write", "delete", "admin"
+    pub permissions: Vec<String>,
+}
+
+// Parameters for delete_document_acl tool
+#[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema)]
+pub struct DeleteDocumentAclParams {
+    /// Document ID
+    pub document_id: String,
+}
+
+// Parameters for check_permission tool
+#[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema)]
+pub struct CheckPermissionParams {
+    /// Document ID
+    pub document_id: String,
+    /// User ID to check (optional, uses current user if not set)
+    #[serde(default)]
+    pub user_id: Option<String>,
+    /// Roles to check with
+    #[serde(default)]
+    pub roles: Option<Vec<String>>,
+    /// Permission to check: "read", "write", "delete", "admin"
+    pub permission: String,
+}
+
 #[tool_router]
 impl AlloyServer {
     /// Index a local path or S3 URI for hybrid search. Supports glob patterns and optional file watching.
@@ -386,11 +461,32 @@ impl AlloyServer {
         let start_time = Instant::now();
         match coordinator.search(query).await {
             Ok(response) => {
-                let results: Vec<SearchResult> = response
-                    .results
-                    .iter()
-                    .map(|r| {
-                        SearchResult {
+                // Filter results based on ACL permissions if enabled
+                let mut filtered_results = Vec::new();
+                let acl_resolver = &state.acl_resolver;
+                let acl_enabled = state.config.security.acl.enabled
+                    && state.config.security.acl.enforce_on_search;
+
+                // For now, use an anonymous context for ACL checks
+                // In a full implementation, we'd get the auth context from the request
+                let auth_ctx = AuthContext::anonymous();
+
+                for r in response.results.iter() {
+                    // Check if user has read permission for this document
+                    let has_access = if acl_enabled {
+                        match acl_resolver
+                            .check_permission(&auth_ctx, &r.document_id, Permission::Read)
+                            .await
+                        {
+                            Ok(result) => result.allowed,
+                            Err(_) => false,
+                        }
+                    } else {
+                        true // No ACL enforcement, allow access
+                    };
+
+                    if has_access {
+                        filtered_results.push(SearchResult {
                             document_id: r.document_id.clone(),
                             chunk_id: r.chunk_id.clone(),
                             source_id: String::new(), // Not available in search result
@@ -409,9 +505,11 @@ impl AlloyServer {
                                 })
                                 .collect(),
                             metadata: serde_json::json!({}),
-                        }
-                    })
-                    .collect();
+                        });
+                    }
+                }
+
+                let results = filtered_results;
 
                 let search_response = SearchResponse {
                     results,
@@ -467,6 +565,36 @@ impl AlloyServer {
 
         let state = self.state.read().await;
         let coordinator = state.coordinator.as_ref().unwrap();
+
+        // Check ACL permissions if enabled
+        let acl_enabled = state.config.security.acl.enabled
+            && state.config.security.acl.enforce_on_get;
+
+        if acl_enabled {
+            // For now, use an anonymous context for ACL checks
+            // In a full implementation, we'd get the auth context from the request
+            let auth_ctx = AuthContext::anonymous();
+
+            match state
+                .acl_resolver
+                .check_permission(&auth_ctx, &params.document_id, Permission::Read)
+                .await
+            {
+                Ok(result) if !result.allowed => {
+                    return Ok(CallToolResult::success(vec![Content::text(format!(
+                        "Access denied: {}",
+                        result.reason
+                    ))]));
+                }
+                Err(e) => {
+                    return Ok(CallToolResult::success(vec![Content::text(format!(
+                        "Error checking permissions: {}",
+                        e
+                    ))]));
+                }
+                _ => {} // Access allowed, continue
+            }
+        }
 
         match coordinator.get_document(&params.document_id).await {
             Ok(Some(doc)) => {
@@ -550,6 +678,35 @@ impl AlloyServer {
 
         let state = self.state.read().await;
         let coordinator = state.coordinator.as_ref().unwrap();
+
+        // Check ACL permissions if enabled - require admin for source removal
+        let acl_enabled = state.config.security.acl.enabled
+            && state.config.security.acl.enforce_on_delete;
+
+        if acl_enabled {
+            // For now, use an anonymous context for ACL checks
+            // In a full implementation, we'd get the auth context from the request
+            let auth_ctx = AuthContext::anonymous();
+
+            // Check source-level ACL
+            if let Ok(Some(source_acl)) =
+                state.acl_storage.get_source_acl(&params.source_id).await
+            {
+                // Only owner can delete a source
+                let is_owner = auth_ctx
+                    .user_id
+                    .as_ref()
+                    .map(|u| u == &source_acl.owner)
+                    .unwrap_or(false);
+
+                if !is_owner {
+                    return Ok(CallToolResult::success(vec![Content::text(
+                        "Access denied: Only the source owner can remove a source",
+                    )]));
+                }
+            }
+            // If no source ACL exists, we allow the operation (default behavior)
+        }
 
         match coordinator.remove_source(&params.source_id).await {
             Ok(docs_removed) => {
@@ -1537,6 +1694,363 @@ impl AlloyServer {
                 e
             ))])),
         }
+    }
+
+    // ========================================================================
+    // ACL (Access Control List) Tools
+    // ========================================================================
+
+    /// Get the ACL for a document.
+    #[tool(
+        description = "Get the access control list (ACL) for a document, showing who has what permissions."
+    )]
+    async fn get_document_acl(
+        &self,
+        Parameters(params): Parameters<GetDocumentAclParams>,
+    ) -> Result<CallToolResult, McpError> {
+        let state = self.state.read().await;
+
+        // Check if ACL is enabled
+        if !state.config.security.acl.enabled {
+            return Ok(CallToolResult::success(vec![Content::text(
+                serde_json::to_string_pretty(&GetDocumentAclResponse {
+                    document_id: params.document_id.clone(),
+                    owner: "system".to_string(),
+                    entries: vec![],
+                    inherit_from_source: false,
+                    is_public: true,
+                    created_at: chrono::Utc::now(),
+                    updated_at: chrono::Utc::now(),
+                    message: "ACL is not enabled. Enable it in config.toml with [security.acl] enabled = true".to_string(),
+                })
+                .unwrap(),
+            )]));
+        }
+
+        match state.acl_storage.get_document_acl(&params.document_id).await {
+            Ok(Some(acl)) => {
+                let entries: Vec<AclEntryInfo> = acl
+                    .entries
+                    .iter()
+                    .map(|e| {
+                        let (principal_type, principal_id) = match &e.principal {
+                            Principal::User(id) => ("user".to_string(), Some(id.clone())),
+                            Principal::Role(name) => ("role".to_string(), Some(name.clone())),
+                            Principal::Group(id) => ("group".to_string(), Some(id.clone())),
+                            Principal::Everyone => ("everyone".to_string(), None),
+                            Principal::Authenticated => ("authenticated".to_string(), None),
+                        };
+                        AclEntryInfo {
+                            principal_type,
+                            principal_id,
+                            permissions: e.permissions.iter().map(|p| p.to_string()).collect(),
+                        }
+                    })
+                    .collect();
+
+                let response = GetDocumentAclResponse {
+                    document_id: acl.document_id.clone(),
+                    owner: acl.owner.clone(),
+                    entries,
+                    inherit_from_source: acl.inherit_from_source,
+                    is_public: acl.is_public(),
+                    created_at: acl.created_at,
+                    updated_at: acl.updated_at,
+                    message: format!("ACL retrieved for document {}", params.document_id),
+                };
+
+                Ok(CallToolResult::success(vec![Content::text(
+                    serde_json::to_string_pretty(&response).unwrap(),
+                )]))
+            }
+            Ok(None) => {
+                // No ACL exists for this document - return default info
+                let default_public = state.config.security.acl.default_public;
+                let response = GetDocumentAclResponse {
+                    document_id: params.document_id.clone(),
+                    owner: "system".to_string(),
+                    entries: if default_public {
+                        vec![AclEntryInfo {
+                            principal_type: "everyone".to_string(),
+                            principal_id: None,
+                            permissions: vec!["read".to_string()],
+                        }]
+                    } else if state.config.security.acl.default_authenticated_read {
+                        vec![AclEntryInfo {
+                            principal_type: "authenticated".to_string(),
+                            principal_id: None,
+                            permissions: vec!["read".to_string()],
+                        }]
+                    } else {
+                        vec![]
+                    },
+                    inherit_from_source: true,
+                    is_public: default_public,
+                    created_at: chrono::Utc::now(),
+                    updated_at: chrono::Utc::now(),
+                    message: format!(
+                        "No explicit ACL for document {}. Using default settings (public: {})",
+                        params.document_id, default_public
+                    ),
+                };
+
+                Ok(CallToolResult::success(vec![Content::text(
+                    serde_json::to_string_pretty(&response).unwrap(),
+                )]))
+            }
+            Err(e) => Ok(CallToolResult::success(vec![Content::text(format!(
+                "Failed to get document ACL: {}",
+                e
+            ))])),
+        }
+    }
+
+    /// Set the ACL for a document.
+    #[tool(
+        description = "Set access control list (ACL) for a document to control who can read, write, or delete it."
+    )]
+    async fn set_document_acl(
+        &self,
+        Parameters(params): Parameters<SetDocumentAclParams>,
+    ) -> Result<CallToolResult, McpError> {
+        let state = self.state.read().await;
+
+        // Check if ACL is enabled
+        if !state.config.security.acl.enabled {
+            return Ok(CallToolResult::success(vec![Content::text(
+                "ACL is not enabled. Enable it in config.toml with [security.acl] enabled = true",
+            )]));
+        }
+
+        // Build the document ACL
+        let owner = params.owner.unwrap_or_else(|| "system".to_string());
+        let mut acl = DocumentAcl::new(&params.document_id, &owner);
+
+        if let Some(inherit) = params.inherit_from_source {
+            acl.inherit_from_source = inherit;
+        }
+
+        // Parse and add entries
+        for entry_param in &params.entries {
+            let principal = match entry_param.principal_type.as_str() {
+                "user" => {
+                    let id = entry_param.principal_id.clone().unwrap_or_default();
+                    Principal::User(id)
+                }
+                "role" => {
+                    let name = entry_param.principal_id.clone().unwrap_or_default();
+                    Principal::Role(name)
+                }
+                "group" => {
+                    let id = entry_param.principal_id.clone().unwrap_or_default();
+                    Principal::Group(id)
+                }
+                "everyone" => Principal::Everyone,
+                "authenticated" => Principal::Authenticated,
+                _ => {
+                    return Ok(CallToolResult::success(vec![Content::text(format!(
+                        "Invalid principal type: {}. Valid types: user, role, group, everyone, authenticated",
+                        entry_param.principal_type
+                    ))]));
+                }
+            };
+
+            let permissions: Vec<Permission> = entry_param
+                .permissions
+                .iter()
+                .filter_map(|p| Permission::from_str(p))
+                .collect();
+
+            if permissions.is_empty() {
+                return Ok(CallToolResult::success(vec![Content::text(
+                    "No valid permissions found. Valid permissions: read, write, delete, admin"
+                )]));
+            }
+
+            acl.add_entry(AclEntry::new(principal, permissions));
+        }
+
+        // Store the ACL
+        match state.acl_storage.set_document_acl(acl).await {
+            Ok(()) => {
+                let response = SetDocumentAclResponse {
+                    document_id: params.document_id.clone(),
+                    success: true,
+                    entry_count: params.entries.len(),
+                    message: format!(
+                        "ACL set for document {} with {} entries",
+                        params.document_id,
+                        params.entries.len()
+                    ),
+                };
+
+                Ok(CallToolResult::success(vec![Content::text(
+                    serde_json::to_string_pretty(&response).unwrap(),
+                )]))
+            }
+            Err(e) => Ok(CallToolResult::success(vec![Content::text(format!(
+                "Failed to set document ACL: {}",
+                e
+            ))])),
+        }
+    }
+
+    /// Delete the ACL for a document.
+    #[tool(
+        description = "Delete the access control list for a document, reverting to default permissions."
+    )]
+    async fn delete_document_acl(
+        &self,
+        Parameters(params): Parameters<DeleteDocumentAclParams>,
+    ) -> Result<CallToolResult, McpError> {
+        let state = self.state.read().await;
+
+        // Check if ACL is enabled
+        if !state.config.security.acl.enabled {
+            return Ok(CallToolResult::success(vec![Content::text(
+                "ACL is not enabled. Enable it in config.toml with [security.acl] enabled = true",
+            )]));
+        }
+
+        match state
+            .acl_storage
+            .delete_document_acl(&params.document_id)
+            .await
+        {
+            Ok(()) => {
+                let response = DeleteDocumentAclResponse {
+                    document_id: params.document_id.clone(),
+                    success: true,
+                    message: format!(
+                        "ACL deleted for document {}. Default permissions now apply.",
+                        params.document_id
+                    ),
+                };
+
+                Ok(CallToolResult::success(vec![Content::text(
+                    serde_json::to_string_pretty(&response).unwrap(),
+                )]))
+            }
+            Err(e) => Ok(CallToolResult::success(vec![Content::text(format!(
+                "Failed to delete document ACL: {}",
+                e
+            ))])),
+        }
+    }
+
+    /// Check if a user has a specific permission on a document.
+    #[tool(
+        description = "Check if a user has a specific permission (read, write, delete, admin) on a document."
+    )]
+    async fn check_permission(
+        &self,
+        Parameters(params): Parameters<CheckPermissionParams>,
+    ) -> Result<CallToolResult, McpError> {
+        let state = self.state.read().await;
+
+        // Parse the requested permission
+        let permission = match Permission::from_str(&params.permission) {
+            Some(p) => p,
+            None => {
+                return Ok(CallToolResult::success(vec![Content::text(format!(
+                    "Invalid permission: {}. Valid permissions: read, write, delete, admin",
+                    params.permission
+                ))]));
+            }
+        };
+
+        // Build auth context for the check
+        let user_id = params.user_id.unwrap_or_else(|| "anonymous".to_string());
+        let roles = params.roles.unwrap_or_default();
+        let auth_ctx = if user_id == "anonymous" {
+            AuthContext::anonymous()
+        } else {
+            AuthContext::authenticated(user_id.clone(), roles.clone(), "check")
+        };
+
+        // Check permission
+        match state
+            .acl_resolver
+            .check_permission(&auth_ctx, &params.document_id, permission)
+            .await
+        {
+            Ok(result) => {
+                let response = CheckPermissionResponse {
+                    document_id: params.document_id.clone(),
+                    user_id: user_id.clone(),
+                    permission: params.permission.clone(),
+                    allowed: result.allowed,
+                    reason: result.reason.clone(),
+                    granted_permissions: result
+                        .granted_permissions
+                        .iter()
+                        .map(|p| p.to_string())
+                        .collect(),
+                };
+
+                Ok(CallToolResult::success(vec![Content::text(
+                    serde_json::to_string_pretty(&response).unwrap(),
+                )]))
+            }
+            Err(e) => Ok(CallToolResult::success(vec![Content::text(format!(
+                "Failed to check permission: {}",
+                e
+            ))])),
+        }
+    }
+
+    /// Get ACL configuration and statistics.
+    #[tool(
+        description = "Get ACL configuration, role definitions, and statistics about document and source ACLs."
+    )]
+    async fn get_acl_stats(&self) -> Result<CallToolResult, McpError> {
+        let state = self.state.read().await;
+        let config = &state.config.security.acl;
+
+        // Get ACL counts
+        let doc_acls = state
+            .acl_storage
+            .list_document_acls(1000, 0)
+            .await
+            .unwrap_or_default();
+        let source_acls = state.acl_storage.list_source_acls().await.unwrap_or_default();
+
+        let roles: Vec<RoleInfo> = config
+            .roles
+            .iter()
+            .map(|r| RoleInfo {
+                name: r.name.clone(),
+                inherits_from: r.inherits_from.clone(),
+                permissions: r.permissions.clone(),
+            })
+            .collect();
+
+        let response = GetAclStatsResponse {
+            enabled: config.enabled,
+            config: AclConfigInfo {
+                default_public: config.default_public,
+                default_authenticated_read: config.default_authenticated_read,
+                enforce_on_search: config.enforce_on_search,
+                enforce_on_get: config.enforce_on_get,
+                enforce_on_delete: config.enforce_on_delete,
+            },
+            document_acl_count: doc_acls.len(),
+            source_acl_count: source_acls.len(),
+            roles,
+            message: if config.enabled {
+                format!(
+                    "ACL is enabled with {} document ACLs and {} source ACLs",
+                    doc_acls.len(),
+                    source_acls.len()
+                )
+            } else {
+                "ACL is not enabled. All documents are accessible to everyone.".to_string()
+            },
+        };
+
+        Ok(CallToolResult::success(vec![Content::text(
+            serde_json::to_string_pretty(&response).unwrap(),
+        )]))
     }
 }
 
