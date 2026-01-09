@@ -674,6 +674,7 @@ pub async fn gtd(config: Config, command: GtdCommand) -> Result<GtdResult> {
                         success: true,
                         message: format!("Found {} projects", projects.len()),
                         data: serde_json::to_value(projects)?,
+                        extra: serde_json::Map::new(),
                     })
                 }
                 "get" => {
@@ -683,11 +684,13 @@ pub async fn gtd(config: Config, command: GtdCommand) -> Result<GtdResult> {
                             success: true,
                             message: format!("Project: {}", project.name),
                             data: serde_json::to_value(project)?,
+                            extra: serde_json::Map::new(),
                         }),
                         None => Ok(GtdResult {
                             success: false,
                             message: format!("Project not found: {}", project_id),
                             data: serde_json::Value::Null,
+                            extra: serde_json::Map::new(),
                         }),
                     }
                 }
@@ -710,6 +713,7 @@ pub async fn gtd(config: Config, command: GtdCommand) -> Result<GtdResult> {
                         success: true,
                         message: format!("Created project: {}", created.name),
                         data: serde_json::to_value(created)?,
+                        extra: serde_json::Map::new(),
                     })
                 }
                 "archive" => {
@@ -723,6 +727,7 @@ pub async fn gtd(config: Config, command: GtdCommand) -> Result<GtdResult> {
                             "Project not found".to_string()
                         },
                         data: serde_json::to_value(archived)?,
+                        extra: serde_json::Map::new(),
                     })
                 }
                 "complete" => {
@@ -736,12 +741,14 @@ pub async fn gtd(config: Config, command: GtdCommand) -> Result<GtdResult> {
                             "Project not found".to_string()
                         },
                         data: serde_json::to_value(completed)?,
+                        extra: serde_json::Map::new(),
                     })
                 }
                 _ => Ok(GtdResult {
                     success: false,
                     message: format!("Unknown action: {}", action),
                     data: serde_json::Value::Null,
+                    extra: serde_json::Map::new(),
                 }),
             }
         }
@@ -801,6 +808,7 @@ pub async fn gtd(config: Config, command: GtdCommand) -> Result<GtdResult> {
                         success: true,
                         message: format!("Found {} tasks", tasks.len()),
                         data: serde_json::to_value(tasks)?,
+                        extra: serde_json::Map::new(),
                     })
                 }
                 "get" => {
@@ -810,11 +818,13 @@ pub async fn gtd(config: Config, command: GtdCommand) -> Result<GtdResult> {
                             success: true,
                             message: format!("Task: {}", task.description),
                             data: serde_json::to_value(task)?,
+                            extra: serde_json::Map::new(),
                         }),
                         None => Ok(GtdResult {
                             success: false,
                             message: format!("Task not found: {}", task_id),
                             data: serde_json::Value::Null,
+                            extra: serde_json::Map::new(),
                         }),
                     }
                 }
@@ -862,6 +872,7 @@ pub async fn gtd(config: Config, command: GtdCommand) -> Result<GtdResult> {
                         success: true,
                         message: format!("Created task: {}", created.description),
                         data: serde_json::to_value(created)?,
+                        extra: serde_json::Map::new(),
                     })
                 }
                 "complete" => {
@@ -875,6 +886,7 @@ pub async fn gtd(config: Config, command: GtdCommand) -> Result<GtdResult> {
                             "Task not found".to_string()
                         },
                         data: serde_json::to_value(completed)?,
+                        extra: serde_json::Map::new(),
                     })
                 }
                 "recommend" => {
@@ -896,12 +908,14 @@ pub async fn gtd(config: Config, command: GtdCommand) -> Result<GtdResult> {
                         success: true,
                         message: format!("Found {} recommendations", recommendations.len()),
                         data: serde_json::to_value(recommendations)?,
+                        extra: serde_json::Map::new(),
                     })
                 }
                 _ => Ok(GtdResult {
                     success: false,
                     message: format!("Unknown action: {}", action),
                     data: serde_json::Value::Null,
+                    extra: serde_json::Map::new(),
                 }),
             }
         }
@@ -938,6 +952,7 @@ pub async fn gtd(config: Config, command: GtdCommand) -> Result<GtdResult> {
                         success: true,
                         message: format!("Found {} waiting items", items.len()),
                         data: serde_json::to_value(items)?,
+                        extra: serde_json::Map::new(),
                     })
                 }
                 "add" => {
@@ -961,6 +976,7 @@ pub async fn gtd(config: Config, command: GtdCommand) -> Result<GtdResult> {
                         success: true,
                         message: format!("Created waiting item: {}", created.description),
                         data: serde_json::to_value(created)?,
+                        extra: serde_json::Map::new(),
                     })
                 }
                 "resolve" => {
@@ -975,6 +991,7 @@ pub async fn gtd(config: Config, command: GtdCommand) -> Result<GtdResult> {
                             "Item not found".to_string()
                         },
                         data: serde_json::to_value(resolved)?,
+                        extra: serde_json::Map::new(),
                     })
                 }
                 "remind" => {
@@ -988,12 +1005,14 @@ pub async fn gtd(config: Config, command: GtdCommand) -> Result<GtdResult> {
                             "Item not found".to_string()
                         },
                         data: serde_json::to_value(reminded)?,
+                        extra: serde_json::Map::new(),
                     })
                 }
                 _ => Ok(GtdResult {
                     success: false,
                     message: format!("Unknown action: {}", action),
                     data: serde_json::Value::Null,
+                    extra: serde_json::Map::new(),
                 }),
             }
         }
@@ -1021,6 +1040,7 @@ pub async fn gtd(config: Config, command: GtdCommand) -> Result<GtdResult> {
                         success: true,
                         message: format!("Found {} someday/maybe items", items.len()),
                         data: serde_json::to_value(items)?,
+                        extra: serde_json::Map::new(),
                     })
                 }
                 "add" => {
@@ -1045,6 +1065,7 @@ pub async fn gtd(config: Config, command: GtdCommand) -> Result<GtdResult> {
                         success: true,
                         message: format!("Created someday item: {}", created.description),
                         data: serde_json::to_value(created)?,
+                        extra: serde_json::Map::new(),
                     })
                 }
                 "activate" => {
@@ -1058,6 +1079,7 @@ pub async fn gtd(config: Config, command: GtdCommand) -> Result<GtdResult> {
                             "Item not found".to_string()
                         },
                         data: serde_json::to_value(activated)?,
+                        extra: serde_json::Map::new(),
                     })
                 }
                 "archive" => {
@@ -1071,12 +1093,14 @@ pub async fn gtd(config: Config, command: GtdCommand) -> Result<GtdResult> {
                             "Item not found".to_string()
                         },
                         data: serde_json::Value::Bool(archived),
+                        extra: serde_json::Map::new(),
                     })
                 }
                 _ => Ok(GtdResult {
                     success: false,
                     message: format!("Unknown action: {}", action),
                     data: serde_json::Value::Null,
+                    extra: serde_json::Map::new(),
                 }),
             }
         }
@@ -1123,6 +1147,7 @@ pub async fn gtd(config: Config, command: GtdCommand) -> Result<GtdResult> {
                 success: true,
                 message: "Weekly review generated".to_string(),
                 data: serde_json::to_value(report)?,
+                extra: serde_json::Map::new(),
             })
         }
 
@@ -1167,6 +1192,7 @@ pub async fn gtd(config: Config, command: GtdCommand) -> Result<GtdResult> {
                             success: true,
                             message: "Horizon overview".to_string(),
                             data: serde_json::to_value(overview)?,
+                            extra: serde_json::Map::new(),
                         })
                     } else {
                         // Get specific horizon(s)
@@ -1175,6 +1201,7 @@ pub async fn gtd(config: Config, command: GtdCommand) -> Result<GtdResult> {
                             success: true,
                             message: "Horizon map".to_string(),
                             data: serde_json::to_value(map)?,
+                            extra: serde_json::Map::new(),
                         })
                     }
                 }
@@ -1182,6 +1209,7 @@ pub async fn gtd(config: Config, command: GtdCommand) -> Result<GtdResult> {
                     success: false,
                     message: format!("Unknown action: {}", action),
                     data: serde_json::Value::Null,
+                    extra: serde_json::Map::new(),
                 }),
             }
         }
@@ -1216,6 +1244,7 @@ pub async fn gtd(config: Config, command: GtdCommand) -> Result<GtdResult> {
                         success: true,
                         message: format!("Found {} commitments", commitments.len()),
                         data: serde_json::to_value(commitments)?,
+                        extra: serde_json::Map::new(),
                     })
                 }
                 "add" => {
@@ -1257,6 +1286,7 @@ pub async fn gtd(config: Config, command: GtdCommand) -> Result<GtdResult> {
                         success: true,
                         message: format!("Created commitment: {}", created.description),
                         data: serde_json::to_value(created)?,
+                        extra: serde_json::Map::new(),
                     })
                 }
                 "resolve" | "fulfill" => {
@@ -1266,6 +1296,7 @@ pub async fn gtd(config: Config, command: GtdCommand) -> Result<GtdResult> {
                         success: true,
                         message: "Commitment fulfilled".to_string(),
                         data: serde_json::json!({ "id": commit_id, "status": "fulfilled" }),
+                        extra: serde_json::Map::new(),
                     })
                 }
                 "cancel" => {
@@ -1275,6 +1306,7 @@ pub async fn gtd(config: Config, command: GtdCommand) -> Result<GtdResult> {
                         success: true,
                         message: "Commitment cancelled".to_string(),
                         data: serde_json::json!({ "id": commit_id, "status": "cancelled" }),
+                        extra: serde_json::Map::new(),
                     })
                 }
                 "summary" => {
@@ -1283,12 +1315,14 @@ pub async fn gtd(config: Config, command: GtdCommand) -> Result<GtdResult> {
                         success: true,
                         message: "Commitment summary".to_string(),
                         data: serde_json::to_value(summary)?,
+                        extra: serde_json::Map::new(),
                     })
                 }
                 _ => Ok(GtdResult {
                     success: false,
                     message: format!("Unknown action: {}", action),
                     data: serde_json::Value::Null,
+                    extra: serde_json::Map::new(),
                 }),
             }
         }
@@ -1322,6 +1356,7 @@ pub async fn gtd(config: Config, command: GtdCommand) -> Result<GtdResult> {
                             graph.edges.len()
                         ),
                         data: serde_json::to_value(graph)?,
+                        extra: serde_json::Map::new(),
                     })
                 }
                 "add" => {
@@ -1342,6 +1377,7 @@ pub async fn gtd(config: Config, command: GtdCommand) -> Result<GtdResult> {
                         success: true,
                         message: format!("Added dependency: {} blocked by {}", blocked, blocking),
                         data: serde_json::to_value(&relationship)?,
+                        extra: serde_json::Map::new(),
                     })
                 }
                 "critical-path" => {
@@ -1352,6 +1388,7 @@ pub async fn gtd(config: Config, command: GtdCommand) -> Result<GtdResult> {
                         success: true,
                         message: format!("Critical path: {} items", path.length),
                         data: serde_json::to_value(path)?,
+                        extra: serde_json::Map::new(),
                     })
                 }
                 "blockers" => {
@@ -1363,12 +1400,14 @@ pub async fn gtd(config: Config, command: GtdCommand) -> Result<GtdResult> {
                         success: true,
                         message: format!("Found {} blockers", blockers.len()),
                         data: serde_json::to_value(blockers)?,
+                        extra: serde_json::Map::new(),
                     })
                 }
                 _ => Ok(GtdResult {
                     success: false,
                     message: format!("Unknown action: {}", action),
                     data: serde_json::Value::Null,
+                    extra: serde_json::Map::new(),
                 }),
             }
         }
@@ -1395,6 +1434,7 @@ pub async fn gtd(config: Config, command: GtdCommand) -> Result<GtdResult> {
                 success: true,
                 message: format!("Attention analysis for {} days", period_days),
                 data: serde_json::to_value(metrics)?,
+                extra: serde_json::Map::new(),
             })
         }
 
@@ -1415,6 +1455,7 @@ pub async fn gtd(config: Config, command: GtdCommand) -> Result<GtdResult> {
                         success: true,
                         message: format!("Found {} areas", areas.len()),
                         data: serde_json::to_value(areas)?,
+                        extra: serde_json::Map::new(),
                     })
                 }
                 "add" => {
@@ -1431,12 +1472,14 @@ pub async fn gtd(config: Config, command: GtdCommand) -> Result<GtdResult> {
                         success: true,
                         message: format!("Created area: {}", created.name),
                         data: serde_json::to_value(created)?,
+                        extra: serde_json::Map::new(),
                     })
                 }
                 _ => Ok(GtdResult {
                     success: false,
                     message: format!("Unknown action: {}", action),
                     data: serde_json::Value::Null,
+                    extra: serde_json::Map::new(),
                 }),
             }
         }
@@ -1459,6 +1502,7 @@ pub async fn gtd(config: Config, command: GtdCommand) -> Result<GtdResult> {
                         success: true,
                         message: format!("Found {} goals", goals.len()),
                         data: serde_json::to_value(goals)?,
+                        extra: serde_json::Map::new(),
                     })
                 }
                 "add" => {
@@ -1481,6 +1525,7 @@ pub async fn gtd(config: Config, command: GtdCommand) -> Result<GtdResult> {
                         success: true,
                         message: format!("Created goal: {}", created.name),
                         data: serde_json::to_value(created)?,
+                        extra: serde_json::Map::new(),
                     })
                 }
                 "complete" => {
@@ -1495,12 +1540,14 @@ pub async fn gtd(config: Config, command: GtdCommand) -> Result<GtdResult> {
                         success: true,
                         message: format!("Goal completed: {}", updated.name),
                         data: serde_json::to_value(updated)?,
+                        extra: serde_json::Map::new(),
                     })
                 }
                 _ => Ok(GtdResult {
                     success: false,
                     message: format!("Unknown action: {}", action),
                     data: serde_json::Value::Null,
+                    extra: serde_json::Map::new(),
                 }),
             }
         }
@@ -1519,6 +1566,7 @@ pub async fn calendar(config: Config, command: CalendarCommand) -> Result<Calend
                 success: true,
                 message: format!("Found {} events today", events.len()),
                 data: serde_json::to_value(events)?,
+                extra: serde_json::Map::new(),
             })
         }
 
@@ -1528,6 +1576,7 @@ pub async fn calendar(config: Config, command: CalendarCommand) -> Result<Calend
                 success: true,
                 message: format!("Found {} events this week", events.len()),
                 data: serde_json::to_value(events)?,
+                extra: serde_json::Map::new(),
             })
         }
 
@@ -1542,6 +1591,7 @@ pub async fn calendar(config: Config, command: CalendarCommand) -> Result<Calend
                 success: true,
                 message: format!("Found {} events in range", events.len()),
                 data: serde_json::to_value(events)?,
+                extra: serde_json::Map::new(),
             })
         }
 
@@ -1566,6 +1616,7 @@ pub async fn calendar(config: Config, command: CalendarCommand) -> Result<Calend
                 success: true,
                 message: format!("Found {} free time slots", slots.len()),
                 data: serde_json::to_value(slots)?,
+                extra: serde_json::Map::new(),
             })
         }
 
@@ -1576,6 +1627,7 @@ pub async fn calendar(config: Config, command: CalendarCommand) -> Result<Calend
                 success: true,
                 message: format!("Found {} conflicts", conflicts.len()),
                 data: serde_json::to_value(conflicts)?,
+                extra: serde_json::Map::new(),
             })
         }
 
@@ -1586,6 +1638,7 @@ pub async fn calendar(config: Config, command: CalendarCommand) -> Result<Calend
                 success: true,
                 message: format!("Found {} upcoming events", events.len()),
                 data: serde_json::to_value(events)?,
+                extra: serde_json::Map::new(),
             })
         }
 
@@ -1624,6 +1677,7 @@ pub async fn calendar(config: Config, command: CalendarCommand) -> Result<Calend
                     success: true,
                     message: format!("Found {} events", events.len()),
                     data: serde_json::to_value(events)?,
+                    extra: serde_json::Map::new(),
                 })
             }
             "get" => {
@@ -1633,11 +1687,13 @@ pub async fn calendar(config: Config, command: CalendarCommand) -> Result<Calend
                         success: true,
                         message: format!("Event: {}", event.title),
                         data: serde_json::to_value(event)?,
+                        extra: serde_json::Map::new(),
                     }),
                     None => Ok(CalendarResult {
                         success: false,
                         message: format!("Event not found: {}", event_id),
                         data: serde_json::Value::Null,
+                        extra: serde_json::Map::new(),
                     }),
                 }
             }
@@ -1678,6 +1734,7 @@ pub async fn calendar(config: Config, command: CalendarCommand) -> Result<Calend
                     success: true,
                     message: format!("Created event: {}", created.title),
                     data: serde_json::to_value(created)?,
+                    extra: serde_json::Map::new(),
                 })
             }
             "update" => {
@@ -1709,11 +1766,13 @@ pub async fn calendar(config: Config, command: CalendarCommand) -> Result<Calend
                         success: true,
                         message: format!("Updated event: {}", event.title),
                         data: serde_json::to_value(event)?,
+                        extra: serde_json::Map::new(),
                     }),
                     None => Ok(CalendarResult {
                         success: false,
                         message: format!("Event not found: {}", event_id),
                         data: serde_json::Value::Null,
+                        extra: serde_json::Map::new(),
                     }),
                 }
             }
@@ -1728,12 +1787,14 @@ pub async fn calendar(config: Config, command: CalendarCommand) -> Result<Calend
                         "Event not found".to_string()
                     },
                     data: serde_json::Value::Bool(deleted),
+                    extra: serde_json::Map::new(),
                 })
             }
             _ => Ok(CalendarResult {
                 success: false,
                 message: format!("Unknown action: {}", action),
                 data: serde_json::Value::Null,
+                extra: serde_json::Map::new(),
             }),
         },
     }
@@ -1770,6 +1831,7 @@ pub async fn knowledge(config: Config, command: KnowledgeCommand) -> Result<Know
                 success: true,
                 message: format!("Found {} entities matching '{}'", entities.len(), query),
                 data: serde_json::to_value(entities)?,
+                extra: serde_json::Map::new(),
             })
         }
 
@@ -1794,12 +1856,14 @@ pub async fn knowledge(config: Config, command: KnowledgeCommand) -> Result<Know
                             rels.len()
                         ),
                         data: result,
+                        extra: serde_json::Map::new(),
                     })
                 } else {
                     Ok(KnowledgeResult {
                         success: true,
                         message: format!("Entity: {}", entity.name),
                         data: serde_json::to_value(entity)?,
+                        extra: serde_json::Map::new(),
                     })
                 }
             } else {
@@ -1807,6 +1871,7 @@ pub async fn knowledge(config: Config, command: KnowledgeCommand) -> Result<Know
                     success: false,
                     message: format!("Entity not found: {}", name),
                     data: serde_json::Value::Null,
+                    extra: serde_json::Map::new(),
                 })
             }
         }
@@ -1841,6 +1906,7 @@ pub async fn knowledge(config: Config, command: KnowledgeCommand) -> Result<Know
                 success: true,
                 message: format!("Found {} experts on '{}'", experts.len(), topic),
                 data: serde_json::to_value(experts)?,
+                extra: serde_json::Map::new(),
             })
         }
 
@@ -1858,12 +1924,14 @@ pub async fn knowledge(config: Config, command: KnowledgeCommand) -> Result<Know
                     success: true,
                     message: format!("Topic: {} with {} relationships", entity.name, rels.len()),
                     data: result,
+                    extra: serde_json::Map::new(),
                 })
             } else {
                 Ok(KnowledgeResult {
                     success: false,
                     message: format!("Topic not found: {}", topic),
                     data: serde_json::Value::Null,
+                    extra: serde_json::Map::new(),
                 })
             }
         }
@@ -1890,12 +1958,14 @@ pub async fn knowledge(config: Config, command: KnowledgeCommand) -> Result<Know
                     success: true,
                     message: format!("Found {} connected entities", result.len()),
                     data: serde_json::to_value(result)?,
+                    extra: serde_json::Map::new(),
                 })
             } else {
                 Ok(KnowledgeResult {
                     success: false,
                     message: format!("Entity not found: {}", entity),
                     data: serde_json::Value::Null,
+                    extra: serde_json::Map::new(),
                 })
             }
         }
@@ -1946,6 +2016,7 @@ pub async fn query(
         mode,
         message: format!("Found {} results", results.len()),
         data: serde_json::to_value(results)?,
+        extra: serde_json::Map::new(),
     })
 }
 
@@ -1964,6 +2035,7 @@ pub async fn ontology(config: Config, command: OntologyCommand) -> Result<Ontolo
                     stats.entity_count, stats.relationship_count
                 ),
                 data: serde_json::to_value(stats)?,
+                extra: serde_json::Map::new(),
             })
         }
 
@@ -1996,6 +2068,7 @@ pub async fn ontology(config: Config, command: OntologyCommand) -> Result<Ontolo
                     success: true,
                     message: format!("Found {} entities", entities.len()),
                     data: serde_json::to_value(entities)?,
+                    extra: serde_json::Map::new(),
                 })
             }
             "get" => {
@@ -2005,11 +2078,13 @@ pub async fn ontology(config: Config, command: OntologyCommand) -> Result<Ontolo
                         success: true,
                         message: format!("Entity: {}", entity.name),
                         data: serde_json::to_value(entity)?,
+                        extra: serde_json::Map::new(),
                     }),
                     None => Ok(OntologyResult {
                         success: false,
                         message: format!("Entity not found: {}", entity_id),
                         data: serde_json::Value::Null,
+                        extra: serde_json::Map::new(),
                     }),
                 }
             }
@@ -2040,6 +2115,7 @@ pub async fn ontology(config: Config, command: OntologyCommand) -> Result<Ontolo
                     success: true,
                     message: format!("Created entity: {}", created.name),
                     data: serde_json::to_value(created)?,
+                    extra: serde_json::Map::new(),
                 })
             }
             "delete" => {
@@ -2053,6 +2129,7 @@ pub async fn ontology(config: Config, command: OntologyCommand) -> Result<Ontolo
                         "Entity not found".to_string()
                     },
                     data: serde_json::Value::Bool(deleted),
+                    extra: serde_json::Map::new(),
                 })
             }
             "merge" => {
@@ -2064,12 +2141,14 @@ pub async fn ontology(config: Config, command: OntologyCommand) -> Result<Ontolo
                     success: true,
                     message: format!("Merged into entity: {}", merged.name),
                     data: serde_json::to_value(merged)?,
+                    extra: serde_json::Map::new(),
                 })
             }
             _ => Ok(OntologyResult {
                 success: false,
                 message: format!("Unknown action: {}", action),
                 data: serde_json::Value::Null,
+                extra: serde_json::Map::new(),
             }),
         },
 
@@ -2104,6 +2183,7 @@ pub async fn ontology(config: Config, command: OntologyCommand) -> Result<Ontolo
                     success: true,
                     message: format!("Found {} relationships", relationships.len()),
                     data: serde_json::to_value(relationships)?,
+                    extra: serde_json::Map::new(),
                 })
             }
             "add" => {
@@ -2122,6 +2202,7 @@ pub async fn ontology(config: Config, command: OntologyCommand) -> Result<Ontolo
                     success: true,
                     message: format!("Created relationship: {} -> {}", source_id, target_id),
                     data: serde_json::to_value(created)?,
+                    extra: serde_json::Map::new(),
                 })
             }
             "delete" => {
@@ -2135,12 +2216,14 @@ pub async fn ontology(config: Config, command: OntologyCommand) -> Result<Ontolo
                         "Relationship not found".to_string()
                     },
                     data: serde_json::Value::Bool(deleted),
+                    extra: serde_json::Map::new(),
                 })
             }
             _ => Ok(OntologyResult {
                 success: false,
                 message: format!("Unknown action: {}", action),
                 data: serde_json::Value::Null,
+                extra: serde_json::Map::new(),
             }),
         },
 
@@ -2155,6 +2238,7 @@ pub async fn ontology(config: Config, command: OntologyCommand) -> Result<Ontolo
                 success: false,
                 message: "Document extraction not yet implemented in CLI".to_string(),
                 data: serde_json::Value::Null,
+                extra: serde_json::Map::new(),
             })
         }
 
@@ -2212,6 +2296,7 @@ pub async fn ontology(config: Config, command: OntologyCommand) -> Result<Ontolo
                 success: true,
                 message: format!("Created person: {}", created.name),
                 data: serde_json::to_value(created)?,
+                extra: serde_json::Map::new(),
             })
         }
 
@@ -2245,6 +2330,7 @@ pub async fn ontology(config: Config, command: OntologyCommand) -> Result<Ontolo
                 success: true,
                 message: format!("Created organization: {}", created.name),
                 data: serde_json::to_value(created)?,
+                extra: serde_json::Map::new(),
             })
         }
 
@@ -2278,6 +2364,7 @@ pub async fn ontology(config: Config, command: OntologyCommand) -> Result<Ontolo
                 success: true,
                 message: format!("Created topic: {}", created.name),
                 data: serde_json::to_value(created)?,
+                extra: serde_json::Map::new(),
             })
         }
     }

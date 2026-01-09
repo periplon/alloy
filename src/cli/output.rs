@@ -375,8 +375,11 @@ pub fn print_gtd_result(result: &GtdResult, json: bool) {
 
     println!("{}\n", result.message);
 
+    // Get the data value for formatting
+    let data = result.data_value();
+
     // Try to format data based on its structure
-    if let Some(array) = result.data.as_array() {
+    if let Some(array) = data.as_array() {
         if array.is_empty() {
             println!("No items found.");
             return;
@@ -507,35 +510,34 @@ pub fn print_gtd_result(result: &GtdResult, json: bool) {
         }
     }
     // Single object output
-    else if result.data.is_object() {
+    else if data.is_object() {
         // Check if it's a weekly review report
-        if result.data.get("period").is_some() {
-            print_weekly_review_data(&result.data);
+        if data.get("period").is_some() {
+            print_weekly_review_data(&data);
         }
         // Check if it's horizon overview
-        else if result.data.get("horizons").is_some() {
-            print_horizon_data(&result.data);
+        else if data.get("horizons").is_some() {
+            print_horizon_data(&data);
         }
         // Check if it's attention metrics
-        else if result.data.get("total_time_minutes").is_some() {
-            print_attention_data(&result.data);
+        else if data.get("total_time_minutes").is_some() {
+            print_attention_data(&data);
         }
         // Check if it's a dependency graph
-        else if result.data.get("nodes").is_some() && result.data.get("edges").is_some() {
-            print_dependency_data(&result.data);
+        else if data.get("nodes").is_some() && data.get("edges").is_some() {
+            print_dependency_data(&data);
         }
         // Check if it's a single project
-        else if result.data.get("outcome").is_some() {
-            print_single_project(&result.data);
+        else if data.get("outcome").is_some() {
+            print_single_project(&data);
         }
         // Check if it's a single task
-        else if result.data.get("description").is_some() && result.data.get("contexts").is_some()
-        {
-            print_single_task(&result.data);
+        else if data.get("description").is_some() && data.get("contexts").is_some() {
+            print_single_task(&data);
         }
         // Generic object
         else {
-            println!("{}", serde_json::to_string_pretty(&result.data).unwrap());
+            println!("{}", serde_json::to_string_pretty(&data).unwrap());
         }
     }
 }
@@ -777,8 +779,11 @@ pub fn print_calendar_result(result: &CalendarResult, json: bool) {
 
     println!("{}\n", result.message);
 
+    // Get the data value for formatting
+    let data = result.data_value();
+
     // Try to format data based on its structure
-    if let Some(array) = result.data.as_array() {
+    if let Some(array) = data.as_array() {
         if array.is_empty() {
             println!("No events found.");
             return;
@@ -843,14 +848,14 @@ pub fn print_calendar_result(result: &CalendarResult, json: bool) {
                 println!("{}. \"{}\" conflicts with \"{}\"", i + 1, e1, e2);
             }
         } else {
-            println!("{}", serde_json::to_string_pretty(&result.data).unwrap());
+            println!("{}", serde_json::to_string_pretty(&data).unwrap());
         }
     }
     // Single event
-    else if result.data.is_object() && result.data.get("title").is_some() {
-        print_single_event(&result.data);
-    } else if !result.data.is_null() {
-        println!("{}", serde_json::to_string_pretty(&result.data).unwrap());
+    else if data.is_object() && data.get("title").is_some() {
+        print_single_event(&data);
+    } else if !data.is_null() {
+        println!("{}", serde_json::to_string_pretty(&data).unwrap());
     }
 }
 
@@ -908,8 +913,11 @@ pub fn print_knowledge_result(result: &KnowledgeResult, json: bool) {
 
     println!("{}\n", result.message);
 
+    // Get the data value for formatting
+    let data = result.data_value();
+
     // Try to format data based on its structure
-    if let Some(array) = result.data.as_array() {
+    if let Some(array) = data.as_array() {
         if array.is_empty() {
             println!("No results found.");
             return;
@@ -952,17 +960,17 @@ pub fn print_knowledge_result(result: &KnowledgeResult, json: bool) {
                 }
             }
         } else {
-            println!("{}", serde_json::to_string_pretty(&result.data).unwrap());
+            println!("{}", serde_json::to_string_pretty(&data).unwrap());
         }
     }
     // Single entity or topic
-    else if result.data.is_object() {
-        if result.data.get("entity").is_some() {
+    else if data.is_object() {
+        if data.get("entity").is_some() {
             // Entity with relationships
-            if let Some(entity) = result.data.get("entity") {
+            if let Some(entity) = data.get("entity") {
                 print_single_entity(entity);
             }
-            if let Some(rels) = result.data.get("relationships").and_then(|v| v.as_array()) {
+            if let Some(rels) = data.get("relationships").and_then(|v| v.as_array()) {
                 if !rels.is_empty() {
                     println!("\nRelationships ({}):", rels.len());
                     for rel in rels {
@@ -978,17 +986,17 @@ pub fn print_knowledge_result(result: &KnowledgeResult, json: bool) {
                     }
                 }
             }
-        } else if result.data.get("entity_type").is_some() {
-            print_single_entity(&result.data);
-        } else if result.data.get("topic").is_some() {
-            if let Some(topic) = result.data.get("topic") {
+        } else if data.get("entity_type").is_some() {
+            print_single_entity(&data);
+        } else if data.get("topic").is_some() {
+            if let Some(topic) = data.get("topic") {
                 print_single_entity(topic);
             }
-            if let Some(count) = result.data.get("related_entities").and_then(|v| v.as_u64()) {
+            if let Some(count) = data.get("related_entities").and_then(|v| v.as_u64()) {
                 println!("\nRelated Entities: {}", count);
             }
         } else {
-            println!("{}", serde_json::to_string_pretty(&result.data).unwrap());
+            println!("{}", serde_json::to_string_pretty(&data).unwrap());
         }
     }
 }
@@ -1042,8 +1050,11 @@ pub fn print_query_result(result: &QueryResult, json: bool) {
 
     println!("{}\n", result.message);
 
+    // Get the data value for formatting
+    let data = result.data_value();
+
     // Format results based on mode and data
-    if let Some(array) = result.data.as_array() {
+    if let Some(array) = data.as_array() {
         if array.is_empty() {
             println!("No results found.");
             return;
@@ -1066,8 +1077,8 @@ pub fn print_query_result(result: &QueryResult, json: bool) {
                 truncate(name, 40)
             );
         }
-    } else if !result.data.is_null() {
-        println!("{}", serde_json::to_string_pretty(&result.data).unwrap());
+    } else if !data.is_null() {
+        println!("{}", serde_json::to_string_pretty(&data).unwrap());
     }
 }
 
@@ -1085,15 +1096,13 @@ pub fn print_ontology_result(result: &OntologyResult, json: bool) {
 
     println!("{}\n", result.message);
 
+    // Get the data value for formatting
+    let data = result.data_value();
+
     // Check for stats
-    if result.data.get("entity_count").is_some() {
-        let entities = result
-            .data
-            .get("entity_count")
-            .and_then(|v| v.as_u64())
-            .unwrap_or(0);
-        let rels = result
-            .data
+    if data.get("entity_count").is_some() {
+        let entities = data.get("entity_count").and_then(|v| v.as_u64()).unwrap_or(0);
+        let rels = data
             .get("relationship_count")
             .and_then(|v| v.as_u64())
             .unwrap_or(0);
@@ -1103,11 +1112,7 @@ pub fn print_ontology_result(result: &OntologyResult, json: bool) {
         println!("Entities:       {}", entities);
         println!("Relationships:  {}", rels);
 
-        if let Some(by_type) = result
-            .data
-            .get("entities_by_type")
-            .and_then(|v| v.as_object())
-        {
+        if let Some(by_type) = data.get("entities_by_type").and_then(|v| v.as_object()) {
             println!("\nEntities by Type:");
             for (etype, count) in by_type {
                 let c = count.as_u64().unwrap_or(0);
@@ -1118,7 +1123,7 @@ pub fn print_ontology_result(result: &OntologyResult, json: bool) {
     }
 
     // Try to format data based on its structure
-    if let Some(array) = result.data.as_array() {
+    if let Some(array) = data.as_array() {
         if array.is_empty() {
             println!("No items found.");
             return;
@@ -1172,32 +1177,29 @@ pub fn print_ontology_result(result: &OntologyResult, json: bool) {
                 );
             }
         } else {
-            println!("{}", serde_json::to_string_pretty(&result.data).unwrap());
+            println!("{}", serde_json::to_string_pretty(&data).unwrap());
         }
     }
     // Single entity
-    else if result.data.is_object() && result.data.get("entity_type").is_some() {
-        print_single_entity(&result.data);
+    else if data.is_object() && data.get("entity_type").is_some() {
+        print_single_entity(&data);
     }
     // Single relationship
-    else if result.data.is_object() && result.data.get("relationship_type").is_some() {
-        let source = result
-            .data
+    else if data.is_object() && data.get("relationship_type").is_some() {
+        let source = data
             .get("source_entity_id")
             .and_then(|v| v.as_str())
             .unwrap_or("-");
-        let rel_type = result
-            .data
+        let rel_type = data
             .get("relationship_type")
             .and_then(|v| v.as_str())
             .unwrap_or("-");
-        let target = result
-            .data
+        let target = data
             .get("target_entity_id")
             .and_then(|v| v.as_str())
             .unwrap_or("-");
         println!("Relationship: {} -> {} -> {}", source, rel_type, target);
-    } else if !result.data.is_null() {
-        println!("{}", serde_json::to_string_pretty(&result.data).unwrap());
+    } else if !data.is_null() {
+        println!("{}", serde_json::to_string_pretty(&data).unwrap());
     }
 }
