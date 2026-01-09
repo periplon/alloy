@@ -8,6 +8,7 @@ pub mod api;
 pub mod auth;
 pub mod backup;
 pub mod cache;
+pub mod calendar;
 pub mod config;
 pub mod coordinator;
 pub mod embedding;
@@ -60,4 +61,11 @@ pub use webhooks::{
     create_dispatcher, DocumentDeletedData, DocumentIndexedData, IndexErrorData,
     SharedWebhookDispatcher, SourceAddedData, SourceRemovedData, WebhookConfig,
     WebhookDeliveryResult, WebhookDispatcher, WebhookEvent, WebhookPayload, WebhookStats,
+};
+pub use calendar::{
+    CalendarEvent, CalendarExtractor, CalendarFilter, CalendarManager, CalendarQueryEngine,
+    CalendarQueryParams, CalendarQueryResponse, CalendarQueryType, CalendarStats,
+    ConflictSeverity, EventRecurrence, EventType, EventUpdate, ExtractedCalendarEvent,
+    ExtractionMethod as CalendarExtractionMethod, FreeTimeParams, FreeTimeSlot, QuerySummary,
+    Reminder, ReminderType, SchedulingConflict,
 };
