@@ -307,7 +307,11 @@ mod tests {
             .unwrap();
 
         let doc = create_test_doc("doc1", "The quick brown fox jumps over the lazy dog");
-        let chunks = create_test_chunks("doc1", &["The quick brown fox", "jumps over the lazy dog"], dimension);
+        let chunks = create_test_chunks(
+            "doc1",
+            &["The quick brown fox", "jumps over the lazy dog"],
+            dimension,
+        );
 
         storage.store(doc.clone(), chunks).await.unwrap();
 
@@ -324,8 +328,15 @@ mod tests {
             .await
             .unwrap();
 
-        let doc = create_test_doc("doc1", "Machine learning is a subset of artificial intelligence");
-        let chunks = create_test_chunks("doc1", &["Machine learning is a subset", "of artificial intelligence"], dimension);
+        let doc = create_test_doc(
+            "doc1",
+            "Machine learning is a subset of artificial intelligence",
+        );
+        let chunks = create_test_chunks(
+            "doc1",
+            &["Machine learning is a subset", "of artificial intelligence"],
+            dimension,
+        );
 
         storage.store(doc, chunks).await.unwrap();
 
@@ -355,10 +366,21 @@ mod tests {
 
         // Index two documents
         let doc1 = create_test_doc("doc1", "Rust programming language is fast and safe");
-        let chunks1 = create_test_chunks("doc1", &["Rust programming language", "is fast and safe"], dimension);
+        let chunks1 = create_test_chunks(
+            "doc1",
+            &["Rust programming language", "is fast and safe"],
+            dimension,
+        );
 
-        let doc2 = create_test_doc("doc2", "Python is great for data science and machine learning");
-        let chunks2 = create_test_chunks("doc2", &["Python is great for data science", "and machine learning"], dimension);
+        let doc2 = create_test_doc(
+            "doc2",
+            "Python is great for data science and machine learning",
+        );
+        let chunks2 = create_test_chunks(
+            "doc2",
+            &["Python is great for data science", "and machine learning"],
+            dimension,
+        );
 
         storage.store(doc1, chunks1.clone()).await.unwrap();
         storage.store(doc2, chunks2).await.unwrap();

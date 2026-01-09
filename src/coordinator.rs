@@ -22,9 +22,17 @@ use crate::embedding::{
 };
 use crate::error::Result;
 use crate::processing::{ProcessorRegistry, TextChunk};
-use crate::search::{HybridSearchBuilder, HybridSearchOrchestrator, HybridSearcher, HybridQuery, HybridSearchResponse};
-use crate::sources::{LocalSource, LocalSourceConfig, S3Source, S3SourceConfig, Source, SourceEvent, SourceItem};
-use crate::storage::{EmbeddedStorage, IndexedDocument, QdrantHybridStorage, StorageBackend, StorageStats, VectorChunk};
+use crate::search::{
+    HybridQuery, HybridSearchBuilder, HybridSearchOrchestrator, HybridSearchResponse,
+    HybridSearcher,
+};
+use crate::sources::{
+    LocalSource, LocalSourceConfig, S3Source, S3SourceConfig, Source, SourceEvent, SourceItem,
+};
+use crate::storage::{
+    EmbeddedStorage, IndexedDocument, QdrantHybridStorage, StorageBackend, StorageStats,
+    VectorChunk,
+};
 
 /// Progress event during indexing.
 #[derive(Debug, Clone)]
@@ -32,21 +40,54 @@ pub enum IndexProgress {
     /// Started scanning a source.
     ScanStarted { source_id: String },
     /// Finished scanning, found N items.
-    ScanComplete { source_id: String, items_found: usize },
+    ScanComplete {
+        source_id: String,
+        items_found: usize,
+    },
     /// Started processing a document.
-    ProcessingDocument { source_id: String, uri: String, current: usize, total: usize },
+    ProcessingDocument {
+        source_id: String,
+        uri: String,
+        current: usize,
+        total: usize,
+    },
     /// Finished processing a document.
-    DocumentProcessed { source_id: String, uri: String, chunks: usize },
+    DocumentProcessed {
+        source_id: String,
+        uri: String,
+        chunks: usize,
+    },
     /// Error processing a document.
-    DocumentError { source_id: String, uri: String, error: String },
+    DocumentError {
+        source_id: String,
+        uri: String,
+        error: String,
+    },
     /// Started embedding batch.
-    EmbeddingBatch { source_id: String, batch_num: usize, total_batches: usize },
+    EmbeddingBatch {
+        source_id: String,
+        batch_num: usize,
+        total_batches: usize,
+    },
     /// Finished storing documents.
-    StorageComplete { source_id: String, documents: usize, chunks: usize },
+    StorageComplete {
+        source_id: String,
+        documents: usize,
+        chunks: usize,
+    },
     /// Source indexing complete.
-    IndexComplete { source_id: String, documents: usize, chunks: usize, duration_ms: u64 },
+    IndexComplete {
+        source_id: String,
+        documents: usize,
+        chunks: usize,
+        duration_ms: u64,
+    },
     /// File watch event.
-    WatchEvent { source_id: String, event_type: String, uri: String },
+    WatchEvent {
+        source_id: String,
+        event_type: String,
+        uri: String,
+    },
 }
 
 /// Indexed source information.
@@ -110,7 +151,11 @@ impl IndexCoordinator {
         // Wrap in batch processor with rate limiting
         let batch_config = BatchConfig::default()
             .with_batch_size(base_embedder.max_batch_size())
-            .with_rate_limit(if config.embedding.provider == EmbeddingProviderType::Api { 10 } else { 0 });
+            .with_rate_limit(if config.embedding.provider == EmbeddingProviderType::Api {
+                10
+            } else {
+                0
+            });
 
         // We need to use a concrete type for BatchEmbeddingProcessor
         // For simplicity, we'll just use the base embedder wrapped in Arc
@@ -132,11 +177,7 @@ impl IndexCoordinator {
             }
             StorageBackendType::Qdrant => {
                 let qdrant_config = &config.storage.qdrant;
-                Arc::new(QdrantHybridStorage::new(
-                    qdrant_config,
-                    &data_dir,
-                    dimension,
-                ).await?)
+                Arc::new(QdrantHybridStorage::new(qdrant_config, &data_dir, dimension).await?)
             }
         };
 
@@ -185,10 +226,18 @@ impl IndexCoordinator {
             IndexProgress::ScanStarted { source_id } => {
                 info!("Scan started: {}", source_id);
             }
-            IndexProgress::ScanComplete { source_id, items_found } => {
+            IndexProgress::ScanComplete {
+                source_id,
+                items_found,
+            } => {
                 info!("Scan complete: {} ({} items)", source_id, items_found);
             }
-            IndexProgress::IndexComplete { source_id, documents, chunks, duration_ms } => {
+            IndexProgress::IndexComplete {
+                source_id,
+                documents,
+                chunks,
+                duration_ms,
+            } => {
                 info!(
                     "Index complete: {} ({} documents, {} chunks, {}ms)",
                     source_id, documents, chunks, duration_ms
@@ -213,7 +262,11 @@ impl IndexCoordinator {
     ) -> Result<IndexedSource> {
         let config = LocalSourceConfig {
             path,
-            patterns: if patterns.is_empty() { vec!["**/*".to_string()] } else { patterns },
+            patterns: if patterns.is_empty() {
+                vec!["**/*".to_string()]
+            } else {
+                patterns
+            },
             exclude_patterns: if exclude_patterns.is_empty() {
                 LocalSourceConfig::default().exclude_patterns
             } else {
@@ -239,7 +292,11 @@ impl IndexCoordinator {
             bucket,
             prefix,
             region,
-            patterns: if patterns.is_empty() { vec!["*".to_string()] } else { patterns },
+            patterns: if patterns.is_empty() {
+                vec!["*".to_string()]
+            } else {
+                patterns
+            },
             ..Default::default()
         };
 
@@ -282,7 +339,10 @@ impl IndexCoordinator {
                 total: total_items,
             });
 
-            match self.process_and_index_item(&source_id, &*source, item).await {
+            match self
+                .process_and_index_item(&source_id, &*source, item)
+                .await
+            {
                 Ok(chunk_count) => {
                     documents_indexed += 1;
                     chunks_created += chunk_count;
@@ -552,12 +612,14 @@ mod tests {
         let config = create_test_config(data_dir.path());
         let coordinator = IndexCoordinator::new(config).await.unwrap();
 
-        let result = coordinator.index_local(
-            temp_dir.path().to_path_buf(),
-            vec!["*.txt".to_string()],
-            vec![],
-            false,
-        ).await;
+        let result = coordinator
+            .index_local(
+                temp_dir.path().to_path_buf(),
+                vec!["*.txt".to_string()],
+                vec![],
+                false,
+            )
+            .await;
 
         assert!(result.is_ok());
         let source = result.unwrap();
@@ -579,12 +641,10 @@ mod tests {
         let coordinator = IndexCoordinator::new(config).await.unwrap();
 
         // Index the directory
-        coordinator.index_local(
-            temp_dir.path().to_path_buf(),
-            vec![],
-            vec![],
-            false,
-        ).await.unwrap();
+        coordinator
+            .index_local(temp_dir.path().to_path_buf(), vec![], vec![], false)
+            .await
+            .unwrap();
 
         let sources = coordinator.list_sources().await;
         assert_eq!(sources.len(), 1);

@@ -28,19 +28,16 @@ impl ProcessorRegistry {
     pub fn new(config: &ProcessingConfig) -> Self {
         let chunk_config = ChunkConfig::from_settings(config.chunk_size, config.chunk_overlap);
 
-        let mut processors: Vec<Arc<dyn Processor>> = Vec::new();
-
-        // Add text processor (handles text/*, application/json, etc.)
-        processors.push(Arc::new(TextProcessor::new()));
-
-        // Add PDF processor
-        processors.push(Arc::new(PdfProcessor::new()));
-
-        // Add DOCX processor
-        processors.push(Arc::new(DocxProcessor::new()));
-
-        // Add image processor
-        processors.push(Arc::new(ImageProcessor::new(config.image.clone())));
+        let processors: Vec<Arc<dyn Processor>> = vec![
+            // Text processor (handles text/*, application/json, etc.)
+            Arc::new(TextProcessor::new()),
+            // PDF processor
+            Arc::new(PdfProcessor::new()),
+            // DOCX processor
+            Arc::new(DocxProcessor::new()),
+            // Image processor
+            Arc::new(ImageProcessor::new(config.image.clone())),
+        ];
 
         Self {
             processors,

@@ -214,7 +214,10 @@ impl TantivyBackend {
     /// Escape special query characters.
     fn escape_query(query: &str) -> String {
         // Escape Tantivy special characters
-        let special_chars = ['+', '-', '&', '|', '!', '(', ')', '{', '}', '[', ']', '^', '"', '~', '*', '?', ':', '\\', '/'];
+        let special_chars = [
+            '+', '-', '&', '|', '!', '(', ')', '{', '}', '[', ']', '^', '"', '~', '*', '?', ':',
+            '\\', '/',
+        ];
         let mut escaped = String::with_capacity(query.len() * 2);
 
         for c in query.chars() {
@@ -365,7 +368,9 @@ mod tests {
         assert_eq!(results.len(), 2);
 
         // Search with source filter
-        let results = backend.search("shared content", Some("source-a"), 10).unwrap();
+        let results = backend
+            .search("shared content", Some("source-a"), 10)
+            .unwrap();
         assert_eq!(results.len(), 1);
         assert_eq!(results[0].document_id, "doc1");
     }

@@ -88,8 +88,8 @@ pub fn print_sources(result: &ListSourcesResponse, json: bool) {
         }
 
         println!(
-            "{:<40} {:<10} {:<8} {:<8} {}",
-            "SOURCE ID", "TYPE", "DOCS", "WATCH", "PATH"
+            "{:<40} {:<10} {:<8} {:<8} PATH",
+            "SOURCE ID", "TYPE", "DOCS", "WATCH"
         );
         println!("{}", "-".repeat(100));
 

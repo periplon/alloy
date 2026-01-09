@@ -81,7 +81,12 @@ pub fn chunk_text(text: &str, doc_id: &str, config: &ChunkConfig) -> Vec<TextChu
 }
 
 /// Find a good break point (sentence or paragraph boundary).
-fn find_break_point(chars: &[char], start: usize, target_end: usize, config: &ChunkConfig) -> usize {
+fn find_break_point(
+    chars: &[char],
+    start: usize,
+    target_end: usize,
+    config: &ChunkConfig,
+) -> usize {
     let search_start = if target_end > start + 50 {
         target_end - 50
     } else {

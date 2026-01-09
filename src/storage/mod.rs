@@ -23,10 +23,7 @@ use std::path::Path;
 use std::sync::Arc;
 
 /// Create a storage backend from configuration.
-pub async fn create_storage(
-    config: &Config,
-    dimension: usize,
-) -> Result<Arc<dyn StorageBackend>> {
+pub async fn create_storage(config: &Config, dimension: usize) -> Result<Arc<dyn StorageBackend>> {
     let data_dir = config.data_dir()?;
 
     match config.storage.backend {
@@ -35,21 +32,15 @@ pub async fn create_storage(
             Ok(Arc::new(storage))
         }
         StorageBackendType::Qdrant => {
-            let storage = QdrantHybridStorage::new(
-                &config.storage.qdrant,
-                &data_dir,
-                dimension,
-            ).await?;
+            let storage =
+                QdrantHybridStorage::new(&config.storage.qdrant, &data_dir, dimension).await?;
             Ok(Arc::new(storage))
         }
     }
 }
 
 /// Create an embedded storage backend directly.
-pub async fn create_embedded_storage(
-    data_dir: &Path,
-    dimension: usize,
-) -> Result<EmbeddedStorage> {
+pub async fn create_embedded_storage(data_dir: &Path, dimension: usize) -> Result<EmbeddedStorage> {
     EmbeddedStorage::new(data_dir, dimension).await
 }
 

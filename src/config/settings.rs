@@ -5,7 +5,7 @@ use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
 
 /// Main configuration structure.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
 #[serde(default)]
 pub struct Config {
     pub server: ServerConfig,
@@ -15,30 +15,16 @@ pub struct Config {
     pub search: SearchConfig,
 }
 
-impl Default for Config {
-    fn default() -> Self {
-        Self {
-            server: ServerConfig::default(),
-            embedding: EmbeddingConfig::default(),
-            storage: StorageConfig::default(),
-            processing: ProcessingConfig::default(),
-            search: SearchConfig::default(),
-        }
-    }
-}
-
 impl Config {
     /// Load configuration from a TOML file.
     pub fn from_file(path: impl AsRef<Path>) -> Result<Self> {
-        let content = std::fs::read_to_string(path.as_ref())
-            .map_err(ConfigError::ReadFile)?;
-        Self::from_str(&content)
+        let content = std::fs::read_to_string(path.as_ref()).map_err(ConfigError::ReadFile)?;
+        Self::parse(&content)
     }
 
     /// Parse configuration from a TOML string.
-    pub fn from_str(content: &str) -> Result<Self> {
-        let config: Config = toml::from_str(content)
-            .map_err(ConfigError::Parse)?;
+    pub fn parse(content: &str) -> Result<Self> {
+        let config: Config = toml::from_str(content).map_err(ConfigError::Parse)?;
         config.validate()?;
         Ok(config)
     }
@@ -84,10 +70,9 @@ impl Config {
         }
 
         // Validate storage config
-        if self.storage.backend == StorageBackendType::Qdrant {
-            if self.storage.qdrant.url.is_empty() {
-                return Err(ConfigError::MissingField("storage.qdrant.url".to_string()).into());
-            }
+        if self.storage.backend == StorageBackendType::Qdrant && self.storage.qdrant.url.is_empty()
+        {
+            return Err(ConfigError::MissingField("storage.qdrant.url".to_string()).into());
         }
 
         // Validate processing config
@@ -290,7 +275,7 @@ impl Default for ImageProcessingConfig {
 }
 
 /// Search configuration.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
 #[serde(default)]
 pub struct SearchConfig {
     /// Reranking configuration
@@ -303,17 +288,6 @@ pub struct SearchConfig {
     pub cache: CacheConfig,
 }
 
-impl Default for SearchConfig {
-    fn default() -> Self {
-        Self {
-            reranking: RerankerConfig::default(),
-            expansion: QueryExpansionConfig::default(),
-            clustering: ClusteringConfig::default(),
-            cache: CacheConfig::default(),
-        }
-    }
-}
-
 /// Cross-encoder reranking configuration.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default)]
@@ -322,12 +296,19 @@ pub struct RerankerConfig {
     pub enabled: bool,
     /// Reranker type
     pub reranker_type: RerankerType,
+    /// Model for local cross-encoder (used when reranker_type is LocalCrossEncoder)
+    /// Options: bge-reranker-base, bge-reranker-v2-m3, jina-reranker-v1-turbo-en, jina-reranker-v2-base-multilingual
+    pub model: String,
     /// Number of top candidates to rerank
     pub top_k: usize,
     /// Final number of results after reranking
     pub final_k: usize,
     /// Minimum score threshold for reranked results
     pub min_score: Option<f32>,
+    /// API endpoint for cross-encoder API (used when reranker_type is CrossEncoder)
+    pub api_url: Option<String>,
+    /// API key for cross-encoder API (used when reranker_type is CrossEncoder)
+    pub api_key: Option<String>,
 }
 
 impl Default for RerankerConfig {
@@ -335,9 +316,12 @@ impl Default for RerankerConfig {
         Self {
             enabled: false,
             reranker_type: RerankerType::ScoreBased,
+            model: "bge-reranker-base".to_string(),
             top_k: 100,
             final_k: 10,
             min_score: None,
+            api_url: None,
+            api_key: None,
         }
     }
 }
@@ -348,6 +332,8 @@ impl Default for RerankerConfig {
 pub enum RerankerType {
     /// Score-based reranking using embedding similarity
     ScoreBased,
+    /// Local cross-encoder model (fastembed-based, no API required)
+    LocalCrossEncoder,
     /// Cross-encoder model (requires API)
     CrossEncoder,
     /// LLM-based reranking (requires API)
@@ -506,7 +492,7 @@ mod tests {
             chunk_overlap = 32
         "#;
 
-        let config = Config::from_str(toml).unwrap();
+        let config = Config::parse(toml).unwrap();
         assert_eq!(config.server.transport, TransportType::Http);
         assert_eq!(config.server.http_port, 9090);
         assert_eq!(config.processing.chunk_size, 256);
@@ -523,7 +509,7 @@ mod tests {
             model = "text-embedding-3-small"
         "#;
 
-        let result = Config::from_str(toml);
+        let result = Config::parse(toml);
         assert!(result.is_err());
     }
 
@@ -534,7 +520,7 @@ mod tests {
             chunk_size = 0
         "#;
 
-        let result = Config::from_str(toml);
+        let result = Config::parse(toml);
         assert!(result.is_err());
     }
 }

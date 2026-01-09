@@ -49,11 +49,8 @@ impl LanceBackend {
 
         let table_name = "vectors".to_string();
 
-        // Try to open existing table
-        let table = match connection.open_table(&table_name).execute().await {
-            Ok(t) => Some(t),
-            Err(_) => None, // Table doesn't exist yet
-        };
+        // Try to open existing table (table might not exist yet)
+        let table = connection.open_table(&table_name).execute().await.ok();
 
         Ok(Self {
             connection,

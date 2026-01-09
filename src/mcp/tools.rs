@@ -1,7 +1,7 @@
 //! MCP tool implementations for Alloy.
 
-use serde::{Deserialize, Serialize};
 use chrono::{DateTime, Utc};
+use serde::{Deserialize, Serialize};
 
 /// Request to index a path.
 #[derive(Debug, Clone, Serialize, Deserialize)]

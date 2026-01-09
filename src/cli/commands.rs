@@ -17,7 +17,7 @@ use super::{local, output, remote};
 #[derive(Clone)]
 pub enum ExecutionMode {
     /// Execute locally via IndexCoordinator
-    Local(Config),
+    Local(Box<Config>),
     /// Execute remotely via MCP client
     Remote(String),
 }
@@ -31,7 +31,7 @@ pub async fn run_index(
     json_output: bool,
 ) -> Result<()> {
     let result: IndexPathResponse = match mode {
-        ExecutionMode::Local(config) => local::index(config, path, pattern, watch).await?,
+        ExecutionMode::Local(config) => local::index(*config, path, pattern, watch).await?,
         ExecutionMode::Remote(url) => remote::index(&url, path, pattern, watch).await?,
     };
     output::print_index_result(&result, json_output);
@@ -49,7 +49,7 @@ pub async fn run_search(
 ) -> Result<()> {
     let result: SearchResponse = match mode {
         ExecutionMode::Local(config) => {
-            local::search(config, query, limit, vector_weight, source_id).await?
+            local::search(*config, query, limit, vector_weight, source_id).await?
         }
         ExecutionMode::Remote(url) => {
             remote::search(&url, query, limit, vector_weight, source_id).await?
@@ -68,7 +68,7 @@ pub async fn run_get_document(
 ) -> Result<()> {
     let result: Option<DocumentDetails> = match mode {
         ExecutionMode::Local(config) => {
-            local::get_document(config, document_id, include_content).await?
+            local::get_document(*config, document_id, include_content).await?
         }
         ExecutionMode::Remote(url) => {
             remote::get_document(&url, document_id, include_content).await?
@@ -81,7 +81,7 @@ pub async fn run_get_document(
 /// Run the list-sources command.
 pub async fn run_list_sources(mode: ExecutionMode, json_output: bool) -> Result<()> {
     let result: ListSourcesResponse = match mode {
-        ExecutionMode::Local(config) => local::list_sources(config).await?,
+        ExecutionMode::Local(config) => local::list_sources(*config).await?,
         ExecutionMode::Remote(url) => remote::list_sources(&url).await?,
     };
     output::print_sources(&result, json_output);
@@ -95,7 +95,7 @@ pub async fn run_remove_source(
     json_output: bool,
 ) -> Result<()> {
     let result: RemoveSourceResponse = match mode {
-        ExecutionMode::Local(config) => local::remove_source(config, source_id).await?,
+        ExecutionMode::Local(config) => local::remove_source(*config, source_id).await?,
         ExecutionMode::Remote(url) => remote::remove_source(&url, source_id).await?,
     };
     output::print_remove_result(&result, json_output);
@@ -105,7 +105,7 @@ pub async fn run_remove_source(
 /// Run the stats command.
 pub async fn run_stats(mode: ExecutionMode, json_output: bool) -> Result<()> {
     let result: IndexStats = match mode {
-        ExecutionMode::Local(config) => local::stats(config).await?,
+        ExecutionMode::Local(config) => local::stats(*config).await?,
         ExecutionMode::Remote(url) => remote::stats(&url).await?,
     };
     output::print_stats(&result, json_output);

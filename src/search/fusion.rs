@@ -3,29 +3,20 @@
 use serde::{Deserialize, Serialize};
 
 /// Fusion algorithm type.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
 pub enum FusionAlgorithm {
     /// Reciprocal Rank Fusion
+    #[default]
     Rrf,
     /// Distribution-Based Score Fusion
     Dbsf,
-}
-
-impl Default for FusionAlgorithm {
-    fn default() -> Self {
-        Self::Rrf
-    }
 }
 
 /// Reciprocal Rank Fusion (RRF) implementation.
 ///
 /// RRF(d) = Σ 1 / (k + rank_i(d))
 /// where k is a constant (typically 60) and rank_i(d) is the rank of document d in result list i.
-pub fn rrf_fusion(
-    results: &[Vec<(String, f32)>],
-    k: f32,
-    weights: &[f32],
-) -> Vec<(String, f32)> {
+pub fn rrf_fusion(results: &[Vec<(String, f32)>], k: f32, weights: &[f32]) -> Vec<(String, f32)> {
     use std::collections::HashMap;
 
     if results.is_empty() {
@@ -51,10 +42,7 @@ pub fn rrf_fusion(
 /// Distribution-Based Score Fusion (DBSF) implementation.
 ///
 /// Normalizes scores based on distribution and combines them.
-pub fn dbsf_fusion(
-    results: &[Vec<(String, f32)>],
-    weights: &[f32],
-) -> Vec<(String, f32)> {
+pub fn dbsf_fusion(results: &[Vec<(String, f32)>], weights: &[f32]) -> Vec<(String, f32)> {
     use std::collections::HashMap;
 
     if results.is_empty() {
@@ -73,7 +61,8 @@ pub fn dbsf_fusion(
         // Calculate mean and std dev for normalization
         let raw_scores: Vec<f32> = result_list.iter().map(|(_, s)| *s).collect();
         let mean = raw_scores.iter().sum::<f32>() / raw_scores.len() as f32;
-        let variance = raw_scores.iter().map(|s| (s - mean).powi(2)).sum::<f32>() / raw_scores.len() as f32;
+        let variance =
+            raw_scores.iter().map(|s| (s - mean).powi(2)).sum::<f32>() / raw_scores.len() as f32;
         let std_dev = variance.sqrt().max(0.001); // Avoid division by zero
 
         for (doc_id, score) in result_list {
@@ -121,14 +110,8 @@ mod tests {
     #[test]
     fn test_dbsf_fusion() {
         let results = vec![
-            vec![
-                ("doc1".to_string(), 0.9),
-                ("doc2".to_string(), 0.5),
-            ],
-            vec![
-                ("doc2".to_string(), 0.8),
-                ("doc3".to_string(), 0.3),
-            ],
+            vec![("doc1".to_string(), 0.9), ("doc2".to_string(), 0.5)],
+            vec![("doc2".to_string(), 0.8), ("doc3".to_string(), 0.3)],
         ];
 
         let fused = dbsf_fusion(&results, &[0.5, 0.5]);

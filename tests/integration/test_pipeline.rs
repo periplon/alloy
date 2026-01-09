@@ -18,7 +18,9 @@ fn create_test_config(data_dir: &std::path::Path) -> Config {
 /// Create a diverse set of test documents.
 fn create_diverse_documents(dir: &TempDir) {
     let documents = vec![
-        ("readme.md", r#"
+        (
+            "readme.md",
+            r#"
 # Project README
 
 This is a sample project demonstrating various capabilities.
@@ -32,8 +34,11 @@ This is a sample project demonstrating various capabilities.
 ## Installation
 
 Run `cargo install` to install.
-"#),
-        ("notes.txt", r#"
+"#,
+        ),
+        (
+            "notes.txt",
+            r#"
 Meeting notes from 2024-01-15:
 
 Discussed the new search feature implementation.
@@ -46,8 +51,11 @@ Action items:
 1. Design the hybrid search architecture
 2. Implement embedding generation
 3. Add full-text indexing
-"#),
-        ("code.json", r#"
+"#,
+        ),
+        (
+            "code.json",
+            r#"
 {
   "name": "alloy",
   "version": "0.1.0",
@@ -58,8 +66,11 @@ Action items:
     "rmcp": "0.12"
   }
 }
-"#),
-        ("config.yaml", r#"
+"#,
+        ),
+        (
+            "config.yaml",
+            r#"
 server:
   host: localhost
   port: 8080
@@ -71,7 +82,8 @@ database:
 search:
   vector_weight: 0.5
   default_limit: 10
-"#),
+"#,
+        ),
     ];
 
     for (name, content) in documents {
@@ -103,7 +115,10 @@ async fn test_full_pipeline_index_and_search() {
         .await
         .unwrap();
 
-    assert!(source.document_count >= 4, "Should index at least 4 documents");
+    assert!(
+        source.document_count >= 4,
+        "Should index at least 4 documents"
+    );
 
     // Step 2: Search for various queries
     let queries = vec![
@@ -152,7 +167,10 @@ async fn test_pipeline_with_filtering() {
         .await
         .unwrap();
 
-    assert_eq!(source.document_count, 1, "Should only index the markdown file");
+    assert_eq!(
+        source.document_count, 1,
+        "Should only index the markdown file"
+    );
 
     // Search should find content from the markdown file
     let query = HybridQuery::new("project features installation").limit(10);
@@ -177,12 +195,7 @@ async fn test_pipeline_reindexing() {
 
     // Initial indexing
     let source1 = coordinator
-        .index_local(
-            content_dir.path().to_path_buf(),
-            vec![],
-            vec![],
-            false,
-        )
+        .index_local(content_dir.path().to_path_buf(), vec![], vec![], false)
         .await
         .unwrap();
 
@@ -223,9 +236,22 @@ async fn test_pipeline_large_documents() {
 
     // Write multiple paragraphs
     for i in 0..20 {
-        writeln!(f, "Paragraph {} about artificial intelligence and machine learning.", i).unwrap();
-        writeln!(f, "This discusses neural networks, deep learning, and natural language processing.").unwrap();
-        writeln!(f, "The field continues to advance with new architectures and training techniques.").unwrap();
+        writeln!(
+            f,
+            "Paragraph {} about artificial intelligence and machine learning.",
+            i
+        )
+        .unwrap();
+        writeln!(
+            f,
+            "This discusses neural networks, deep learning, and natural language processing."
+        )
+        .unwrap();
+        writeln!(
+            f,
+            "The field continues to advance with new architectures and training techniques."
+        )
+        .unwrap();
         writeln!(f).unwrap();
     }
 
@@ -233,12 +259,7 @@ async fn test_pipeline_large_documents() {
     let coordinator = IndexCoordinator::new(config).await.unwrap();
 
     let source = coordinator
-        .index_local(
-            content_dir.path().to_path_buf(),
-            vec![],
-            vec![],
-            false,
-        )
+        .index_local(content_dir.path().to_path_buf(), vec![], vec![], false)
         .await
         .unwrap();
 
@@ -246,10 +267,16 @@ async fn test_pipeline_large_documents() {
 
     // Stats should show multiple chunks for the large document
     let stats = coordinator.stats().await.unwrap();
-    assert!(stats.chunk_count > 1, "Large document should be split into multiple chunks");
+    assert!(
+        stats.chunk_count > 1,
+        "Large document should be split into multiple chunks"
+    );
 
     // Search should work across chunks
     let query = HybridQuery::new("neural networks deep learning").limit(10);
     let results = coordinator.search(query).await.unwrap();
-    assert!(!results.results.is_empty(), "Should find content in large document");
+    assert!(
+        !results.results.is_empty(),
+        "Should find content in large document"
+    );
 }

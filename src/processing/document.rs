@@ -120,7 +120,7 @@ impl Default for DocxProcessor {
 impl Processor for DocxProcessor {
     async fn process(&self, content: Bytes, item: &SourceItem) -> Result<ProcessedContent> {
         // Use docx-rs to extract text
-        let docx = match docx_rs::read_docx(&content.to_vec()) {
+        let docx = match docx_rs::read_docx(&content) {
             Ok(doc) => doc,
             Err(e) => {
                 warn!(uri = %item.uri, error = %e, "Failed to read DOCX");
@@ -264,9 +264,8 @@ mod tests {
     #[test]
     fn test_docx_processor_supports() {
         let processor = DocxProcessor::new();
-        assert!(processor.supports(
-            "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
-        ));
+        assert!(processor
+            .supports("application/vnd.openxmlformats-officedocument.wordprocessingml.document"));
         assert!(!processor.supports("text/plain"));
     }
 

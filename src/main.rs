@@ -1,6 +1,6 @@
 //! Alloy MCP Server Entry Point
 
-use alloy::{AlloyServer, Config, run_server};
+use alloy::{run_server, AlloyServer, Config};
 use clap::{Parser, Subcommand};
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt, EnvFilter};
 
@@ -112,31 +112,36 @@ async fn main() -> anyhow::Result<()> {
         } else {
             Config::load()?
         };
-        cli::ExecutionMode::Local(config)
+        cli::ExecutionMode::Local(Box::new(config))
     };
 
     match args.command {
-        Some(Command::Index { path, pattern, watch, recursive: _ }) => {
-            cli::run_index(mode, path, pattern, watch, args.json).await
-        }
-        Some(Command::Search { query, limit, vector_weight, source }) => {
-            cli::run_search(mode, query, limit, vector_weight, source, args.json).await
-        }
-        Some(Command::Get { document_id, no_content }) => {
-            cli::run_get_document(mode, document_id, !no_content, args.json).await
-        }
-        Some(Command::Sources) => {
-            cli::run_list_sources(mode, args.json).await
-        }
+        Some(Command::Index {
+            path,
+            pattern,
+            watch,
+            recursive: _,
+        }) => cli::run_index(mode, path, pattern, watch, args.json).await,
+        Some(Command::Search {
+            query,
+            limit,
+            vector_weight,
+            source,
+        }) => cli::run_search(mode, query, limit, vector_weight, source, args.json).await,
+        Some(Command::Get {
+            document_id,
+            no_content,
+        }) => cli::run_get_document(mode, document_id, !no_content, args.json).await,
+        Some(Command::Sources) => cli::run_list_sources(mode, args.json).await,
         Some(Command::Remove { source_id }) => {
             cli::run_remove_source(mode, source_id, args.json).await
         }
-        Some(Command::Stats) => {
-            cli::run_stats(mode, args.json).await
-        }
-        Some(Command::Serve { transport, port, json_logs }) => {
-            run_mcp_server(&args.config, &transport, port, json_logs).await
-        }
+        Some(Command::Stats) => cli::run_stats(mode, args.json).await,
+        Some(Command::Serve {
+            transport,
+            port,
+            json_logs,
+        }) => run_mcp_server(&args.config, &transport, port, json_logs).await,
         None => {
             // Default: run as MCP server with stdio
             run_mcp_server(&args.config, "stdio", 8080, false).await
@@ -152,8 +157,7 @@ async fn run_mcp_server(
     json_logs: bool,
 ) -> anyhow::Result<()> {
     // Initialize tracing for server mode
-    let filter = EnvFilter::try_from_default_env()
-        .unwrap_or_else(|_| EnvFilter::new("info"));
+    let filter = EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info"));
 
     if json_logs {
         tracing_subscriber::registry()
@@ -192,7 +196,13 @@ async fn run_mcp_server(
 
     // Create and run server
     let server = AlloyServer::new(config.clone());
-    run_server(server, config.server.transport, config.server.http_port, config).await?;
+    run_server(
+        server,
+        config.server.transport,
+        config.server.http_port,
+        config,
+    )
+    .await?;
 
     Ok(())
 }

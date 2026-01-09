@@ -69,13 +69,14 @@ impl QdrantStorage {
         if !exists {
             self.client
                 .create_collection(
-                    CreateCollectionBuilder::new(&self.collection_name)
-                        .vectors_config(VectorsConfig {
+                    CreateCollectionBuilder::new(&self.collection_name).vectors_config(
+                        VectorsConfig {
                             config: Some(Config::Params(
                                 VectorParamsBuilder::new(self.dimension as u64, Distance::Cosine)
                                     .build(),
                             )),
-                        }),
+                        },
+                    ),
                 )
                 .await
                 .map_err(|e| StorageError::Index(e.to_string()))?;
@@ -180,10 +181,7 @@ impl StorageBackend for QdrantStorage {
             .filter_map(|point| {
                 let payload = &point.payload;
 
-                let chunk_id = payload
-                    .get("chunk_id")?
-                    .as_str()
-                    .map(|s| s.to_string())?;
+                let chunk_id = payload.get("chunk_id")?.as_str().map(|s| s.to_string())?;
                 let document_id = payload
                     .get("document_id")?
                     .as_str()

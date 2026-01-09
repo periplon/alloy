@@ -259,7 +259,10 @@ mod tests {
     #[test]
     fn test_local_source_config_default() {
         let config = LocalSourceConfig::default();
-        assert!(config.exclude_patterns.iter().any(|p| p.contains("node_modules")));
+        assert!(config
+            .exclude_patterns
+            .iter()
+            .any(|p| p.contains("node_modules")));
         assert!(!config.watch);
     }
 

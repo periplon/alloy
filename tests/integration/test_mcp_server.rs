@@ -32,11 +32,14 @@ async fn test_server_info() {
     let info = server.get_info();
     // Implementation::from_build_env() uses crate name (rmcp) not our app name
     // so we just verify it has a name and version
-    assert!(!info.server_info.name.is_empty(), "Server should have a name");
+    assert!(
+        !info.server_info.name.is_empty(),
+        "Server should have a name"
+    );
     assert!(info.instructions.is_some());
     assert!(
-        info.instructions.as_ref().unwrap().contains("hybrid") ||
-        info.instructions.as_ref().unwrap().contains("Alloy"),
+        info.instructions.as_ref().unwrap().contains("hybrid")
+            || info.instructions.as_ref().unwrap().contains("Alloy"),
         "Instructions should mention hybrid search or Alloy"
     );
 }

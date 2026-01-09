@@ -17,7 +17,8 @@ fn is_rate_limit_error(error: &AlloyError) -> bool {
     matches!(error, AlloyError::Embedding(EmbeddingError::RateLimited))
 }
 
-type DefaultRateLimiter = RateLimiter<NotKeyed, governor::state::InMemoryState, DefaultClock, NoOpMiddleware>;
+type DefaultRateLimiter =
+    RateLimiter<NotKeyed, governor::state::InMemoryState, DefaultClock, NoOpMiddleware>;
 
 /// Batch embedding processor with rate limiting and retry logic.
 pub struct BatchEmbeddingProcessor<P: EmbeddingProvider> {
@@ -284,10 +285,8 @@ mod tests {
     #[tokio::test]
     async fn test_batch_processing() {
         let provider = MockProvider::new(384);
-        let processor = BatchEmbeddingProcessor::new(
-            provider,
-            BatchConfig::default().with_batch_size(5),
-        );
+        let processor =
+            BatchEmbeddingProcessor::new(provider, BatchConfig::default().with_batch_size(5));
 
         // Process 12 texts, should result in 3 batches (5, 5, 2)
         let texts: Vec<String> = (0..12).map(|i| format!("text {}", i)).collect();
@@ -309,10 +308,8 @@ mod tests {
     #[tokio::test]
     async fn test_single_batch() {
         let provider = MockProvider::new(384);
-        let processor = BatchEmbeddingProcessor::new(
-            provider,
-            BatchConfig::default().with_batch_size(100),
-        );
+        let processor =
+            BatchEmbeddingProcessor::new(provider, BatchConfig::default().with_batch_size(100));
 
         let texts: Vec<String> = (0..5).map(|i| format!("text {}", i)).collect();
         let embeddings = processor.embed_all(&texts).await.unwrap();
@@ -329,8 +326,7 @@ mod tests {
 
         // Test through the EmbeddingProvider trait
         let texts: Vec<String> = (0..5).map(|i| format!("text {}", i)).collect();
-        let embeddings: Result<Vec<Vec<f32>>> =
-            EmbeddingProvider::embed(&processor, &texts).await;
+        let embeddings: Result<Vec<Vec<f32>>> = EmbeddingProvider::embed(&processor, &texts).await;
 
         assert!(embeddings.is_ok());
         assert_eq!(embeddings.unwrap().len(), 5);
@@ -354,13 +350,11 @@ mod tests {
         let progress = Arc::new(AtomicUsize::new(0));
         let progress_clone = progress.clone();
 
-        let processor = ProgressBatchProcessor::new(
-            provider,
-            BatchConfig::default().with_batch_size(5),
-        )
-        .with_progress(Box::new(move |processed, _total| {
-            progress_clone.store(processed, Ordering::SeqCst);
-        }));
+        let processor =
+            ProgressBatchProcessor::new(provider, BatchConfig::default().with_batch_size(5))
+                .with_progress(Box::new(move |processed, _total| {
+                    progress_clone.store(processed, Ordering::SeqCst);
+                }));
 
         let texts: Vec<String> = (0..12).map(|i| format!("text {}", i)).collect();
         let _ = processor.embed_all(&texts).await.unwrap();

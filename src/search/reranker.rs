@@ -229,10 +229,8 @@ impl Reranker for CrossEncoderReranker {
         })?;
 
         // Combine results with scores
-        let mut scored: Vec<(HybridSearchResult, f32)> = candidates
-            .into_iter()
-            .zip(scores.scores.into_iter())
-            .collect();
+        let mut scored: Vec<(HybridSearchResult, f32)> =
+            candidates.into_iter().zip(scores.scores).collect();
 
         // Sort by cross-encoder score (descending)
         scored.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
@@ -277,7 +275,11 @@ pub struct LlmReranker {
 
 impl LlmReranker {
     /// Create a new LLM reranker.
-    pub fn new(api_url: impl Into<String>, api_key: Option<String>, model: impl Into<String>) -> Self {
+    pub fn new(
+        api_url: impl Into<String>,
+        api_key: Option<String>,
+        model: impl Into<String>,
+    ) -> Self {
         Self {
             api_url: api_url.into(),
             api_key,
@@ -364,9 +366,10 @@ impl Reranker for LlmReranker {
             req_builder = req_builder.bearer_auth(api_key);
         }
 
-        let response = req_builder.send().await.map_err(|e| {
-            crate::error::SearchError::Reranking(format!("LLM API error: {}", e))
-        })?;
+        let response = req_builder
+            .send()
+            .await
+            .map_err(|e| crate::error::SearchError::Reranking(format!("LLM API error: {}", e)))?;
 
         if !response.status().is_success() {
             // Fall back to original ranking on API failure
@@ -379,7 +382,9 @@ impl Reranker for LlmReranker {
         })?;
 
         // Parse scores from response
-        let content = &llm_response.choices.first()
+        let content = &llm_response
+            .choices
+            .first()
             .map(|c| c.message.content.clone())
             .unwrap_or_default();
 
@@ -428,20 +433,42 @@ pub struct RerankerFactory;
 
 impl RerankerFactory {
     /// Create a reranker based on configuration.
+    ///
+    /// Returns a Result because LocalCrossEncoder initialization can fail
+    /// (e.g., model download issues).
     pub fn create(
         config: &RerankerConfig,
         embedder: Arc<dyn EmbeddingProvider>,
     ) -> Box<dyn Reranker> {
         match config.reranker_type {
-            crate::config::RerankerType::ScoreBased => {
-                Box::new(ScoreBasedReranker::new(embedder))
+            crate::config::RerankerType::ScoreBased => Box::new(ScoreBasedReranker::new(embedder)),
+            crate::config::RerankerType::LocalCrossEncoder => {
+                // Try to create local cross-encoder, fall back to score-based on failure
+                match super::cross_encoder::LocalCrossEncoderReranker::from_model_name(
+                    &config.model,
+                ) {
+                    Ok(reranker) => Box::new(reranker),
+                    Err(e) => {
+                        tracing::warn!(
+                            "Failed to create local cross-encoder reranker ({}), falling back to score-based: {}",
+                            config.model,
+                            e
+                        );
+                        Box::new(ScoreBasedReranker::new(embedder))
+                    }
+                }
             }
             crate::config::RerankerType::CrossEncoder => {
-                // Default cross-encoder API endpoint
-                Box::new(CrossEncoderReranker::new(
-                    "http://localhost:8080/rerank",
-                    None,
-                ))
+                // API-based cross-encoder
+                let api_url = config
+                    .api_url
+                    .clone()
+                    .unwrap_or_else(|| "http://localhost:8080/rerank".to_string());
+                let api_key = config
+                    .api_key
+                    .clone()
+                    .or_else(|| std::env::var("CROSS_ENCODER_API_KEY").ok());
+                Box::new(CrossEncoderReranker::new(api_url, api_key))
             }
             crate::config::RerankerType::Llm => {
                 // Default to OpenAI-compatible API
@@ -451,6 +478,42 @@ impl RerankerFactory {
                     "gpt-4o-mini",
                 ))
             }
+        }
+    }
+
+    /// Create a reranker with explicit error handling.
+    ///
+    /// Unlike `create`, this returns an error if the reranker cannot be initialized.
+    pub fn try_create(
+        config: &RerankerConfig,
+        embedder: Arc<dyn EmbeddingProvider>,
+    ) -> crate::error::Result<Box<dyn Reranker>> {
+        match config.reranker_type {
+            crate::config::RerankerType::ScoreBased => {
+                Ok(Box::new(ScoreBasedReranker::new(embedder)))
+            }
+            crate::config::RerankerType::LocalCrossEncoder => {
+                let reranker = super::cross_encoder::LocalCrossEncoderReranker::from_model_name(
+                    &config.model,
+                )?;
+                Ok(Box::new(reranker))
+            }
+            crate::config::RerankerType::CrossEncoder => {
+                let api_url = config
+                    .api_url
+                    .clone()
+                    .unwrap_or_else(|| "http://localhost:8080/rerank".to_string());
+                let api_key = config
+                    .api_key
+                    .clone()
+                    .or_else(|| std::env::var("CROSS_ENCODER_API_KEY").ok());
+                Ok(Box::new(CrossEncoderReranker::new(api_url, api_key)))
+            }
+            crate::config::RerankerType::Llm => Ok(Box::new(LlmReranker::new(
+                "https://api.openai.com/v1/chat/completions",
+                std::env::var("OPENAI_API_KEY").ok(),
+                "gpt-4o-mini",
+            ))),
         }
     }
 }

@@ -169,9 +169,10 @@ impl ApiEmbeddingProvider {
         let status = response.status();
 
         if status.is_success() {
-            let result: EmbeddingResponse = response.json().await.map_err(|e| {
-                EmbeddingError::Api(format!("Failed to parse response: {}", e))
-            })?;
+            let result: EmbeddingResponse = response
+                .json()
+                .await
+                .map_err(|e| EmbeddingError::Api(format!("Failed to parse response: {}", e)))?;
 
             // Sort by index to ensure correct order
             let mut embeddings: Vec<_> = result.data.into_iter().collect();
@@ -181,7 +182,10 @@ impl ApiEmbeddingProvider {
         } else if status.as_u16() == 429 {
             Err(EmbeddingError::RateLimited.into())
         } else {
-            let error_text = response.text().await.unwrap_or_else(|_| "Unknown error".to_string());
+            let error_text = response
+                .text()
+                .await
+                .unwrap_or_else(|_| "Unknown error".to_string());
 
             // Try to parse as OpenAI error format
             if let Ok(error_response) = serde_json::from_str::<ErrorResponse>(&error_text) {
@@ -226,10 +230,22 @@ mod tests {
 
     #[test]
     fn test_model_dimension() {
-        assert_eq!(ApiEmbeddingProvider::get_model_dimension("text-embedding-3-small"), 1536);
-        assert_eq!(ApiEmbeddingProvider::get_model_dimension("text-embedding-3-large"), 3072);
-        assert_eq!(ApiEmbeddingProvider::get_model_dimension("text-embedding-ada-002"), 1536);
-        assert_eq!(ApiEmbeddingProvider::get_model_dimension("unknown-model"), 1536);
+        assert_eq!(
+            ApiEmbeddingProvider::get_model_dimension("text-embedding-3-small"),
+            1536
+        );
+        assert_eq!(
+            ApiEmbeddingProvider::get_model_dimension("text-embedding-3-large"),
+            3072
+        );
+        assert_eq!(
+            ApiEmbeddingProvider::get_model_dimension("text-embedding-ada-002"),
+            1536
+        );
+        assert_eq!(
+            ApiEmbeddingProvider::get_model_dimension("unknown-model"),
+            1536
+        );
     }
 
     #[test]

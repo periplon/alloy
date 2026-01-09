@@ -18,9 +18,18 @@ fn create_test_config(data_dir: &std::path::Path) -> Config {
 /// Create test files in a directory.
 fn create_test_files(dir: &TempDir) -> Vec<std::path::PathBuf> {
     let files = vec![
-        ("doc1.txt", "This is a document about machine learning and neural networks."),
-        ("doc2.txt", "Natural language processing is a fascinating field of AI."),
-        ("doc3.md", "# Rust Programming\n\nRust is a systems programming language focused on safety."),
+        (
+            "doc1.txt",
+            "This is a document about machine learning and neural networks.",
+        ),
+        (
+            "doc2.txt",
+            "Natural language processing is a fascinating field of AI.",
+        ),
+        (
+            "doc3.md",
+            "# Rust Programming\n\nRust is a systems programming language focused on safety.",
+        ),
     ];
 
     let mut paths = Vec::new();
@@ -40,7 +49,10 @@ async fn test_coordinator_initialization() {
     let config = create_test_config(data_dir.path());
 
     let coordinator = IndexCoordinator::new(config).await;
-    assert!(coordinator.is_ok(), "Coordinator should initialize successfully");
+    assert!(
+        coordinator.is_ok(),
+        "Coordinator should initialize successfully"
+    );
 }
 
 #[tokio::test]
@@ -103,7 +115,10 @@ async fn test_search_indexed_documents() {
     assert!(results.is_ok(), "Search should succeed");
 
     let response = results.unwrap();
-    assert!(!response.results.is_empty(), "Should find at least one result");
+    assert!(
+        !response.results.is_empty(),
+        "Should find at least one result"
+    );
 
     // The first result should be doc1.txt which mentions machine learning
     let first_result = &response.results[0];
@@ -130,12 +145,7 @@ async fn test_list_sources() {
 
     // Index a directory
     coordinator
-        .index_local(
-            content_dir.path().to_path_buf(),
-            vec![],
-            vec![],
-            false,
-        )
+        .index_local(content_dir.path().to_path_buf(), vec![], vec![], false)
         .await
         .unwrap();
 
@@ -171,7 +181,10 @@ async fn test_get_document() {
 
     // Get stats to verify documents exist
     let stats = coordinator.stats().await.unwrap();
-    assert!(stats.document_count > 0, "Should have at least one document");
+    assert!(
+        stats.document_count > 0,
+        "Should have at least one document"
+    );
 }
 
 #[tokio::test]
@@ -187,23 +200,24 @@ async fn test_storage_stats() {
 
     // Check initial stats
     let initial_stats = coordinator.stats().await.unwrap();
-    assert_eq!(initial_stats.document_count, 0, "Should start with 0 documents");
+    assert_eq!(
+        initial_stats.document_count, 0,
+        "Should start with 0 documents"
+    );
     assert_eq!(initial_stats.chunk_count, 0, "Should start with 0 chunks");
 
     // Index files
     coordinator
-        .index_local(
-            content_dir.path().to_path_buf(),
-            vec![],
-            vec![],
-            false,
-        )
+        .index_local(content_dir.path().to_path_buf(), vec![], vec![], false)
         .await
         .unwrap();
 
     // Check updated stats
     let stats = coordinator.stats().await.unwrap();
-    assert!(stats.document_count > 0, "Should have documents after indexing");
+    assert!(
+        stats.document_count > 0,
+        "Should have documents after indexing"
+    );
     assert!(stats.chunk_count > 0, "Should have chunks after indexing");
 }
 
@@ -226,19 +240,14 @@ async fn test_hybrid_search_weights() {
     let coordinator = IndexCoordinator::new(config).await.unwrap();
 
     coordinator
-        .index_local(
-            content_dir.path().to_path_buf(),
-            vec![],
-            vec![],
-            false,
-        )
+        .index_local(content_dir.path().to_path_buf(), vec![], vec![], false)
         .await
         .unwrap();
 
     // Test with high text weight (keyword focused)
     let keyword_query = HybridQuery::new("exact keyword match")
         .limit(5)
-        .vector_weight(0.1);  // Low vector weight = high text weight
+        .vector_weight(0.1); // Low vector weight = high text weight
 
     let keyword_results = coordinator.search(keyword_query).await.unwrap();
     assert!(!keyword_results.results.is_empty());
@@ -246,7 +255,7 @@ async fn test_hybrid_search_weights() {
     // Test with high vector weight (semantic focused)
     let semantic_query = HybridQuery::new("precise correspondence")
         .limit(5)
-        .vector_weight(0.9);  // High vector weight
+        .vector_weight(0.9); // High vector weight
 
     let semantic_results = coordinator.search(semantic_query).await.unwrap();
     assert!(!semantic_results.results.is_empty());

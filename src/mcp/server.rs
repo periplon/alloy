@@ -5,14 +5,9 @@ use std::sync::Arc;
 use std::time::Instant;
 
 use rmcp::{
-    ErrorData as McpError, ServerHandler,
-    handler::server::{
-        router::tool::ToolRouter,
-        wrapper::Parameters,
-    },
+    handler::server::{router::tool::ToolRouter, wrapper::Parameters},
     model::*,
-    schemars,
-    tool, tool_handler, tool_router,
+    schemars, tool, tool_handler, tool_router, ErrorData as McpError, ServerHandler,
 };
 use serde::{Deserialize, Serialize};
 use tokio::sync::RwLock;
@@ -74,7 +69,12 @@ impl AlloyServer {
         if state.coordinator.is_none() {
             let coordinator = IndexCoordinator::new(state.config.clone())
                 .await
-                .map_err(|e| McpError::internal_error(format!("Failed to initialize coordinator: {}", e), None))?;
+                .map_err(|e| {
+                    McpError::internal_error(
+                        format!("Failed to initialize coordinator: {}", e),
+                        None,
+                    )
+                })?;
             state.coordinator = Some(coordinator);
         }
         Ok(())
@@ -140,7 +140,9 @@ pub struct ConfigureParams {
 #[tool_router]
 impl AlloyServer {
     /// Index a local path or S3 URI for hybrid search. Supports glob patterns and optional file watching.
-    #[tool(description = "Index a local path or S3 URI for hybrid search. Supports glob patterns and optional file watching.")]
+    #[tool(
+        description = "Index a local path or S3 URI for hybrid search. Supports glob patterns and optional file watching."
+    )]
     async fn index_path(
         &self,
         Parameters(params): Parameters<IndexPathParams>,
@@ -149,9 +151,7 @@ impl AlloyServer {
         self.ensure_coordinator().await?;
 
         let watch = params.watch.unwrap_or(false);
-        let patterns = params.pattern
-            .map(|p| vec![p])
-            .unwrap_or_default();
+        let patterns = params.pattern.map(|p| vec![p]).unwrap_or_default();
 
         // Get coordinator and perform indexing
         let state = self.state.read().await;
@@ -162,12 +162,14 @@ impl AlloyServer {
             let (bucket, prefix) = parse_s3_uri(&params.path)
                 .map_err(|e| McpError::invalid_params(e.to_string(), None))?;
 
-            coordinator.index_s3(
-                bucket,
-                Some(prefix),
-                patterns,
-                None, // Use default region
-            ).await
+            coordinator
+                .index_s3(
+                    bucket,
+                    Some(prefix),
+                    patterns,
+                    None, // Use default region
+                )
+                .await
         } else {
             // Local path
             let path = PathBuf::from(&params.path);
@@ -178,12 +180,14 @@ impl AlloyServer {
                 ));
             }
 
-            coordinator.index_local(
-                path,
-                patterns,
-                vec![], // Use default exclude patterns
-                watch,
-            ).await
+            coordinator
+                .index_local(
+                    path,
+                    patterns,
+                    vec![], // Use default exclude patterns
+                    watch,
+                )
+                .await
         };
 
         match result {
@@ -195,8 +199,7 @@ impl AlloyServer {
                     watching: source.watching,
                     message: format!(
                         "Successfully indexed {} documents from {}",
-                        source.document_count,
-                        params.path
+                        source.document_count, params.path
                     ),
                 };
 
@@ -204,16 +207,17 @@ impl AlloyServer {
                     serde_json::to_string_pretty(&response).unwrap(),
                 )]))
             }
-            Err(e) => {
-                Ok(CallToolResult::success(vec![Content::text(
-                    format!("Failed to index path: {}", e),
-                )]))
-            }
+            Err(e) => Ok(CallToolResult::success(vec![Content::text(format!(
+                "Failed to index path: {}",
+                e
+            ))])),
         }
     }
 
     /// Search indexed documents using hybrid search combining vector similarity and full-text matching.
-    #[tool(description = "Search indexed documents using hybrid search combining vector similarity and full-text matching.")]
+    #[tool(
+        description = "Search indexed documents using hybrid search combining vector similarity and full-text matching."
+    )]
     async fn search(
         &self,
         Parameters(params): Parameters<SearchParams>,
@@ -240,26 +244,32 @@ impl AlloyServer {
         let start_time = Instant::now();
         match coordinator.search(query).await {
             Ok(response) => {
-                let results: Vec<SearchResult> = response.results.iter().map(|r| {
-                    SearchResult {
-                        document_id: r.document_id.clone(),
-                        chunk_id: r.chunk_id.clone(),
-                        source_id: String::new(), // Not available in search result
-                        path: r.path.clone().unwrap_or_default(),
-                        content: r.text.clone(),
-                        score: r.score,
-                        highlights: r.highlights.iter()
-                            .map(|(start, end)| {
-                                if *end <= r.text.len() {
-                                    r.text[*start..*end].to_string()
-                                } else {
-                                    String::new()
-                                }
-                            })
-                            .collect(),
-                        metadata: serde_json::json!({}),
-                    }
-                }).collect();
+                let results: Vec<SearchResult> = response
+                    .results
+                    .iter()
+                    .map(|r| {
+                        SearchResult {
+                            document_id: r.document_id.clone(),
+                            chunk_id: r.chunk_id.clone(),
+                            source_id: String::new(), // Not available in search result
+                            path: r.path.clone().unwrap_or_default(),
+                            content: r.text.clone(),
+                            score: r.score,
+                            highlights: r
+                                .highlights
+                                .iter()
+                                .map(|(start, end)| {
+                                    if *end <= r.text.len() {
+                                        r.text[*start..*end].to_string()
+                                    } else {
+                                        String::new()
+                                    }
+                                })
+                                .collect(),
+                            metadata: serde_json::json!({}),
+                        }
+                    })
+                    .collect();
 
                 let search_response = SearchResponse {
                     results,
@@ -273,7 +283,10 @@ impl AlloyServer {
                         params.query,
                         vector_weight,
                         limit,
-                        params.source_id.map(|s| format!(", source: {}", s)).unwrap_or_default()
+                        params
+                            .source_id
+                            .map(|s| format!(", source: {}", s))
+                            .unwrap_or_default()
                     )
                 } else {
                     serde_json::to_string_pretty(&search_response).unwrap()
@@ -281,11 +294,10 @@ impl AlloyServer {
 
                 Ok(CallToolResult::success(vec![Content::text(message)]))
             }
-            Err(e) => {
-                Ok(CallToolResult::success(vec![Content::text(
-                    format!("Search failed: {}", e),
-                )]))
-            }
+            Err(e) => Ok(CallToolResult::success(vec![Content::text(format!(
+                "Search failed: {}",
+                e
+            ))])),
         }
     }
 
@@ -312,7 +324,11 @@ impl AlloyServer {
                     mime_type: doc.mime_type.clone(),
                     size_bytes: doc.size,
                     chunk_count: 0, // Not tracked per-document currently
-                    content: if include_content { Some(doc.content.clone()) } else { None },
+                    content: if include_content {
+                        Some(doc.content.clone())
+                    } else {
+                        None
+                    },
                     modified_at: doc.modified_at,
                     indexed_at: doc.indexed_at,
                     metadata: doc.metadata.clone(),
@@ -322,16 +338,14 @@ impl AlloyServer {
                     serde_json::to_string_pretty(&response).unwrap(),
                 )]))
             }
-            Ok(None) => {
-                Ok(CallToolResult::success(vec![Content::text(
-                    format!("Document not found: {}", params.document_id),
-                )]))
-            }
-            Err(e) => {
-                Ok(CallToolResult::success(vec![Content::text(
-                    format!("Error retrieving document: {}", e),
-                )]))
-            }
+            Ok(None) => Ok(CallToolResult::success(vec![Content::text(format!(
+                "Document not found: {}",
+                params.document_id
+            ))])),
+            Err(e) => Ok(CallToolResult::success(vec![Content::text(format!(
+                "Error retrieving document: {}",
+                e
+            ))])),
         }
     }
 
@@ -346,8 +360,9 @@ impl AlloyServer {
 
         let sources = coordinator.list_sources().await;
 
-        let source_infos: Vec<SourceInfo> = sources.iter().map(|s| {
-            SourceInfo {
+        let source_infos: Vec<SourceInfo> = sources
+            .iter()
+            .map(|s| SourceInfo {
                 source_id: s.id.clone(),
                 source_type: s.source_type.clone(),
                 path: s.path.clone(),
@@ -355,8 +370,8 @@ impl AlloyServer {
                 watching: s.watching,
                 last_scan: s.last_scan,
                 status: "indexed".to_string(),
-            }
-        }).collect();
+            })
+            .collect();
 
         let response = ListSourcesResponse {
             sources: source_infos,
@@ -389,7 +404,10 @@ impl AlloyServer {
                     success: docs_removed > 0,
                     documents_removed: docs_removed,
                     message: if docs_removed > 0 {
-                        format!("Removed source {} with {} documents", params.source_id, docs_removed)
+                        format!(
+                            "Removed source {} with {} documents",
+                            params.source_id, docs_removed
+                        )
                     } else {
                         format!("Source not found: {}", params.source_id)
                     },
@@ -399,16 +417,17 @@ impl AlloyServer {
                     serde_json::to_string_pretty(&response).unwrap(),
                 )]))
             }
-            Err(e) => {
-                Ok(CallToolResult::success(vec![Content::text(
-                    format!("Error removing source: {}", e),
-                )]))
-            }
+            Err(e) => Ok(CallToolResult::success(vec![Content::text(format!(
+                "Error removing source: {}",
+                e
+            ))])),
         }
     }
 
     /// Get statistics about the index including document count, storage size, and configuration.
-    #[tool(description = "Get statistics about the index including document count, storage size, and configuration.")]
+    #[tool(
+        description = "Get statistics about the index including document count, storage size, and configuration."
+    )]
     async fn get_stats(&self) -> Result<CallToolResult, McpError> {
         // Ensure coordinator is initialized
         self.ensure_coordinator().await?;
@@ -416,7 +435,9 @@ impl AlloyServer {
         let state = self.state.read().await;
         let coordinator = state.coordinator.as_ref().unwrap();
 
-        let storage_stats = coordinator.stats().await
+        let storage_stats = coordinator
+            .stats()
+            .await
             .map_err(|e| McpError::internal_error(format!("Failed to get stats: {}", e), None))?;
 
         let sources = coordinator.list_sources().await;
@@ -479,15 +500,14 @@ impl ServerHandler for AlloyServer {
     fn get_info(&self) -> ServerInfo {
         ServerInfo {
             protocol_version: ProtocolVersion::LATEST,
-            capabilities: ServerCapabilities::builder()
-                .enable_tools()
-                .build(),
+            capabilities: ServerCapabilities::builder().enable_tools().build(),
             server_info: Implementation::from_build_env(),
             instructions: Some(
                 "Alloy is a hybrid document indexing MCP server. \
                  It indexes local files and S3 objects for semantic and full-text search. \
                  Use 'index_path' to add sources, 'search' to find documents, \
-                 and 'get_stats' to see index information.".to_string()
+                 and 'get_stats' to see index information."
+                    .to_string(),
             ),
         }
     }

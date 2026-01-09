@@ -53,9 +53,8 @@ impl Default for ImageProcessor {
 impl Processor for ImageProcessor {
     async fn process(&self, content: Bytes, item: &SourceItem) -> Result<ProcessedContent> {
         // Load and analyze the image
-        let img = image::load_from_memory(&content).map_err(|e| {
-            ProcessingError::Extraction(format!("Failed to load image: {}", e))
-        })?;
+        let img = image::load_from_memory(&content)
+            .map_err(|e| ProcessingError::Extraction(format!("Failed to load image: {}", e)))?;
 
         let (width, height) = img.dimensions();
 
@@ -174,9 +173,7 @@ async fn perform_ocr(content: &Bytes) -> Result<String> {
     let _ = std::fs::remove_file(&temp_file);
 
     match output {
-        Ok(out) if out.status.success() => {
-            Ok(String::from_utf8_lossy(&out.stdout).to_string())
-        }
+        Ok(out) if out.status.success() => Ok(String::from_utf8_lossy(&out.stdout).to_string()),
         Ok(out) => {
             let stderr = String::from_utf8_lossy(&out.stderr);
             Err(ProcessingError::Ocr(format!("Tesseract failed: {}", stderr)).into())
@@ -186,9 +183,7 @@ async fn perform_ocr(content: &Bytes) -> Result<String> {
             debug!("Tesseract not found, skipping OCR");
             Ok(String::new())
         }
-        Err(e) => {
-            Err(ProcessingError::Ocr(format!("Failed to run tesseract: {}", e)).into())
-        }
+        Err(e) => Err(ProcessingError::Ocr(format!("Failed to run tesseract: {}", e)).into()),
     }
 }
 
@@ -212,8 +207,7 @@ impl VisionApiClient {
         let base_url = std::env::var("VISION_API_BASE_URL")
             .unwrap_or_else(|_| "https://api.openai.com/v1".to_string());
 
-        let model = std::env::var("VISION_API_MODEL")
-            .unwrap_or_else(|_| "gpt-4o-mini".to_string());
+        let model = std::env::var("VISION_API_MODEL").unwrap_or_else(|_| "gpt-4o-mini".to_string());
 
         Ok(Self {
             client: reqwest::Client::new(),
@@ -268,7 +262,9 @@ impl VisionApiClient {
             .json(&request_body)
             .send()
             .await
-            .map_err(|e| ProcessingError::Extraction(format!("Vision API request failed: {}", e)))?;
+            .map_err(|e| {
+                ProcessingError::Extraction(format!("Vision API request failed: {}", e))
+            })?;
 
         if !response.status().is_success() {
             let status = response.status();
@@ -296,6 +292,7 @@ impl VisionApiClient {
 
 /// CLIP embedding support for images.
 /// This is a placeholder for fastembed CLIP integration.
+#[derive(Default)]
 pub struct ClipEmbedder {
     // Will be populated when fastembed is added
 }
@@ -318,12 +315,6 @@ impl ClipEmbedder {
     pub fn dimension(&self) -> usize {
         // CLIP ViT-B/32 dimension
         512
-    }
-}
-
-impl Default for ClipEmbedder {
-    fn default() -> Self {
-        Self {}
     }
 }
 

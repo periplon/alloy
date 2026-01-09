@@ -158,7 +158,9 @@ impl DocumentClusterer for KMeansClusterer {
         // Determine number of clusters
         let num_clusters = if config.default_num_clusters == 0 {
             // Auto-detect: sqrt(n/2) heuristic
-            ((num_docs as f64 / 2.0).sqrt().ceil() as usize).max(2).min(num_docs)
+            ((num_docs as f64 / 2.0).sqrt().ceil() as usize)
+                .max(2)
+                .min(num_docs)
         } else {
             config.default_num_clusters.min(num_docs)
         };
@@ -205,7 +207,10 @@ impl DocumentClusterer for KMeansClusterer {
             // Extract keywords from document texts
             let keywords = if config.generate_labels {
                 extract_keywords(
-                    &docs.iter().filter_map(|(_, t)| t.clone()).collect::<Vec<_>>(),
+                    &docs
+                        .iter()
+                        .filter_map(|(_, t)| t.clone())
+                        .collect::<Vec<_>>(),
                     config.max_keywords,
                 )
             } else {
@@ -364,12 +369,18 @@ impl DocumentClusterer for DbscanClusterer {
 
         for (cluster_id, docs) in &cluster_docs {
             // Compute centroid for this cluster
-            let centroid = compute_centroid(&docs.iter().map(|(id, _)| id.as_str()).collect::<Vec<_>>(), &inputs);
+            let centroid = compute_centroid(
+                &docs.iter().map(|(id, _)| id.as_str()).collect::<Vec<_>>(),
+                &inputs,
+            );
 
             // Extract keywords
             let keywords = if config.generate_labels {
                 extract_keywords(
-                    &docs.iter().filter_map(|(_, t)| t.clone()).collect::<Vec<_>>(),
+                    &docs
+                        .iter()
+                        .filter_map(|(_, t)| t.clone())
+                        .collect::<Vec<_>>(),
                     config.max_keywords,
                 )
             } else {
@@ -538,13 +549,13 @@ fn extract_keywords(texts: &[String], max_keywords: usize) -> Vec<String> {
 
     // Common English stopwords
     let stopwords: HashSet<&str> = [
-        "the", "a", "an", "and", "or", "but", "in", "on", "at", "to", "for", "of", "with",
-        "by", "from", "is", "are", "was", "were", "be", "been", "being", "have", "has",
-        "had", "do", "does", "did", "will", "would", "could", "should", "may", "might",
-        "must", "shall", "can", "this", "that", "these", "those", "it", "its", "as",
-        "if", "then", "else", "when", "where", "why", "how", "all", "each", "every",
-        "both", "few", "more", "most", "other", "some", "such", "no", "nor", "not",
-        "only", "own", "same", "so", "than", "too", "very", "just", "also",
+        "the", "a", "an", "and", "or", "but", "in", "on", "at", "to", "for", "of", "with", "by",
+        "from", "is", "are", "was", "were", "be", "been", "being", "have", "has", "had", "do",
+        "does", "did", "will", "would", "could", "should", "may", "might", "must", "shall", "can",
+        "this", "that", "these", "those", "it", "its", "as", "if", "then", "else", "when", "where",
+        "why", "how", "all", "each", "every", "both", "few", "more", "most", "other", "some",
+        "such", "no", "nor", "not", "only", "own", "same", "so", "than", "too", "very", "just",
+        "also",
     ]
     .iter()
     .copied()
@@ -689,7 +700,11 @@ fn cosine_similarity(a: &[f32], b: &[f32]) -> f64 {
         return 0.0;
     }
 
-    let dot: f64 = a.iter().zip(b.iter()).map(|(x, y)| (*x as f64) * (*y as f64)).sum();
+    let dot: f64 = a
+        .iter()
+        .zip(b.iter())
+        .map(|(x, y)| (*x as f64) * (*y as f64))
+        .sum();
     let norm_a: f64 = a.iter().map(|x| (*x as f64).powi(2)).sum::<f64>().sqrt();
     let norm_b: f64 = b.iter().map(|x| (*x as f64).powi(2)).sum::<f64>().sqrt();
 
@@ -720,7 +735,12 @@ fn compute_silhouette_score(data: &Array2<f64>, labels: &[usize], num_clusters: 
         for (j, &other_label) in labels.iter().enumerate() {
             if i != j && other_label == label {
                 let other = data.row(j);
-                let dist: f64 = point.iter().zip(other.iter()).map(|(a, b)| (a - b).powi(2)).sum::<f64>().sqrt();
+                let dist: f64 = point
+                    .iter()
+                    .zip(other.iter())
+                    .map(|(a, b)| (a - b).powi(2))
+                    .sum::<f64>()
+                    .sqrt();
                 same_cluster_sum += dist;
                 same_cluster_count += 1;
             }
@@ -746,7 +766,12 @@ fn compute_silhouette_score(data: &Array2<f64>, labels: &[usize], num_clusters: 
             for (j, &other_label) in labels.iter().enumerate() {
                 if other_label == other_cluster {
                     let other = data.row(j);
-                    let dist: f64 = point.iter().zip(other.iter()).map(|(a, b)| (a - b).powi(2)).sum::<f64>().sqrt();
+                    let dist: f64 = point
+                        .iter()
+                        .zip(other.iter())
+                        .map(|(a, b)| (a - b).powi(2))
+                        .sum::<f64>()
+                        .sqrt();
                     other_sum += dist;
                     other_count += 1;
                 }
@@ -807,7 +832,10 @@ mod tests {
 
         // "database" and "connection" should appear
         let keyword_set: std::collections::HashSet<_> = keywords.iter().collect();
-        assert!(keyword_set.contains(&"database".to_string()) || keyword_set.contains(&"connection".to_string()));
+        assert!(
+            keyword_set.contains(&"database".to_string())
+                || keyword_set.contains(&"connection".to_string())
+        );
     }
 
     #[test]

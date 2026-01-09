@@ -59,8 +59,8 @@ impl S3Source {
         );
 
         // Build AWS SDK config
-        let mut aws_config_builder =
-            aws_config::defaults(BehaviorVersion::latest()).credentials_provider(
+        let mut aws_config_builder = aws_config::defaults(BehaviorVersion::latest())
+            .credentials_provider(
                 aws_config::default_provider::credentials::DefaultCredentialsChain::builder()
                     .build()
                     .await,
@@ -212,9 +212,7 @@ impl S3Source {
                 let size = object.size().unwrap_or(0) as u64;
                 let last_modified = object
                     .last_modified()
-                    .and_then(|dt| {
-                        DateTime::from_timestamp(dt.secs(), dt.subsec_nanos())
-                    })
+                    .and_then(|dt| DateTime::from_timestamp(dt.secs(), dt.subsec_nanos()))
                     .unwrap_or_else(Utc::now);
                 let etag = object.e_tag().map(String::from);
 
@@ -233,9 +231,7 @@ impl S3Source {
 
                 if let Some(prev) = previous_states.get(key) {
                     // Check if modified (different size, time, or etag)
-                    if prev.size != size
-                        || prev.last_modified != last_modified
-                        || prev.etag != etag
+                    if prev.size != size || prev.last_modified != last_modified || prev.etag != etag
                     {
                         let item = SourceItem::from_s3_object(
                             bucket,
@@ -342,18 +338,11 @@ impl S3Source {
                 let size = object.size().unwrap_or(0) as u64;
                 let last_modified = object
                     .last_modified()
-                    .and_then(|dt| {
-                        DateTime::from_timestamp(dt.secs(), dt.subsec_nanos())
-                    });
+                    .and_then(|dt| DateTime::from_timestamp(dt.secs(), dt.subsec_nanos()));
                 let etag = object.e_tag();
 
-                let item = SourceItem::from_s3_object(
-                    &self.config.bucket,
-                    key,
-                    size,
-                    last_modified,
-                    etag,
-                );
+                let item =
+                    SourceItem::from_s3_object(&self.config.bucket, key, size, last_modified, etag);
 
                 debug!("Found S3 object: {}", item.uri);
                 items.push(item);
@@ -544,13 +533,28 @@ mod tests {
 
     #[test]
     fn test_s3_pattern_matching() {
-        let include = vec![Pattern::new("*.pdf").unwrap(), Pattern::new("docs/*").unwrap()];
+        let include = vec![
+            Pattern::new("*.pdf").unwrap(),
+            Pattern::new("docs/*").unwrap(),
+        ];
         let exclude = vec![Pattern::new("*.tmp").unwrap()];
 
-        assert!(S3Source::matches_patterns("document.pdf", &include, &exclude));
-        assert!(S3Source::matches_patterns("docs/readme.md", &include, &exclude));
+        assert!(S3Source::matches_patterns(
+            "document.pdf",
+            &include,
+            &exclude
+        ));
+        assert!(S3Source::matches_patterns(
+            "docs/readme.md",
+            &include,
+            &exclude
+        ));
         assert!(!S3Source::matches_patterns("image.png", &include, &exclude));
-        assert!(!S3Source::matches_patterns("document.pdf.tmp", &include, &exclude));
+        assert!(!S3Source::matches_patterns(
+            "document.pdf.tmp",
+            &include,
+            &exclude
+        ));
     }
 
     #[test]
@@ -559,7 +563,11 @@ mod tests {
         let exclude = vec![Pattern::new("*.tmp").unwrap()];
 
         // With empty include, everything is included except excludes
-        assert!(S3Source::matches_patterns("anything.txt", &include, &exclude));
+        assert!(S3Source::matches_patterns(
+            "anything.txt",
+            &include,
+            &exclude
+        ));
         assert!(!S3Source::matches_patterns("file.tmp", &include, &exclude));
     }
 

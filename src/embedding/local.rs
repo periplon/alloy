@@ -165,7 +165,7 @@ impl EmbeddingProvider for LocalEmbeddingProvider {
         for img_bytes in images {
             // Detect image format from magic bytes
             let extension = detect_image_format(img_bytes).unwrap_or("png");
-            let temp_file = NamedTempFile::with_suffix(&format!(".{}", extension))
+            let temp_file = NamedTempFile::with_suffix(format!(".{}", extension))
                 .map_err(|e| EmbeddingError::Api(format!("Failed to create temp file: {}", e)))?;
 
             std::fs::write(temp_file.path(), img_bytes)

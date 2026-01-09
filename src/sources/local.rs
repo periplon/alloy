@@ -113,8 +113,8 @@ impl LocalSource {
         let exclude_patterns = self.exclude_patterns.clone();
         let follow_symlinks = self.config.follow_symlinks;
 
-        let watcher = notify::recommended_watcher(move |res: std::result::Result<Event, _>| {
-            match res {
+        let watcher =
+            notify::recommended_watcher(move |res: std::result::Result<Event, _>| match res {
                 Ok(event) => {
                     Self::handle_notify_event(
                         &event,
@@ -128,9 +128,8 @@ impl LocalSource {
                 Err(e) => {
                     error!("Watch error: {:?}", e);
                 }
-            }
-        })
-        .map_err(|e| SourceError::Watch(e.to_string()))?;
+            })
+            .map_err(|e| SourceError::Watch(e.to_string()))?;
 
         Ok(watcher)
     }
@@ -531,9 +530,21 @@ mod tests {
         let include = vec![Pattern::new("**/*.rs").unwrap()];
         let exclude = vec![Pattern::new("**/target/**").unwrap()];
 
-        assert!(LocalSource::matches_patterns("src/main.rs", &include, &exclude));
-        assert!(!LocalSource::matches_patterns("target/debug/main.rs", &include, &exclude));
-        assert!(!LocalSource::matches_patterns("src/main.txt", &include, &exclude));
+        assert!(LocalSource::matches_patterns(
+            "src/main.rs",
+            &include,
+            &exclude
+        ));
+        assert!(!LocalSource::matches_patterns(
+            "target/debug/main.rs",
+            &include,
+            &exclude
+        ));
+        assert!(!LocalSource::matches_patterns(
+            "src/main.txt",
+            &include,
+            &exclude
+        ));
     }
 
     #[tokio::test]
@@ -567,10 +578,7 @@ mod tests {
                 "**/*.txt".to_string(),
                 "*.json".to_string(),
             ],
-            exclude_patterns: vec![
-                "**/node_modules/**".to_string(),
-                "**/.git/**".to_string(),
-            ],
+            exclude_patterns: vec!["**/node_modules/**".to_string(), "**/.git/**".to_string()],
             watch: false,
             follow_symlinks: false,
         };

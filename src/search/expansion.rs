@@ -222,11 +222,13 @@ impl QueryExpander for EmbeddingExpander {
         }
 
         // Sort by similarity and take top expansions
-        candidates.sort_by(|a, b| b.score.partial_cmp(&a.score).unwrap_or(std::cmp::Ordering::Equal));
-        let expansions: Vec<ExpansionTerm> = candidates
-            .into_iter()
-            .take(config.max_expansions)
-            .collect();
+        candidates.sort_by(|a, b| {
+            b.score
+                .partial_cmp(&a.score)
+                .unwrap_or(std::cmp::Ordering::Equal)
+        });
+        let expansions: Vec<ExpansionTerm> =
+            candidates.into_iter().take(config.max_expansions).collect();
 
         Ok(ExpandedQuery::with_expansions(query, expansions))
     }
@@ -266,16 +268,52 @@ impl SynonymExpander {
         let mut map = HashMap::new();
 
         // Common technical synonyms
-        map.insert("error".into(), vec!["exception".into(), "failure".into(), "fault".into()]);
-        map.insert("create".into(), vec!["make".into(), "new".into(), "add".into(), "generate".into()]);
-        map.insert("delete".into(), vec!["remove".into(), "drop".into(), "erase".into()]);
-        map.insert("update".into(), vec!["modify".into(), "change".into(), "edit".into()]);
-        map.insert("find".into(), vec!["search".into(), "lookup".into(), "locate".into(), "query".into()]);
-        map.insert("config".into(), vec!["configuration".into(), "settings".into(), "options".into()]);
-        map.insert("auth".into(), vec!["authentication".into(), "authorization".into(), "login".into()]);
-        map.insert("api".into(), vec!["endpoint".into(), "service".into(), "interface".into()]);
+        map.insert(
+            "error".into(),
+            vec!["exception".into(), "failure".into(), "fault".into()],
+        );
+        map.insert(
+            "create".into(),
+            vec!["make".into(), "new".into(), "add".into(), "generate".into()],
+        );
+        map.insert(
+            "delete".into(),
+            vec!["remove".into(), "drop".into(), "erase".into()],
+        );
+        map.insert(
+            "update".into(),
+            vec!["modify".into(), "change".into(), "edit".into()],
+        );
+        map.insert(
+            "find".into(),
+            vec![
+                "search".into(),
+                "lookup".into(),
+                "locate".into(),
+                "query".into(),
+            ],
+        );
+        map.insert(
+            "config".into(),
+            vec!["configuration".into(), "settings".into(), "options".into()],
+        );
+        map.insert(
+            "auth".into(),
+            vec![
+                "authentication".into(),
+                "authorization".into(),
+                "login".into(),
+            ],
+        );
+        map.insert(
+            "api".into(),
+            vec!["endpoint".into(), "service".into(), "interface".into()],
+        );
         map.insert("db".into(), vec!["database".into(), "storage".into()]);
-        map.insert("async".into(), vec!["asynchronous".into(), "concurrent".into()]);
+        map.insert(
+            "async".into(),
+            vec!["asynchronous".into(), "concurrent".into()],
+        );
         map.insert("sync".into(), vec!["synchronous".into(), "blocking".into()]);
 
         map
@@ -398,7 +436,11 @@ impl QueryExpander for HybridExpander {
         }
 
         // Sort by score
-        all_terms.sort_by(|a, b| b.score.partial_cmp(&a.score).unwrap_or(std::cmp::Ordering::Equal));
+        all_terms.sort_by(|a, b| {
+            b.score
+                .partial_cmp(&a.score)
+                .unwrap_or(std::cmp::Ordering::Equal)
+        });
         all_terms.truncate(config.max_expansions);
 
         Ok(ExpandedQuery::with_expansions(query, all_terms))
@@ -424,10 +466,8 @@ impl PseudoRelevanceFeedbackExpander {
 
     /// Extract expansion terms from result texts.
     pub fn extract_terms(&self, texts: &[String], query: &str) -> Vec<ExpansionTerm> {
-        let query_terms: HashSet<String> = query
-            .split_whitespace()
-            .map(|s| s.to_lowercase())
-            .collect();
+        let query_terms: HashSet<String> =
+            query.split_whitespace().map(|s| s.to_lowercase()).collect();
 
         // Count term frequencies across results
         let mut term_freq: HashMap<String, usize> = HashMap::new();
@@ -458,7 +498,11 @@ impl PseudoRelevanceFeedbackExpander {
             })
             .collect();
 
-        terms.sort_by(|a, b| b.score.partial_cmp(&a.score).unwrap_or(std::cmp::Ordering::Equal));
+        terms.sort_by(|a, b| {
+            b.score
+                .partial_cmp(&a.score)
+                .unwrap_or(std::cmp::Ordering::Equal)
+        });
         terms
     }
 }
@@ -476,12 +520,8 @@ impl QueryExpanderFactory {
             crate::config::QueryExpansionMethod::Embedding => {
                 Box::new(EmbeddingExpander::new(embedder))
             }
-            crate::config::QueryExpansionMethod::Synonym => {
-                Box::new(SynonymExpander::new())
-            }
-            crate::config::QueryExpansionMethod::Hybrid => {
-                Box::new(HybridExpander::new(embedder))
-            }
+            crate::config::QueryExpansionMethod::Synonym => Box::new(SynonymExpander::new()),
+            crate::config::QueryExpansionMethod::Hybrid => Box::new(HybridExpander::new(embedder)),
         }
     }
 }

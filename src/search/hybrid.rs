@@ -416,7 +416,7 @@ impl HybridSearcher for HybridSearchOrchestrator {
                     score: r.score,
                     vector_score: r.vector_score,
                     text_score: r.text_score,
-                    path: None,     // Would need to fetch from document
+                    path: None,      // Would need to fetch from document
                     mime_type: None, // Would need to fetch from document
                     highlights,
                 }
@@ -554,15 +554,19 @@ impl HybridSearchBuilder {
 
     /// Build the orchestrator.
     pub fn build(self) -> Result<HybridSearchOrchestrator> {
-        let storage = self.storage.ok_or_else(|| {
-            SearchError::InvalidQuery("Storage backend required".to_string())
-        })?;
+        let storage = self
+            .storage
+            .ok_or_else(|| SearchError::InvalidQuery("Storage backend required".to_string()))?;
 
-        let embedder = self.embedder.ok_or_else(|| {
-            SearchError::InvalidQuery("Embedding provider required".to_string())
-        })?;
+        let embedder = self
+            .embedder
+            .ok_or_else(|| SearchError::InvalidQuery("Embedding provider required".to_string()))?;
 
-        Ok(HybridSearchOrchestrator::new(storage, embedder, self.config))
+        Ok(HybridSearchOrchestrator::new(
+            storage,
+            embedder,
+            self.config,
+        ))
     }
 }
 
@@ -595,7 +599,10 @@ impl EnhancedHybridSearchOrchestrator {
 
         // Create expander if enabled
         let expander: Option<Box<dyn QueryExpander>> = if search_config.expansion.enabled {
-            Some(QueryExpanderFactory::create(&search_config.expansion, embedder.clone()))
+            Some(QueryExpanderFactory::create(
+                &search_config.expansion,
+                embedder.clone(),
+            ))
         } else {
             None
         };
@@ -652,7 +659,9 @@ impl HybridSearcher for EnhancedHybridSearchOrchestrator {
         // Step 1: Query expansion (if enabled)
         let expansion_start = std::time::Instant::now();
         let expanded = if let Some(ref expander) = self.expander {
-            expander.expand(&query.text, &self.search_config.expansion).await?
+            expander
+                .expand(&query.text, &self.search_config.expansion)
+                .await?
         } else {
             ExpandedQuery::unchanged(&query.text)
         };
@@ -678,11 +687,13 @@ impl HybridSearcher for EnhancedHybridSearchOrchestrator {
         // Step 3: Reranking (if enabled)
         let reranking_start = std::time::Instant::now();
         let reranked = if let Some(ref reranker) = self.reranker {
-            let reranked_results = reranker.rerank(
-                &query.text, // Use original query for reranking
-                response.results,
-                &self.search_config.reranking,
-            ).await?;
+            let reranked_results = reranker
+                .rerank(
+                    &query.text, // Use original query for reranking
+                    response.results,
+                    &self.search_config.reranking,
+                )
+                .await?;
             response.results = reranked_results;
             true
         } else {
@@ -776,13 +787,13 @@ impl EnhancedHybridSearchBuilder {
 
     /// Build the enhanced orchestrator.
     pub fn build(self) -> Result<EnhancedHybridSearchOrchestrator> {
-        let storage = self.storage.ok_or_else(|| {
-            SearchError::InvalidQuery("Storage backend required".to_string())
-        })?;
+        let storage = self
+            .storage
+            .ok_or_else(|| SearchError::InvalidQuery("Storage backend required".to_string()))?;
 
-        let embedder = self.embedder.ok_or_else(|| {
-            SearchError::InvalidQuery("Embedding provider required".to_string())
-        })?;
+        let embedder = self
+            .embedder
+            .ok_or_else(|| SearchError::InvalidQuery("Embedding provider required".to_string()))?;
 
         Ok(EnhancedHybridSearchOrchestrator::new(
             storage,

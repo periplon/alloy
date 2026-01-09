@@ -7,7 +7,9 @@ use anyhow::Result;
 use axum::Router;
 use rmcp::transport::stdio;
 use rmcp::transport::streamable_http_server::session::local::LocalSessionManager;
-use rmcp::transport::streamable_http_server::tower::{StreamableHttpServerConfig, StreamableHttpService};
+use rmcp::transport::streamable_http_server::tower::{
+    StreamableHttpServerConfig, StreamableHttpService,
+};
 use rmcp::ServiceExt;
 use tracing::info;
 
@@ -29,7 +31,10 @@ pub async fn run_stdio(server: AlloyServer) -> Result<()> {
 
 /// Run the MCP server with HTTP/SSE (Streamable HTTP) transport.
 pub async fn run_http(config: Config, port: u16) -> Result<()> {
-    info!("Starting Alloy MCP server with HTTP/SSE transport on port {}", port);
+    info!(
+        "Starting Alloy MCP server with HTTP/SSE transport on port {}",
+        port
+    );
 
     // Create session manager for handling multiple connections
     let session_manager = Arc::new(LocalSessionManager::default());
@@ -83,7 +88,12 @@ async fn root_handler() -> axum::Json<serde_json::Value> {
 }
 
 /// Run the MCP server with the configured transport.
-pub async fn run_server(server: AlloyServer, transport: TransportType, port: u16, config: Config) -> Result<()> {
+pub async fn run_server(
+    server: AlloyServer,
+    transport: TransportType,
+    port: u16,
+    config: Config,
+) -> Result<()> {
     match transport {
         TransportType::Stdio => run_stdio(server).await,
         TransportType::Http => run_http(config, port).await,

@@ -16,4 +16,4 @@ pub mod storage;
 pub use config::Config;
 pub use coordinator::{IndexCoordinator, IndexCoordinatorBuilder, IndexProgress, IndexedSource};
 pub use error::{AlloyError, Result};
-pub use mcp::{AlloyServer, run_server};
+pub use mcp::{run_server, AlloyServer};
