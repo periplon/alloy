@@ -835,6 +835,49 @@ pub struct RoleInfo {
     pub permissions: Vec<String>,
 }
 
+/// Get source ACL response.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct GetSourceAclResponse {
+    /// Source ID.
+    pub source_id: String,
+    /// Owner user ID.
+    pub owner: String,
+    /// ACL entries.
+    pub entries: Vec<AclEntryInfo>,
+    /// Default ACL entries for new documents.
+    pub default_document_acl: Vec<AclEntryInfo>,
+    /// When the ACL was created.
+    pub created_at: DateTime<Utc>,
+    /// When the ACL was last updated.
+    pub updated_at: DateTime<Utc>,
+    /// Status message.
+    pub message: String,
+}
+
+/// Set source ACL response.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SetSourceAclResponse {
+    /// Source ID.
+    pub source_id: String,
+    /// Whether the operation succeeded.
+    pub success: bool,
+    /// Number of ACL entries set.
+    pub entry_count: usize,
+    /// Status message.
+    pub message: String,
+}
+
+/// Delete source ACL response.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DeleteSourceAclResponse {
+    /// Source ID.
+    pub source_id: String,
+    /// Whether the operation succeeded.
+    pub success: bool,
+    /// Status message.
+    pub message: String,
+}
+
 /// Generate token response.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct GenerateTokenResponse {
