@@ -356,6 +356,12 @@ pub struct QueryExpansionConfig {
     pub pseudo_relevance: bool,
     /// Number of top documents to use for pseudo-relevance feedback
     pub prf_top_k: usize,
+    /// LLM API URL for LLM-based expansion (defaults to OpenAI)
+    pub llm_api_url: Option<String>,
+    /// LLM API key (loaded from environment if not set)
+    pub llm_api_key: Option<String>,
+    /// LLM model name for expansion
+    pub llm_model: String,
 }
 
 impl Default for QueryExpansionConfig {
@@ -367,6 +373,9 @@ impl Default for QueryExpansionConfig {
             similarity_threshold: 0.7,
             pseudo_relevance: false,
             prf_top_k: 5,
+            llm_api_url: None,
+            llm_api_key: None,
+            llm_model: "gpt-4o-mini".to_string(),
         }
     }
 }
@@ -381,6 +390,8 @@ pub enum QueryExpansionMethod {
     Synonym,
     /// Combine embedding and synonym approaches
     Hybrid,
+    /// Use language model to generate query variations
+    Llm,
 }
 
 /// Semantic clustering configuration.

@@ -92,6 +92,8 @@ pub enum ExpansionSource {
     Synonym,
     /// From pseudo-relevance feedback.
     PseudoRelevance,
+    /// From LLM generation.
+    Llm,
 }
 
 /// Embedding-based query expander.
@@ -451,6 +453,184 @@ impl QueryExpander for HybridExpander {
     }
 }
 
+/// LLM-based query expander.
+///
+/// Uses a language model to generate semantically related query variations
+/// and expansion terms. More accurate but requires API access.
+pub struct LlmExpander {
+    /// API endpoint for LLM
+    api_url: String,
+    /// API key
+    api_key: Option<String>,
+    /// Model name
+    model: String,
+    /// HTTP client
+    client: reqwest::Client,
+}
+
+impl LlmExpander {
+    /// Create a new LLM expander with OpenAI-compatible API.
+    pub fn new(
+        api_url: impl Into<String>,
+        api_key: Option<String>,
+        model: impl Into<String>,
+    ) -> Self {
+        Self {
+            api_url: api_url.into(),
+            api_key,
+            model: model.into(),
+            client: reqwest::Client::new(),
+        }
+    }
+
+    /// Create from configuration.
+    pub fn from_config(config: &QueryExpansionConfig) -> Self {
+        let api_url = config
+            .llm_api_url
+            .clone()
+            .unwrap_or_else(|| "https://api.openai.com/v1/chat/completions".to_string());
+        let api_key = config
+            .llm_api_key
+            .clone()
+            .or_else(|| std::env::var("OPENAI_API_KEY").ok());
+        let model = config.llm_model.clone();
+
+        Self::new(api_url, api_key, model)
+    }
+}
+
+#[derive(Serialize)]
+struct LlmExpandRequest {
+    model: String,
+    messages: Vec<LlmMessage>,
+    temperature: f32,
+}
+
+#[derive(Serialize)]
+struct LlmMessage {
+    role: String,
+    content: String,
+}
+
+#[derive(Deserialize)]
+struct LlmExpandResponse {
+    choices: Vec<LlmChoice>,
+}
+
+#[derive(Deserialize)]
+struct LlmChoice {
+    message: LlmMessageResponse,
+}
+
+#[derive(Deserialize)]
+struct LlmMessageResponse {
+    content: String,
+}
+
+#[async_trait]
+impl QueryExpander for LlmExpander {
+    async fn expand(&self, query: &str, config: &QueryExpansionConfig) -> Result<ExpandedQuery> {
+        // Build prompt for query expansion
+        let prompt = format!(
+            "Given the search query: \"{}\"\n\n\
+            Generate {} related search terms or phrases that could help find relevant documents.\n\
+            Focus on:\n\
+            - Synonyms and alternative phrasings\n\
+            - Related concepts and technical terms\n\
+            - Common variations and abbreviations\n\n\
+            Respond with ONLY a JSON array of strings, e.g., [\"term1\", \"term2\", \"term3\"]\n\
+            Do not include any explanation or additional text.",
+            query, config.max_expansions
+        );
+
+        let request = LlmExpandRequest {
+            model: self.model.clone(),
+            messages: vec![LlmMessage {
+                role: "user".to_string(),
+                content: prompt,
+            }],
+            temperature: 0.3, // Low temperature for more focused expansions
+        };
+
+        let mut req_builder = self.client.post(&self.api_url).json(&request);
+
+        if let Some(ref api_key) = self.api_key {
+            req_builder = req_builder.bearer_auth(api_key);
+        }
+
+        let response = match req_builder.send().await {
+            Ok(resp) => resp,
+            Err(e) => {
+                tracing::warn!("LLM expansion API error: {}, returning unchanged query", e);
+                return Ok(ExpandedQuery::unchanged(query));
+            }
+        };
+
+        if !response.status().is_success() {
+            tracing::warn!(
+                "LLM expansion API returned status: {}, returning unchanged query",
+                response.status()
+            );
+            return Ok(ExpandedQuery::unchanged(query));
+        }
+
+        let llm_response: LlmExpandResponse = match response.json().await {
+            Ok(resp) => resp,
+            Err(e) => {
+                tracing::warn!(
+                    "Failed to parse LLM response: {}, returning unchanged query",
+                    e
+                );
+                return Ok(ExpandedQuery::unchanged(query));
+            }
+        };
+
+        // Parse expansion terms from response
+        let content = llm_response
+            .choices
+            .first()
+            .map(|c| c.message.content.clone())
+            .unwrap_or_default();
+
+        // Try to parse as JSON array
+        let terms: Vec<String> = serde_json::from_str(&content).unwrap_or_else(|_| {
+            // If JSON parsing fails, try to extract quoted strings
+            content
+                .split('"')
+                .enumerate()
+                .filter(|(i, _)| i % 2 == 1) // Get content between quotes
+                .map(|(_, s)| s.to_string())
+                .filter(|s| !s.is_empty() && s.len() < 100)
+                .collect()
+        });
+
+        // Convert to expansion terms with confidence scores
+        let query_terms: HashSet<&str> = query.split_whitespace().collect();
+        let expansion_terms: Vec<ExpansionTerm> = terms
+            .into_iter()
+            .filter(|term| {
+                // Filter out terms that are too similar to original query
+                let term_lower = term.to_lowercase();
+                !query_terms.iter().any(|qt| qt.to_lowercase() == term_lower)
+            })
+            .take(config.max_expansions)
+            .enumerate()
+            .map(|(i, term)| ExpansionTerm {
+                term,
+                // Assign decreasing scores based on order (LLM typically orders by relevance)
+                score: 1.0 - (i as f32 * 0.1).min(0.5),
+                source: ExpansionSource::Llm,
+            })
+            .collect();
+
+        Ok(ExpandedQuery::with_expansions(query, expansion_terms))
+    }
+
+    fn name(&self) -> &str {
+        "llm"
+    }
+}
+
 /// Pseudo-relevance feedback expander.
 ///
 /// Expands queries using terms from top search results.
@@ -522,6 +702,7 @@ impl QueryExpanderFactory {
             }
             crate::config::QueryExpansionMethod::Synonym => Box::new(SynonymExpander::new()),
             crate::config::QueryExpansionMethod::Hybrid => Box::new(HybridExpander::new(embedder)),
+            crate::config::QueryExpansionMethod::Llm => Box::new(LlmExpander::from_config(config)),
         }
     }
 }
@@ -585,6 +766,9 @@ mod tests {
             similarity_threshold: 0.7,
             pseudo_relevance: false,
             prf_top_k: 5,
+            llm_api_url: None,
+            llm_api_key: None,
+            llm_model: "gpt-4o-mini".to_string(),
         };
 
         let result = expander.expand("find error", &config).await.unwrap();
@@ -608,5 +792,63 @@ mod tests {
         let term_names: Vec<&str> = terms.iter().map(|t| t.term.as_str()).collect();
         assert!(term_names.contains(&"database"));
         assert!(term_names.contains(&"connection"));
+    }
+
+    #[test]
+    fn test_llm_expander_creation() {
+        let expander = LlmExpander::new(
+            "https://api.openai.com/v1/chat/completions",
+            Some("test-key".to_string()),
+            "gpt-4o-mini",
+        );
+        assert_eq!(expander.name(), "llm");
+    }
+
+    #[test]
+    fn test_llm_expander_from_config() {
+        let config = QueryExpansionConfig {
+            enabled: true,
+            method: crate::config::QueryExpansionMethod::Llm,
+            max_expansions: 5,
+            similarity_threshold: 0.7,
+            pseudo_relevance: false,
+            prf_top_k: 5,
+            llm_api_url: Some("https://custom-api.example.com/v1/chat".to_string()),
+            llm_api_key: Some("custom-key".to_string()),
+            llm_model: "gpt-4".to_string(),
+        };
+
+        let expander = LlmExpander::from_config(&config);
+        assert_eq!(expander.api_url, "https://custom-api.example.com/v1/chat");
+        assert_eq!(expander.api_key, Some("custom-key".to_string()));
+        assert_eq!(expander.model, "gpt-4");
+    }
+
+    #[test]
+    fn test_llm_expander_from_config_defaults() {
+        let config = QueryExpansionConfig::default();
+        let expander = LlmExpander::from_config(&config);
+        assert_eq!(
+            expander.api_url,
+            "https://api.openai.com/v1/chat/completions"
+        );
+        assert_eq!(expander.model, "gpt-4o-mini");
+    }
+
+    #[test]
+    fn test_expansion_source_llm() {
+        let term = ExpansionTerm {
+            term: "test".to_string(),
+            score: 0.9,
+            source: ExpansionSource::Llm,
+        };
+        assert_eq!(term.source, ExpansionSource::Llm);
+    }
+
+    #[test]
+    fn test_query_expansion_method_llm() {
+        // Test that Llm variant is properly defined
+        let method = crate::config::QueryExpansionMethod::Llm;
+        assert_eq!(method, crate::config::QueryExpansionMethod::Llm);
     }
 }
