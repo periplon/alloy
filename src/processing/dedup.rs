@@ -85,7 +85,8 @@ impl Default for DeduplicationConfig {
 #[async_trait]
 pub trait Deduplicator: Send + Sync {
     /// Check if content is a duplicate of an existing document.
-    async fn check(&self, content: &str, doc_id: &str) -> crate::error::Result<DeduplicationResult>;
+    async fn check(&self, content: &str, doc_id: &str)
+        -> crate::error::Result<DeduplicationResult>;
 
     /// Register content for future duplicate checking.
     async fn register(&self, content: &str, doc_id: &str) -> crate::error::Result<()>;
@@ -127,7 +128,11 @@ impl Default for ExactDeduplicator {
 
 #[async_trait]
 impl Deduplicator for ExactDeduplicator {
-    async fn check(&self, content: &str, _doc_id: &str) -> crate::error::Result<DeduplicationResult> {
+    async fn check(
+        &self,
+        content: &str,
+        _doc_id: &str,
+    ) -> crate::error::Result<DeduplicationResult> {
         let hash = Self::compute_hash(content);
         let hashes = self.hashes.read().await;
 
@@ -251,9 +256,16 @@ impl MinHashDeduplicator {
 
 #[async_trait]
 impl Deduplicator for MinHashDeduplicator {
-    async fn check(&self, content: &str, _doc_id: &str) -> crate::error::Result<DeduplicationResult> {
-        let new_sig =
-            MinHashSignature::new(content, self.config.minhash_num_hashes, self.config.shingle_size);
+    async fn check(
+        &self,
+        content: &str,
+        _doc_id: &str,
+    ) -> crate::error::Result<DeduplicationResult> {
+        let new_sig = MinHashSignature::new(
+            content,
+            self.config.minhash_num_hashes,
+            self.config.shingle_size,
+        );
         let signatures = self.signatures.read().await;
 
         let mut best_match: Option<(String, f32)> = None;
@@ -285,8 +297,11 @@ impl Deduplicator for MinHashDeduplicator {
     }
 
     async fn register(&self, content: &str, doc_id: &str) -> crate::error::Result<()> {
-        let sig =
-            MinHashSignature::new(content, self.config.minhash_num_hashes, self.config.shingle_size);
+        let sig = MinHashSignature::new(
+            content,
+            self.config.minhash_num_hashes,
+            self.config.shingle_size,
+        );
         let mut signatures = self.signatures.write().await;
         signatures.insert(doc_id.to_string(), sig);
         Ok(())
@@ -317,7 +332,10 @@ pub struct SemanticDeduplicator {
 
 impl SemanticDeduplicator {
     /// Create a new semantic deduplicator.
-    pub fn new(config: DeduplicationConfig, embedder: Arc<dyn crate::embedding::EmbeddingProvider>) -> Self {
+    pub fn new(
+        config: DeduplicationConfig,
+        embedder: Arc<dyn crate::embedding::EmbeddingProvider>,
+    ) -> Self {
         Self {
             config,
             embedder,
@@ -345,7 +363,11 @@ impl SemanticDeduplicator {
 
 #[async_trait]
 impl Deduplicator for SemanticDeduplicator {
-    async fn check(&self, content: &str, _doc_id: &str) -> crate::error::Result<DeduplicationResult> {
+    async fn check(
+        &self,
+        content: &str,
+        _doc_id: &str,
+    ) -> crate::error::Result<DeduplicationResult> {
         // Generate embedding for the new content
         let new_embedding = self.embedder.embed(&[content.to_string()]).await?;
         if new_embedding.is_empty() {
@@ -452,7 +474,11 @@ impl CompositeDeduplicator {
 
 #[async_trait]
 impl Deduplicator for CompositeDeduplicator {
-    async fn check(&self, content: &str, doc_id: &str) -> crate::error::Result<DeduplicationResult> {
+    async fn check(
+        &self,
+        content: &str,
+        doc_id: &str,
+    ) -> crate::error::Result<DeduplicationResult> {
         for dedup in &self.deduplicators {
             let result = dedup.check(content, doc_id).await?;
             if result.is_duplicate {
@@ -537,35 +563,35 @@ mod tests {
         assert!(result.similarity > 0.5);
 
         // Check very different content
-        let result = dedup.check("Completely unrelated text about space exploration", "doc3").await.unwrap();
+        let result = dedup
+            .check("Completely unrelated text about space exploration", "doc3")
+            .await
+            .unwrap();
         assert!(!result.is_duplicate);
     }
 
     #[tokio::test]
     async fn test_minhash_signature_similarity() {
-        let sig1 = MinHashSignature::new(
-            "The quick brown fox jumps over the lazy dog",
-            128,
-            3,
-        );
-        let sig2 = MinHashSignature::new(
-            "The quick brown fox jumps over the lazy cat",
-            128,
-            3,
-        );
-        let sig3 = MinHashSignature::new(
-            "A completely different sentence about programming",
-            128,
-            3,
-        );
+        let sig1 = MinHashSignature::new("The quick brown fox jumps over the lazy dog", 128, 3);
+        let sig2 = MinHashSignature::new("The quick brown fox jumps over the lazy cat", 128, 3);
+        let sig3 =
+            MinHashSignature::new("A completely different sentence about programming", 128, 3);
 
         // Similar sentences should have high similarity
         let sim_12 = sig1.similarity(&sig2);
-        assert!(sim_12 > 0.5, "Similar sentences should have similarity > 0.5, got {}", sim_12);
+        assert!(
+            sim_12 > 0.5,
+            "Similar sentences should have similarity > 0.5, got {}",
+            sim_12
+        );
 
         // Different sentences should have low similarity
         let sim_13 = sig1.similarity(&sig3);
-        assert!(sim_13 < 0.3, "Different sentences should have similarity < 0.3, got {}", sim_13);
+        assert!(
+            sim_13 < 0.3,
+            "Different sentences should have similarity < 0.3, got {}",
+            sim_13
+        );
     }
 
     #[tokio::test]

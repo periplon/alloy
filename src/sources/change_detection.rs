@@ -113,7 +113,10 @@ impl ChangeDetector {
     }
 
     /// Create with persistence.
-    pub async fn with_persistence(config: ChangeDetectionConfig, path: PathBuf) -> crate::error::Result<Self> {
+    pub async fn with_persistence(
+        config: ChangeDetectionConfig,
+        path: PathBuf,
+    ) -> crate::error::Result<Self> {
         let detector = Self {
             config,
             metadata: RwLock::new(HashMap::new()),
@@ -473,7 +476,9 @@ mod tests {
             .unwrap();
 
         // Check again - should be unchanged
-        let events = detector.detect_changes(&[item.clone()], |_| Some(b"content".to_vec())).await;
+        let events = detector
+            .detect_changes(&[item.clone()], |_| Some(b"content".to_vec()))
+            .await;
         assert_eq!(events.len(), 1);
         // Mtime is same, size is same, so unchanged
         assert_eq!(events[0].change_type, ChangeType::Unchanged);
@@ -530,10 +535,7 @@ mod tests {
         let hash = ChangeDetector::compute_hash(original_content);
 
         // Register with original hash
-        detector
-            .register(&item, "source1", hash, 5)
-            .await
-            .unwrap();
+        detector.register(&item, "source1", hash, 5).await.unwrap();
 
         // Check with different content
         let modified_content = b"modified content";

@@ -364,13 +364,9 @@ impl LanceBackend {
 
                     // Extract the vector from FixedSizeListArray
                     let vector_arr = vectors.value(i);
-                    let float_arr = vector_arr
-                        .as_any()
-                        .downcast_ref::<Float32Array>()
-                        .unwrap();
-                    let embedding: Vec<f32> = (0..float_arr.len())
-                        .map(|j| float_arr.value(j))
-                        .collect();
+                    let float_arr = vector_arr.as_any().downcast_ref::<Float32Array>().unwrap();
+                    let embedding: Vec<f32> =
+                        (0..float_arr.len()).map(|j| float_arr.value(j)).collect();
 
                     // Apply source filter if specified
                     if let Some(_filter) = source_filter {

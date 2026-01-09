@@ -20,10 +20,6 @@ use crate::embedding::{
     ApiEmbeddingProvider, BatchConfig, BatchEmbeddingProcessor, EmbeddingProvider,
     LocalEmbeddingProvider,
 };
-use crate::versioning::{
-    FileVersionStorage, InMemoryVersionStorage, RetentionPolicy, VersionDiff, VersionManager,
-    VersionMetadata, VersionStorage, VersioningConfig as VersionManagerConfig,
-};
 use crate::error::Result;
 use crate::processing::{
     CompositeDeduplicator, DeduplicationResult, Deduplicator, ProcessorRegistry, TextChunk,
@@ -33,11 +29,16 @@ use crate::search::{
     HybridSearchResponse, HybridSearcher,
 };
 use crate::sources::{
-    LocalSource, LocalSourceConfig, S3Source, S3SourceConfig, Source, SourceEvent, SourceItem,
+    ChangeDetectionConfig, ChangeDetector, ChangeFilter, ChangeType, LocalSource,
+    LocalSourceConfig, S3Source, S3SourceConfig, Source, SourceEvent, SourceItem,
 };
 use crate::storage::{
     EmbeddedStorage, IndexedDocument, QdrantHybridStorage, StorageBackend, StorageStats,
     VectorChunk,
+};
+use crate::versioning::{
+    FileVersionStorage, InMemoryVersionStorage, RetentionPolicy, VersionDiff, VersionManager,
+    VersionMetadata, VersionStorage, VersioningConfig as VersionManagerConfig,
 };
 
 /// Progress event during indexing.
@@ -101,6 +102,18 @@ pub enum IndexProgress {
         event_type: String,
         uri: String,
     },
+    /// Change detection completed.
+    ChangeDetectionComplete {
+        source_id: String,
+        new_count: usize,
+        modified_count: usize,
+        unchanged_count: usize,
+        deleted_count: usize,
+    },
+    /// Document skipped because it's unchanged.
+    DocumentUnchanged { source_id: String, uri: String },
+    /// Document removed because it was deleted.
+    DocumentRemoved { source_id: String, uri: String },
 }
 
 /// Result of indexing a single item.
@@ -153,6 +166,8 @@ pub struct IndexCoordinator {
     deduplicator: Option<Arc<dyn Deduplicator>>,
     /// Version manager for document versioning.
     version_manager: Option<Arc<VersionManager>>,
+    /// Change detector for incremental indexing.
+    change_detector: Arc<ChangeDetector>,
 }
 
 impl IndexCoordinator {
@@ -218,81 +233,104 @@ impl IndexCoordinator {
             .build()?;
 
         // Create deduplicator if enabled
-        let deduplicator: Option<Arc<dyn Deduplicator>> =
-            if config.indexing.deduplication.enabled {
-                let dedup_config = crate::processing::DeduplicationConfig {
-                    enabled: config.indexing.deduplication.enabled,
-                    strategy: match config.indexing.deduplication.strategy {
-                        crate::config::DeduplicationStrategy::Exact => {
-                            crate::processing::DeduplicationStrategy::Exact
-                        }
-                        crate::config::DeduplicationStrategy::MinHash => {
-                            crate::processing::DeduplicationStrategy::MinHash
-                        }
-                        crate::config::DeduplicationStrategy::Semantic => {
-                            crate::processing::DeduplicationStrategy::Semantic
-                        }
-                    },
-                    threshold: config.indexing.deduplication.threshold,
-                    action: match config.indexing.deduplication.action {
-                        crate::config::DeduplicationAction::Skip => {
-                            crate::processing::DeduplicationAction::Skip
-                        }
-                        crate::config::DeduplicationAction::Flag => {
-                            crate::processing::DeduplicationAction::Flag
-                        }
-                        crate::config::DeduplicationAction::Update => {
-                            crate::processing::DeduplicationAction::Update
-                        }
-                    },
-                    minhash_num_hashes: config.indexing.deduplication.minhash_num_hashes,
-                    shingle_size: config.indexing.deduplication.shingle_size,
-                };
-
-                let dedup = CompositeDeduplicator::from_config(&dedup_config, Some(embedder.clone()));
-                Some(Arc::new(dedup))
-            } else {
-                None
+        let deduplicator: Option<Arc<dyn Deduplicator>> = if config.indexing.deduplication.enabled {
+            let dedup_config = crate::processing::DeduplicationConfig {
+                enabled: config.indexing.deduplication.enabled,
+                strategy: match config.indexing.deduplication.strategy {
+                    crate::config::DeduplicationStrategy::Exact => {
+                        crate::processing::DeduplicationStrategy::Exact
+                    }
+                    crate::config::DeduplicationStrategy::MinHash => {
+                        crate::processing::DeduplicationStrategy::MinHash
+                    }
+                    crate::config::DeduplicationStrategy::Semantic => {
+                        crate::processing::DeduplicationStrategy::Semantic
+                    }
+                },
+                threshold: config.indexing.deduplication.threshold,
+                action: match config.indexing.deduplication.action {
+                    crate::config::DeduplicationAction::Skip => {
+                        crate::processing::DeduplicationAction::Skip
+                    }
+                    crate::config::DeduplicationAction::Flag => {
+                        crate::processing::DeduplicationAction::Flag
+                    }
+                    crate::config::DeduplicationAction::Update => {
+                        crate::processing::DeduplicationAction::Update
+                    }
+                },
+                minhash_num_hashes: config.indexing.deduplication.minhash_num_hashes,
+                shingle_size: config.indexing.deduplication.shingle_size,
             };
+
+            let dedup = CompositeDeduplicator::from_config(&dedup_config, Some(embedder.clone()));
+            Some(Arc::new(dedup))
+        } else {
+            None
+        };
 
         // Create version manager if enabled
-        let version_manager: Option<Arc<VersionManager>> =
-            if config.indexing.versioning.enabled {
-                let version_storage: Arc<dyn VersionStorage> =
-                    if config.indexing.versioning.storage == "file" {
-                        let version_dir = data_dir.join("versions");
-                        Arc::new(
-                            FileVersionStorage::new(
-                                version_dir,
-                                config.indexing.versioning.delta_threshold,
-                            )
-                            .await?,
+        let version_manager: Option<Arc<VersionManager>> = if config.indexing.versioning.enabled {
+            let version_storage: Arc<dyn VersionStorage> =
+                if config.indexing.versioning.storage == "file" {
+                    let version_dir = data_dir.join("versions");
+                    Arc::new(
+                        FileVersionStorage::new(
+                            version_dir,
+                            config.indexing.versioning.delta_threshold,
                         )
-                    } else {
-                        // Default to in-memory storage
-                        Arc::new(InMemoryVersionStorage::new())
-                    };
-
-                let vm_config = VersionManagerConfig {
-                    enabled: config.indexing.versioning.enabled,
-                    storage: config.indexing.versioning.storage.clone(),
-                    delta_threshold: config.indexing.versioning.delta_threshold,
-                    retention: RetentionPolicy {
-                        min_versions: config.indexing.versioning.retention.min_versions,
-                        max_versions: config.indexing.versioning.retention.max_versions,
-                        min_age_days: config.indexing.versioning.retention.min_age_days,
-                        max_age_days: config.indexing.versioning.retention.max_age_days,
-                        keep_full_versions: config.indexing.versioning.retention.keep_full_versions,
-                        auto_cleanup: config.indexing.versioning.retention.auto_cleanup,
-                        cleanup_interval_hours: config.indexing.versioning.retention.cleanup_interval_hours,
-                        keep_patterns: vec![],
-                    },
+                        .await?,
+                    )
+                } else {
+                    // Default to in-memory storage
+                    Arc::new(InMemoryVersionStorage::new())
                 };
 
-                Some(Arc::new(VersionManager::new(version_storage, vm_config)))
-            } else {
-                None
+            let vm_config = VersionManagerConfig {
+                enabled: config.indexing.versioning.enabled,
+                storage: config.indexing.versioning.storage.clone(),
+                delta_threshold: config.indexing.versioning.delta_threshold,
+                retention: RetentionPolicy {
+                    min_versions: config.indexing.versioning.retention.min_versions,
+                    max_versions: config.indexing.versioning.retention.max_versions,
+                    min_age_days: config.indexing.versioning.retention.min_age_days,
+                    max_age_days: config.indexing.versioning.retention.max_age_days,
+                    keep_full_versions: config.indexing.versioning.retention.keep_full_versions,
+                    auto_cleanup: config.indexing.versioning.retention.auto_cleanup,
+                    cleanup_interval_hours: config
+                        .indexing
+                        .versioning
+                        .retention
+                        .cleanup_interval_hours,
+                    keep_patterns: vec![],
+                },
             };
+
+            Some(Arc::new(VersionManager::new(version_storage, vm_config)))
+        } else {
+            None
+        };
+
+        // Create change detector for incremental indexing
+        let change_detection_config = ChangeDetectionConfig {
+            enabled: config.indexing.incremental.enabled,
+            strategy: match config.indexing.incremental.change_detection {
+                crate::config::ChangeDetectionStrategy::Hash => {
+                    crate::sources::ChangeDetectionStrategy::Hash
+                }
+                crate::config::ChangeDetectionStrategy::Mtime => {
+                    crate::sources::ChangeDetectionStrategy::Mtime
+                }
+                crate::config::ChangeDetectionStrategy::Both => {
+                    crate::sources::ChangeDetectionStrategy::Both
+                }
+            },
+            verify_hash: config.indexing.incremental.verify_hash,
+        };
+
+        let change_detector_path = data_dir.join("change_detector.json");
+        let change_detector =
+            ChangeDetector::with_persistence(change_detection_config, change_detector_path).await?;
 
         Ok(Self {
             config,
@@ -305,6 +343,7 @@ impl IndexCoordinator {
             searcher: Arc::new(searcher),
             deduplicator,
             version_manager,
+            change_detector: Arc::new(change_detector),
         })
     }
 
@@ -351,6 +390,24 @@ impl IndexCoordinator {
             }
             IndexProgress::DocumentError { uri, error, .. } => {
                 warn!("Document error {}: {}", uri, error);
+            }
+            IndexProgress::ChangeDetectionComplete {
+                source_id,
+                new_count,
+                modified_count,
+                unchanged_count,
+                deleted_count,
+            } => {
+                info!(
+                    "Change detection: {} ({} new, {} modified, {} unchanged, {} deleted)",
+                    source_id, new_count, modified_count, unchanged_count, deleted_count
+                );
+            }
+            IndexProgress::DocumentUnchanged { uri, .. } => {
+                debug!("Document unchanged: {}", uri);
+            }
+            IndexProgress::DocumentRemoved { uri, .. } => {
+                info!("Document removed: {}", uri);
             }
             _ => {
                 debug!("Progress: {:?}", progress);
@@ -433,16 +490,87 @@ impl IndexCoordinator {
             items_found: total_items,
         });
 
+        // Perform change detection if incremental indexing is enabled
+        let (items_to_process, _deleted_items, unchanged_count) =
+            if self.config.indexing.incremental.enabled {
+                // Create a content fetcher for change detection
+                // For now, we rely on mtime/size checks; hash is computed during processing
+                let get_content = |_item: &SourceItem| {
+                    // For change detection, we use mtime/size first
+                    // Hash will be computed during actual processing for accuracy
+                    None::<Vec<u8>>
+                };
+
+                // Detect changes
+                let events = self
+                    .change_detector
+                    .detect_changes(&items, get_content)
+                    .await;
+                let filter = ChangeFilter::from_events(events);
+
+                // Report change detection results
+                let new_count = filter
+                    .to_process
+                    .iter()
+                    .filter(|e| e.change_type == ChangeType::New)
+                    .count();
+                let modified_count = filter
+                    .to_process
+                    .iter()
+                    .filter(|e| e.change_type == ChangeType::Modified)
+                    .count();
+
+                self.report_progress(IndexProgress::ChangeDetectionComplete {
+                    source_id: source_id.clone(),
+                    new_count,
+                    modified_count,
+                    unchanged_count: filter.unchanged.len(),
+                    deleted_count: filter.deleted.len(),
+                });
+
+                // Report unchanged documents
+                for event in &filter.unchanged {
+                    self.report_progress(IndexProgress::DocumentUnchanged {
+                        source_id: source_id.clone(),
+                        uri: event.item.uri.clone(),
+                    });
+                }
+
+                // Handle deleted documents
+                for event in &filter.deleted {
+                    self.report_progress(IndexProgress::DocumentRemoved {
+                        source_id: source_id.clone(),
+                        uri: event.item.uri.clone(),
+                    });
+                    // Remove from change detector tracking
+                    let _ = self.change_detector.remove(&event.item.uri).await;
+                    // Note: Actual storage removal would need to be implemented
+                    // based on document ID lookup from storage
+                }
+
+                let items_to_process: Vec<SourceItem> =
+                    filter.to_process.into_iter().map(|e| e.item).collect();
+                let _deleted: Vec<SourceItem> =
+                    filter.deleted.into_iter().map(|e| e.item).collect();
+
+                (items_to_process, _deleted, filter.unchanged.len())
+            } else {
+                // No incremental indexing - process all items
+                (items, vec![], 0)
+            };
+
+        let items_to_index = items_to_process.len();
+
         // Process and index each document
         let mut documents_indexed = 0;
         let mut chunks_created = 0;
 
-        for (idx, item) in items.iter().enumerate() {
+        for (idx, item) in items_to_process.iter().enumerate() {
             self.report_progress(IndexProgress::ProcessingDocument {
                 source_id: source_id.clone(),
                 uri: item.uri.clone(),
                 current: idx + 1,
-                total: total_items,
+                total: items_to_index,
             });
 
             match self
@@ -452,6 +580,17 @@ impl IndexCoordinator {
                 Ok(IndexItemResult::Indexed(chunk_count)) => {
                     documents_indexed += 1;
                     chunks_created += chunk_count;
+
+                    // Register with change detector for future change detection
+                    // We'll compute the hash from the content
+                    if let Ok(content) = source.fetch(&item.uri).await {
+                        let content_hash = ChangeDetector::compute_hash(&content);
+                        let _ = self
+                            .change_detector
+                            .register(item, &source_id, content_hash, chunk_count)
+                            .await;
+                    }
+
                     self.report_progress(IndexProgress::DocumentProcessed {
                         source_id: source_id.clone(),
                         uri: item.uri.clone(),
@@ -485,7 +624,7 @@ impl IndexCoordinator {
             id: source_id.clone(),
             source_type: source_type.to_string(),
             path: source.id().to_string(),
-            document_count: documents_indexed,
+            document_count: documents_indexed + unchanged_count,
             watching: false, // TODO: implement watching
             last_scan: Utc::now(),
         };
@@ -526,10 +665,7 @@ impl IndexCoordinator {
                         self.report_progress(IndexProgress::DocumentDeduplicated {
                             source_id: source_id.to_string(),
                             uri: item.uri.clone(),
-                            duplicate_of: dedup_result
-                                .duplicate_of
-                                .clone()
-                                .unwrap_or_default(),
+                            duplicate_of: dedup_result.duplicate_of.clone().unwrap_or_default(),
                             similarity: dedup_result.similarity,
                         });
                         return Ok(IndexItemResult::Skipped(dedup_result));
@@ -544,10 +680,7 @@ impl IndexCoordinator {
                     }
                     crate::config::DeduplicationAction::Update => {
                         // Continue indexing (will replace existing document)
-                        debug!(
-                            "Document {} will update existing duplicate",
-                            item.id
-                        );
+                        debug!("Document {} will update existing duplicate", item.id);
                     }
                 }
             }
@@ -696,7 +829,10 @@ impl IndexCoordinator {
         use crate::search::{ClusterInput, ClusteringEngine};
 
         // Get all chunks with embeddings
-        let chunks = self.storage.get_all_chunks_for_clustering(source_id).await?;
+        let chunks = self
+            .storage
+            .get_all_chunks_for_clustering(source_id)
+            .await?;
 
         if chunks.is_empty() {
             return Ok(crate::search::ClusteringResult {
@@ -736,7 +872,9 @@ impl IndexCoordinator {
 
         // Run clustering
         let engine = ClusteringEngine::new(self.embedder.clone(), cluster_config.clone());
-        engine.cluster_documents(inputs, Some(&cluster_config)).await
+        engine
+            .cluster_documents(inputs, Some(&cluster_config))
+            .await
     }
 
     // ========================================================================
@@ -831,14 +969,11 @@ impl IndexCoordinator {
         version_b: &str,
         context_lines: usize,
     ) -> Result<VersionDiff> {
-        let vm = self
-            .version_manager
-            .as_ref()
-            .ok_or_else(|| {
-                crate::error::AlloyError::Storage(crate::error::StorageError::InvalidOperation(
-                    "Versioning is not enabled".to_string(),
-                ))
-            })?;
+        let vm = self.version_manager.as_ref().ok_or_else(|| {
+            crate::error::AlloyError::Storage(crate::error::StorageError::InvalidOperation(
+                "Versioning is not enabled".to_string(),
+            ))
+        })?;
 
         vm.diff_versions(version_a, version_b, context_lines).await
     }
@@ -850,32 +985,23 @@ impl IndexCoordinator {
         version_id: &str,
         author: Option<String>,
     ) -> Result<VersionMetadata> {
-        let vm = self
-            .version_manager
-            .as_ref()
-            .ok_or_else(|| {
-                crate::error::AlloyError::Storage(crate::error::StorageError::InvalidOperation(
-                    "Versioning is not enabled".to_string(),
-                ))
-            })?;
+        let vm = self.version_manager.as_ref().ok_or_else(|| {
+            crate::error::AlloyError::Storage(crate::error::StorageError::InvalidOperation(
+                "Versioning is not enabled".to_string(),
+            ))
+        })?;
 
         let version = vm.restore_version(doc_id, version_id, author).await?;
         Ok(VersionMetadata::from(&version))
     }
 
     /// Get content for a specific version.
-    pub async fn get_version_content(
-        &self,
-        version_id: &str,
-    ) -> Result<(VersionMetadata, String)> {
-        let vm = self
-            .version_manager
-            .as_ref()
-            .ok_or_else(|| {
-                crate::error::AlloyError::Storage(crate::error::StorageError::InvalidOperation(
-                    "Versioning is not enabled".to_string(),
-                ))
-            })?;
+    pub async fn get_version_content(&self, version_id: &str) -> Result<(VersionMetadata, String)> {
+        let vm = self.version_manager.as_ref().ok_or_else(|| {
+            crate::error::AlloyError::Storage(crate::error::StorageError::InvalidOperation(
+                "Versioning is not enabled".to_string(),
+            ))
+        })?;
 
         let version = vm
             .get_version(version_id)
@@ -909,6 +1035,68 @@ impl IndexCoordinator {
         } else {
             Ok(None)
         }
+    }
+
+    // ========================================================================
+    // Incremental Indexing Methods
+    // ========================================================================
+
+    /// Check if incremental indexing is enabled.
+    pub fn is_incremental_enabled(&self) -> bool {
+        self.config.indexing.incremental.enabled
+    }
+
+    /// Get incremental indexing configuration.
+    pub fn incremental_config(&self) -> &crate::config::IncrementalConfig {
+        &self.config.indexing.incremental
+    }
+
+    /// Get change detector statistics.
+    pub async fn change_detector_stats(&self) -> crate::sources::ChangeDetectorStats {
+        self.change_detector.stats().await
+    }
+
+    /// Get metadata for a tracked document.
+    pub async fn get_tracked_document(
+        &self,
+        path: &str,
+    ) -> Option<crate::sources::IndexedDocumentMeta> {
+        self.change_detector.get(path).await
+    }
+
+    /// Get all tracked documents for a source.
+    pub async fn get_source_tracked_documents(
+        &self,
+        source_id: &str,
+    ) -> Vec<crate::sources::IndexedDocumentMeta> {
+        self.change_detector.get_source_metadata(source_id).await
+    }
+
+    /// Clear all change tracking data.
+    ///
+    /// This will cause all documents to be re-indexed on the next scan.
+    pub async fn clear_change_tracking(&self) -> Result<()> {
+        self.change_detector.clear().await
+    }
+
+    /// Remove change tracking for a source.
+    ///
+    /// This will cause all documents from this source to be re-indexed.
+    pub async fn clear_source_change_tracking(&self, source_id: &str) -> Result<usize> {
+        self.change_detector.remove_source(source_id).await
+    }
+
+    /// Force re-index of a specific document.
+    ///
+    /// Removes the document from change tracking so it will be re-indexed.
+    pub async fn force_reindex(&self, path: &str) -> Result<bool> {
+        let removed = self.change_detector.remove(path).await?;
+        Ok(removed.is_some())
+    }
+
+    /// Save change detector state to disk.
+    pub async fn save_change_tracking(&self) -> Result<()> {
+        self.change_detector.save().await
     }
 }
 

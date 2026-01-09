@@ -36,8 +36,8 @@ mod s3;
 mod traits;
 
 pub use change_detection::{
-    ChangeDetectionConfig, ChangeDetectionStrategy, ChangeDetector, ChangeEvent, ChangeFilter,
-    ChangeType, IndexedDocumentMeta,
+    ChangeDetectionConfig, ChangeDetectionStrategy, ChangeDetector, ChangeDetectorStats,
+    ChangeEvent, ChangeFilter, ChangeType, IndexedDocumentMeta,
 };
 pub use local::LocalSource;
 pub use s3::{parse_s3_uri, S3Source};

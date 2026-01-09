@@ -266,14 +266,14 @@ impl StorageBackend for EmbeddedStorage {
                     true
                 }
             })
-            .map(|(chunk_id, document_id, text, embedding)| {
-                crate::storage::ChunkWithEmbedding {
+            .map(
+                |(chunk_id, document_id, text, embedding)| crate::storage::ChunkWithEmbedding {
                     chunk_id,
                     document_id,
                     text,
                     embedding,
-                }
-            })
+                },
+            )
             .collect();
 
         Ok(filtered)

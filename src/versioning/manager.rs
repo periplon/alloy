@@ -215,7 +215,10 @@ impl VersionManager {
     }
 
     /// Get a specific version.
-    pub async fn get_version(&self, version_id: &str) -> crate::error::Result<Option<DocumentVersion>> {
+    pub async fn get_version(
+        &self,
+        version_id: &str,
+    ) -> crate::error::Result<Option<DocumentVersion>> {
         self.storage.get_version(version_id).await
     }
 
@@ -334,8 +337,8 @@ impl VersionManager {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use super::super::storage::InMemoryVersionStorage;
+    use super::*;
 
     fn create_test_manager() -> VersionManager {
         let storage = Arc::new(InMemoryVersionStorage::new());

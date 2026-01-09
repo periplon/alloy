@@ -186,7 +186,8 @@ pub fn print_cluster_results(result: &alloy::mcp::ClusterDocumentsResponse, json
             if !cluster.representative_docs.is_empty() {
                 println!(
                     "  Representatives: {}",
-                    cluster.representative_docs[..cluster.representative_docs.len().min(3)].join(", ")
+                    cluster.representative_docs[..cluster.representative_docs.len().min(3)]
+                        .join(", ")
                 );
             }
             println!("  Coherence: {:.3}", cluster.coherence_score);

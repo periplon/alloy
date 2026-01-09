@@ -263,8 +263,8 @@ impl RetentionEnforcer {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use super::super::storage::ChangeType;
+    use super::*;
 
     fn create_test_version(id: &str, num: u64, days_ago: i64) -> VersionMetadata {
         VersionMetadata {

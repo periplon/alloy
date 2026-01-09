@@ -281,10 +281,7 @@ fn compute_lcs_diff(old: &[&str], new: &[&str]) -> Vec<DiffChange> {
 }
 
 /// Compute delta operations for version storage.
-pub fn compute_delta_operations(
-    old: &str,
-    new: &str,
-) -> Vec<super::storage::DeltaOperation> {
+pub fn compute_delta_operations(old: &str, new: &str) -> Vec<super::storage::DeltaOperation> {
     use super::storage::DeltaOperation;
 
     let diff = compute_diff(old, new);

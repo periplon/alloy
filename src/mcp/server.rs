@@ -18,9 +18,9 @@ use crate::mcp::tools::{
     CheckDuplicateResponse, ClearDeduplicationResponse, ClusterDocumentsResponse, ClusterInfo,
     ClusterMetrics, ConfigureResponse, DeduplicationStatsResponse, DiffStatsInfo,
     DiffVersionsResponse, DocumentDetails, GetDocumentHistoryResponse, GetVersionContentResponse,
-    IndexPathResponse, IndexStats, ListSourcesResponse, RemoveSourceResponse, RestoreVersionResponse,
-    SearchResponse, SearchResult, SourceInfo, VersionInfo, VersioningRetentionInfo,
-    VersioningStatsResponse,
+    IndexPathResponse, IndexStats, ListSourcesResponse, RemoveSourceResponse,
+    RestoreVersionResponse, SearchResponse, SearchResult, SourceInfo, VersionInfo,
+    VersioningRetentionInfo, VersioningStatsResponse,
 };
 use crate::search::{HybridQuery, SearchFilter};
 use crate::sources::parse_s3_uri;
@@ -806,7 +806,10 @@ impl AlloyServer {
         }
 
         let limit = params.limit.unwrap_or(50);
-        match coordinator.get_document_history(&params.document_id, Some(limit)).await {
+        match coordinator
+            .get_document_history(&params.document_id, Some(limit))
+            .await
+        {
             Ok(versions) => {
                 let version_infos: Vec<VersionInfo> = versions
                     .iter()
