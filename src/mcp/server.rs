@@ -36,7 +36,10 @@ use crate::mcp::tools::{
 use crate::metrics::get_metrics;
 use crate::search::{HybridQuery, SearchFilter};
 use crate::sources::parse_s3_uri;
-use crate::webhooks::{SharedWebhookDispatcher, WebhookConfig, WebhookDispatcher};
+use crate::webhooks::{
+    DocumentDeletedData, DocumentIndexedData, IndexErrorData, SharedWebhookDispatcher,
+    SourceAddedData, SourceRemovedData, WebhookConfig, WebhookDispatcher, WebhookEvent,
+};
 
 /// Alloy MCP server state.
 pub struct AlloyState {
@@ -123,7 +126,7 @@ impl AlloyServer {
     async fn ensure_coordinator(&self) -> Result<(), McpError> {
         let mut state = self.state.write().await;
         if state.coordinator.is_none() {
-            let coordinator = IndexCoordinator::new(state.config.clone())
+            let mut coordinator = IndexCoordinator::new(state.config.clone())
                 .await
                 .map_err(|e| {
                     McpError::internal_error(
@@ -131,9 +134,119 @@ impl AlloyServer {
                         None,
                     )
                 })?;
+
+            // Set up webhook integration by subscribing to progress events
+            let webhook_dispatcher = state.webhook_dispatcher.clone();
+            let webhooks_enabled = state.config.integration.webhooks.enabled;
+
+            if webhooks_enabled {
+                let rx = coordinator.progress_channel();
+                // Spawn a background task to process progress events and dispatch webhooks
+                tokio::spawn(async move {
+                    process_progress_events_for_webhooks(rx, webhook_dispatcher).await;
+                });
+            }
+
             state.coordinator = Some(coordinator);
         }
         Ok(())
+    }
+}
+
+/// Process IndexProgress events and dispatch corresponding webhooks.
+async fn process_progress_events_for_webhooks(
+    mut rx: tokio::sync::mpsc::UnboundedReceiver<IndexProgress>,
+    dispatcher: SharedWebhookDispatcher,
+) {
+    use tracing::debug;
+
+    while let Some(progress) = rx.recv().await {
+        match progress {
+            IndexProgress::DocumentProcessed {
+                source_id,
+                uri,
+                chunks,
+            } => {
+                // Dispatch document.indexed webhook
+                let data = DocumentIndexedData {
+                    document_id: uri.clone(),
+                    source_id: source_id.clone(),
+                    path: uri.clone(),
+                    mime_type: "application/octet-stream".to_string(), // Default, could be improved
+                    size_bytes: 0, // Not available in progress event
+                    chunk_count: chunks,
+                };
+                dispatcher
+                    .dispatch(&WebhookEvent::DocumentIndexed, data)
+                    .await;
+                debug!("Dispatched document.indexed webhook for {}", uri);
+            }
+            IndexProgress::DocumentRemoved { source_id, uri } => {
+                // Dispatch document.deleted webhook
+                let data = DocumentDeletedData {
+                    document_id: uri.clone(),
+                    source_id: source_id.clone(),
+                    path: uri.clone(),
+                };
+                dispatcher
+                    .dispatch(&WebhookEvent::DocumentDeleted, data)
+                    .await;
+                debug!("Dispatched document.deleted webhook for {}", uri);
+            }
+            IndexProgress::IndexComplete {
+                source_id,
+                documents,
+                ..
+            } => {
+                // Dispatch source.added webhook when indexing completes
+                let data = SourceAddedData {
+                    source_id: source_id.clone(),
+                    source_type: "unknown".to_string(), // Could be improved with more context
+                    path: source_id.clone(),
+                    document_count: documents,
+                };
+                dispatcher.dispatch(&WebhookEvent::SourceAdded, data).await;
+                debug!("Dispatched source.added webhook for {}", source_id);
+            }
+            IndexProgress::DocumentError {
+                source_id,
+                uri,
+                error,
+            } => {
+                // Dispatch index.error webhook
+                let data = IndexErrorData {
+                    source_id: source_id.clone(),
+                    path: uri.clone(),
+                    error: error.clone(),
+                };
+                dispatcher.dispatch(&WebhookEvent::IndexError, data).await;
+                debug!("Dispatched index.error webhook for {}: {}", uri, error);
+            }
+            IndexProgress::DocumentDeduplicated {
+                source_id,
+                uri,
+                duplicate_of,
+                similarity,
+            } => {
+                // Dispatch document.updated webhook for deduplication events
+                let data = serde_json::json!({
+                    "document_id": uri,
+                    "source_id": source_id,
+                    "duplicate_of": duplicate_of,
+                    "similarity": similarity,
+                    "action": "deduplicated"
+                });
+                dispatcher
+                    .dispatch(&WebhookEvent::DocumentUpdated, data)
+                    .await;
+                debug!(
+                    "Dispatched document.updated (deduplicated) webhook for {}",
+                    uri
+                );
+            }
+            // Other progress events don't need webhook dispatch
+            _ => {}
+        }
     }
 }
 
@@ -778,6 +891,18 @@ impl AlloyServer {
 
         match coordinator.remove_source(&params.source_id).await {
             Ok(docs_removed) => {
+                // Dispatch source.removed webhook if enabled
+                if state.config.integration.webhooks.enabled && docs_removed > 0 {
+                    let webhook_data = SourceRemovedData {
+                        source_id: params.source_id.clone(),
+                        documents_removed: docs_removed,
+                    };
+                    state
+                        .webhook_dispatcher
+                        .dispatch(&WebhookEvent::SourceRemoved, webhook_data)
+                        .await;
+                }
+
                 let response = RemoveSourceResponse {
                     success: docs_removed > 0,
                     documents_removed: docs_removed,
