@@ -20,6 +20,10 @@ use crate::embedding::{
     ApiEmbeddingProvider, BatchConfig, BatchEmbeddingProcessor, EmbeddingProvider,
     LocalEmbeddingProvider,
 };
+use crate::versioning::{
+    FileVersionStorage, InMemoryVersionStorage, RetentionPolicy, VersionDiff, VersionManager,
+    VersionMetadata, VersionStorage, VersioningConfig as VersionManagerConfig,
+};
 use crate::error::Result;
 use crate::processing::{
     CompositeDeduplicator, DeduplicationResult, Deduplicator, ProcessorRegistry, TextChunk,
@@ -147,6 +151,8 @@ pub struct IndexCoordinator {
     searcher: Arc<EnhancedHybridSearchOrchestrator>,
     /// Document deduplicator for detecting duplicate content.
     deduplicator: Option<Arc<dyn Deduplicator>>,
+    /// Version manager for document versioning.
+    version_manager: Option<Arc<VersionManager>>,
 }
 
 impl IndexCoordinator {
@@ -249,6 +255,45 @@ impl IndexCoordinator {
                 None
             };
 
+        // Create version manager if enabled
+        let version_manager: Option<Arc<VersionManager>> =
+            if config.indexing.versioning.enabled {
+                let version_storage: Arc<dyn VersionStorage> =
+                    if config.indexing.versioning.storage == "file" {
+                        let version_dir = data_dir.join("versions");
+                        Arc::new(
+                            FileVersionStorage::new(
+                                version_dir,
+                                config.indexing.versioning.delta_threshold,
+                            )
+                            .await?,
+                        )
+                    } else {
+                        // Default to in-memory storage
+                        Arc::new(InMemoryVersionStorage::new())
+                    };
+
+                let vm_config = VersionManagerConfig {
+                    enabled: config.indexing.versioning.enabled,
+                    storage: config.indexing.versioning.storage.clone(),
+                    delta_threshold: config.indexing.versioning.delta_threshold,
+                    retention: RetentionPolicy {
+                        min_versions: config.indexing.versioning.retention.min_versions,
+                        max_versions: config.indexing.versioning.retention.max_versions,
+                        min_age_days: config.indexing.versioning.retention.min_age_days,
+                        max_age_days: config.indexing.versioning.retention.max_age_days,
+                        keep_full_versions: config.indexing.versioning.retention.keep_full_versions,
+                        auto_cleanup: config.indexing.versioning.retention.auto_cleanup,
+                        cleanup_interval_hours: config.indexing.versioning.retention.cleanup_interval_hours,
+                        keep_patterns: vec![],
+                    },
+                };
+
+                Some(Arc::new(VersionManager::new(version_storage, vm_config)))
+            } else {
+                None
+            };
+
         Ok(Self {
             config,
             processors,
@@ -259,6 +304,7 @@ impl IndexCoordinator {
             progress_tx: None,
             searcher: Arc::new(searcher),
             deduplicator,
+            version_manager,
         })
     }
 
@@ -748,6 +794,121 @@ impl IndexCoordinator {
             dedup.remove(doc_id).await?;
         }
         Ok(())
+    }
+
+    // ========================================================================
+    // Versioning Methods
+    // ========================================================================
+
+    /// Check if versioning is enabled.
+    pub fn is_versioning_enabled(&self) -> bool {
+        self.version_manager.is_some()
+    }
+
+    /// Get versioning configuration.
+    pub fn versioning_config(&self) -> &crate::config::VersioningConfig {
+        &self.config.indexing.versioning
+    }
+
+    /// Get version history for a document.
+    pub async fn get_document_history(
+        &self,
+        doc_id: &str,
+        limit: Option<usize>,
+    ) -> Result<Vec<VersionMetadata>> {
+        if let Some(vm) = &self.version_manager {
+            vm.get_history(doc_id, limit).await
+        } else {
+            Ok(vec![])
+        }
+    }
+
+    /// Compare two versions of a document.
+    pub async fn diff_versions(
+        &self,
+        _doc_id: &str,
+        version_a: &str,
+        version_b: &str,
+        context_lines: usize,
+    ) -> Result<VersionDiff> {
+        let vm = self
+            .version_manager
+            .as_ref()
+            .ok_or_else(|| {
+                crate::error::AlloyError::Storage(crate::error::StorageError::InvalidOperation(
+                    "Versioning is not enabled".to_string(),
+                ))
+            })?;
+
+        vm.diff_versions(version_a, version_b, context_lines).await
+    }
+
+    /// Restore a document to a previous version.
+    pub async fn restore_version(
+        &self,
+        doc_id: &str,
+        version_id: &str,
+        author: Option<String>,
+    ) -> Result<VersionMetadata> {
+        let vm = self
+            .version_manager
+            .as_ref()
+            .ok_or_else(|| {
+                crate::error::AlloyError::Storage(crate::error::StorageError::InvalidOperation(
+                    "Versioning is not enabled".to_string(),
+                ))
+            })?;
+
+        let version = vm.restore_version(doc_id, version_id, author).await?;
+        Ok(VersionMetadata::from(&version))
+    }
+
+    /// Get content for a specific version.
+    pub async fn get_version_content(
+        &self,
+        version_id: &str,
+    ) -> Result<(VersionMetadata, String)> {
+        let vm = self
+            .version_manager
+            .as_ref()
+            .ok_or_else(|| {
+                crate::error::AlloyError::Storage(crate::error::StorageError::InvalidOperation(
+                    "Versioning is not enabled".to_string(),
+                ))
+            })?;
+
+        let version = vm
+            .get_version(version_id)
+            .await?
+            .ok_or_else(|| crate::error::StorageError::NotFound(version_id.to_string()))?;
+        let content = vm.get_version_content(version_id).await?;
+        Ok((VersionMetadata::from(&version), content))
+    }
+
+    /// Get versioning statistics.
+    pub async fn versioning_stats(&self) -> Result<(usize, u64)> {
+        if let Some(vm) = &self.version_manager {
+            let size = vm.total_size().await?;
+            // We'd need to count versions; for now approximate
+            Ok((0, size))
+        } else {
+            Ok((0, 0))
+        }
+    }
+
+    /// Create a new version for a document.
+    pub async fn create_version(
+        &self,
+        doc_id: &str,
+        content: &str,
+        author: Option<String>,
+    ) -> Result<Option<VersionMetadata>> {
+        if let Some(vm) = &self.version_manager {
+            let version = vm.create_version(doc_id, content, author).await?;
+            Ok(Some(VersionMetadata::from(&version)))
+        } else {
+            Ok(None)
+        }
     }
 }
 

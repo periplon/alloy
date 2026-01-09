@@ -14,7 +14,14 @@ use tokio::sync::RwLock;
 
 use crate::config::Config;
 use crate::coordinator::{IndexCoordinator, IndexProgress};
-use crate::mcp::tools::*;
+use crate::mcp::tools::{
+    CheckDuplicateResponse, ClearDeduplicationResponse, ClusterDocumentsResponse, ClusterInfo,
+    ClusterMetrics, ConfigureResponse, DeduplicationStatsResponse, DiffStatsInfo,
+    DiffVersionsResponse, DocumentDetails, GetDocumentHistoryResponse, GetVersionContentResponse,
+    IndexPathResponse, IndexStats, ListSourcesResponse, RemoveSourceResponse, RestoreVersionResponse,
+    SearchResponse, SearchResult, SourceInfo, VersionInfo, VersioningRetentionInfo,
+    VersioningStatsResponse,
+};
 use crate::search::{HybridQuery, SearchFilter};
 use crate::sources::parse_s3_uri;
 
@@ -168,6 +175,46 @@ pub struct CheckDuplicateParams {
     /// Optional document ID for the content
     #[serde(default)]
     pub document_id: Option<String>,
+}
+
+// Parameters for get_document_history tool
+#[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema)]
+pub struct GetDocumentHistoryParams {
+    /// Document ID to get history for
+    pub document_id: String,
+    /// Maximum number of versions to return (default: 50)
+    #[serde(default)]
+    pub limit: Option<usize>,
+}
+
+// Parameters for diff_versions tool
+#[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema)]
+pub struct DiffVersionsParams {
+    /// Document ID
+    pub document_id: String,
+    /// First version ID or version number (e.g., "v1" or "1")
+    pub version_a: String,
+    /// Second version ID or version number (e.g., "v2" or "latest")
+    pub version_b: String,
+    /// Number of context lines in diff (default: 3)
+    #[serde(default)]
+    pub context_lines: Option<usize>,
+}
+
+// Parameters for restore_version tool
+#[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema)]
+pub struct RestoreVersionParams {
+    /// Document ID
+    pub document_id: String,
+    /// Version ID to restore
+    pub version_id: String,
+}
+
+// Parameters for get_version_content tool
+#[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema)]
+pub struct GetVersionContentParams {
+    /// Version ID to get content for
+    pub version_id: String,
 }
 
 #[tool_router]
@@ -726,6 +773,290 @@ impl AlloyServer {
                 e
             ))])),
         }
+    }
+
+    // ========================================================================
+    // Versioning Tools
+    // ========================================================================
+
+    /// Get version history for a document.
+    #[tool(
+        description = "Get the version history of a document. Returns a list of all versions with timestamps, authors, and change types."
+    )]
+    async fn get_document_history(
+        &self,
+        Parameters(params): Parameters<GetDocumentHistoryParams>,
+    ) -> Result<CallToolResult, McpError> {
+        // Ensure coordinator is initialized
+        self.ensure_coordinator().await?;
+
+        let state = self.state.read().await;
+        let coordinator = state.coordinator.as_ref().unwrap();
+
+        if !coordinator.is_versioning_enabled() {
+            return Ok(CallToolResult::success(vec![Content::text(
+                serde_json::to_string_pretty(&GetDocumentHistoryResponse {
+                    document_id: params.document_id.clone(),
+                    versions: vec![],
+                    total_versions: 0,
+                    message: "Versioning is not enabled. Enable it in config.toml with [indexing.versioning] enabled = true".to_string(),
+                })
+                .unwrap(),
+            )]));
+        }
+
+        let limit = params.limit.unwrap_or(50);
+        match coordinator.get_document_history(&params.document_id, Some(limit)).await {
+            Ok(versions) => {
+                let version_infos: Vec<VersionInfo> = versions
+                    .iter()
+                    .map(|v| VersionInfo {
+                        version_id: v.version_id.clone(),
+                        version_number: v.version_number,
+                        timestamp: v.timestamp,
+                        author: v.author.clone(),
+                        change_type: format!("{:?}", v.change_type),
+                        size_bytes: v.size_bytes,
+                        content_hash: v.content_hash.clone(),
+                    })
+                    .collect();
+
+                let response = GetDocumentHistoryResponse {
+                    document_id: params.document_id.clone(),
+                    total_versions: version_infos.len(),
+                    versions: version_infos,
+                    message: format!(
+                        "Found {} versions for document {}",
+                        versions.len(),
+                        params.document_id
+                    ),
+                };
+
+                Ok(CallToolResult::success(vec![Content::text(
+                    serde_json::to_string_pretty(&response).unwrap(),
+                )]))
+            }
+            Err(e) => Ok(CallToolResult::success(vec![Content::text(format!(
+                "Failed to get document history: {}",
+                e
+            ))])),
+        }
+    }
+
+    /// Compare two versions of a document.
+    #[tool(
+        description = "Compare two versions of a document and show the differences. Returns a unified diff format."
+    )]
+    async fn diff_versions(
+        &self,
+        Parameters(params): Parameters<DiffVersionsParams>,
+    ) -> Result<CallToolResult, McpError> {
+        // Ensure coordinator is initialized
+        self.ensure_coordinator().await?;
+
+        let state = self.state.read().await;
+        let coordinator = state.coordinator.as_ref().unwrap();
+
+        if !coordinator.is_versioning_enabled() {
+            return Ok(CallToolResult::success(vec![Content::text(
+                "Versioning is not enabled. Enable it in config.toml with [indexing.versioning] enabled = true",
+            )]));
+        }
+
+        let context_lines = params.context_lines.unwrap_or(3);
+
+        match coordinator
+            .diff_versions(
+                &params.document_id,
+                &params.version_a,
+                &params.version_b,
+                context_lines,
+            )
+            .await
+        {
+            Ok(diff) => {
+                let response = DiffVersionsResponse {
+                    document_id: params.document_id.clone(),
+                    version_a: VersionInfo {
+                        version_id: diff.version_a.version_id.clone(),
+                        version_number: diff.version_a.version_number,
+                        timestamp: diff.version_a.timestamp,
+                        author: diff.version_a.author.clone(),
+                        change_type: format!("{:?}", diff.version_a.change_type),
+                        size_bytes: diff.version_a.size_bytes,
+                        content_hash: diff.version_a.content_hash.clone(),
+                    },
+                    version_b: VersionInfo {
+                        version_id: diff.version_b.version_id.clone(),
+                        version_number: diff.version_b.version_number,
+                        timestamp: diff.version_b.timestamp,
+                        author: diff.version_b.author.clone(),
+                        change_type: format!("{:?}", diff.version_b.change_type),
+                        size_bytes: diff.version_b.size_bytes,
+                        content_hash: diff.version_b.content_hash.clone(),
+                    },
+                    unified_diff: diff.unified_diff.clone(),
+                    stats: DiffStatsInfo {
+                        lines_added: diff.diff.stats.lines_added,
+                        lines_removed: diff.diff.stats.lines_removed,
+                        lines_unchanged: diff.diff.stats.lines_unchanged,
+                    },
+                    message: format!(
+                        "Diff between v{} and v{}: +{} -{} lines",
+                        diff.version_a.version_number,
+                        diff.version_b.version_number,
+                        diff.diff.stats.lines_added,
+                        diff.diff.stats.lines_removed
+                    ),
+                };
+
+                Ok(CallToolResult::success(vec![Content::text(
+                    serde_json::to_string_pretty(&response).unwrap(),
+                )]))
+            }
+            Err(e) => Ok(CallToolResult::success(vec![Content::text(format!(
+                "Failed to diff versions: {}",
+                e
+            ))])),
+        }
+    }
+
+    /// Restore a document to a previous version.
+    #[tool(
+        description = "Restore a document to a previous version. Creates a new version with the restored content."
+    )]
+    async fn restore_version(
+        &self,
+        Parameters(params): Parameters<RestoreVersionParams>,
+    ) -> Result<CallToolResult, McpError> {
+        // Ensure coordinator is initialized
+        self.ensure_coordinator().await?;
+
+        let state = self.state.read().await;
+        let coordinator = state.coordinator.as_ref().unwrap();
+
+        if !coordinator.is_versioning_enabled() {
+            return Ok(CallToolResult::success(vec![Content::text(
+                "Versioning is not enabled. Enable it in config.toml with [indexing.versioning] enabled = true",
+            )]));
+        }
+
+        match coordinator
+            .restore_version(&params.document_id, &params.version_id, None)
+            .await
+        {
+            Ok(restored) => {
+                let response = RestoreVersionResponse {
+                    document_id: params.document_id.clone(),
+                    restored_version: VersionInfo {
+                        version_id: restored.version_id.clone(),
+                        version_number: restored.version_number,
+                        timestamp: restored.timestamp,
+                        author: restored.author.clone(),
+                        change_type: format!("{:?}", restored.change_type),
+                        size_bytes: restored.size_bytes,
+                        content_hash: restored.content_hash.clone(),
+                    },
+                    restored_from: params.version_id.clone(),
+                    success: true,
+                    message: format!(
+                        "Successfully restored document {} to version {} (new version: {})",
+                        params.document_id, params.version_id, restored.version_number
+                    ),
+                };
+
+                Ok(CallToolResult::success(vec![Content::text(
+                    serde_json::to_string_pretty(&response).unwrap(),
+                )]))
+            }
+            Err(e) => Ok(CallToolResult::success(vec![Content::text(format!(
+                "Failed to restore version: {}",
+                e
+            ))])),
+        }
+    }
+
+    /// Get the content of a specific version.
+    #[tool(description = "Get the full content of a specific document version.")]
+    async fn get_version_content(
+        &self,
+        Parameters(params): Parameters<GetVersionContentParams>,
+    ) -> Result<CallToolResult, McpError> {
+        // Ensure coordinator is initialized
+        self.ensure_coordinator().await?;
+
+        let state = self.state.read().await;
+        let coordinator = state.coordinator.as_ref().unwrap();
+
+        if !coordinator.is_versioning_enabled() {
+            return Ok(CallToolResult::success(vec![Content::text(
+                "Versioning is not enabled. Enable it in config.toml with [indexing.versioning] enabled = true",
+            )]));
+        }
+
+        match coordinator.get_version_content(&params.version_id).await {
+            Ok((version, content)) => {
+                let response = GetVersionContentResponse {
+                    version_id: version.version_id.clone(),
+                    document_id: params.version_id.clone(), // VersionMetadata doesn't store doc_id
+                    version_number: version.version_number,
+                    content,
+                    size_bytes: version.size_bytes,
+                    message: format!(
+                        "Retrieved content for version {} (v{})",
+                        version.version_id, version.version_number
+                    ),
+                };
+
+                Ok(CallToolResult::success(vec![Content::text(
+                    serde_json::to_string_pretty(&response).unwrap(),
+                )]))
+            }
+            Err(e) => Ok(CallToolResult::success(vec![Content::text(format!(
+                "Failed to get version content: {}",
+                e
+            ))])),
+        }
+    }
+
+    /// Get versioning configuration and statistics.
+    #[tool(description = "Get versioning configuration and statistics.")]
+    async fn get_versioning_stats(&self) -> Result<CallToolResult, McpError> {
+        // Ensure coordinator is initialized
+        self.ensure_coordinator().await?;
+
+        let state = self.state.read().await;
+        let coordinator = state.coordinator.as_ref().unwrap();
+        let config = coordinator.versioning_config();
+
+        let (total_versions, total_size) = if config.enabled {
+            match coordinator.versioning_stats().await {
+                Ok(stats) => (Some(stats.0), Some(stats.1)),
+                Err(_) => (None, None),
+            }
+        } else {
+            (None, None)
+        };
+
+        let response = VersioningStatsResponse {
+            enabled: config.enabled,
+            storage: config.storage.clone(),
+            delta_threshold: config.delta_threshold,
+            total_versions,
+            total_size_bytes: total_size,
+            retention: VersioningRetentionInfo {
+                min_versions: config.retention.min_versions,
+                max_versions: config.retention.max_versions,
+                min_age_days: config.retention.min_age_days,
+                max_age_days: config.retention.max_age_days,
+                keep_full_versions: config.retention.keep_full_versions,
+                auto_cleanup: config.retention.auto_cleanup,
+            },
+        };
+
+        Ok(CallToolResult::success(vec![Content::text(
+            serde_json::to_string_pretty(&response).unwrap(),
+        )]))
     }
 }
 

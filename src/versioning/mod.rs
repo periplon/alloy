@@ -12,9 +12,9 @@ mod retention;
 mod storage;
 
 pub use diff::{compute_diff, DiffResult, DiffStats, UnifiedDiff};
-pub use manager::{VersionManager, VersioningConfig};
+pub use manager::{VersionDiff, VersionManager, VersioningConfig};
 pub use retention::{RetentionPattern, RetentionPolicy};
 pub use storage::{
-    ChangeType, DocumentVersion, FileVersionStorage, VersionMetadata, VersionStorage,
-    VersionStorageType,
+    ChangeType, DocumentVersion, FileVersionStorage, InMemoryVersionStorage, VersionMetadata,
+    VersionStorage, VersionStorageType,
 };

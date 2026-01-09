@@ -326,3 +326,134 @@ pub struct ClearDeduplicationResponse {
     /// Status message.
     pub message: String,
 }
+
+// ============================================================================
+// Versioning Types
+// ============================================================================
+
+/// Get document history response.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct GetDocumentHistoryResponse {
+    /// Document ID.
+    pub document_id: String,
+    /// List of version metadata.
+    pub versions: Vec<VersionInfo>,
+    /// Total number of versions.
+    pub total_versions: usize,
+    /// Message.
+    pub message: String,
+}
+
+/// Version information.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct VersionInfo {
+    /// Version ID.
+    pub version_id: String,
+    /// Sequential version number.
+    pub version_number: u64,
+    /// When this version was created.
+    pub timestamp: chrono::DateTime<chrono::Utc>,
+    /// User who made the change.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub author: Option<String>,
+    /// Type of change.
+    pub change_type: String,
+    /// Content size in bytes.
+    pub size_bytes: usize,
+    /// Content hash (SHA-256).
+    pub content_hash: String,
+}
+
+/// Diff versions response.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DiffVersionsResponse {
+    /// Document ID.
+    pub document_id: String,
+    /// Version A info.
+    pub version_a: VersionInfo,
+    /// Version B info.
+    pub version_b: VersionInfo,
+    /// Unified diff output.
+    pub unified_diff: String,
+    /// Statistics about the diff.
+    pub stats: DiffStatsInfo,
+    /// Message.
+    pub message: String,
+}
+
+/// Diff statistics.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DiffStatsInfo {
+    /// Lines added.
+    pub lines_added: usize,
+    /// Lines removed.
+    pub lines_removed: usize,
+    /// Lines unchanged.
+    pub lines_unchanged: usize,
+}
+
+/// Restore version response.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RestoreVersionResponse {
+    /// Document ID.
+    pub document_id: String,
+    /// Restored version info.
+    pub restored_version: VersionInfo,
+    /// The version that was restored from.
+    pub restored_from: String,
+    /// Success status.
+    pub success: bool,
+    /// Message.
+    pub message: String,
+}
+
+/// Get version content response.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct GetVersionContentResponse {
+    /// Version ID.
+    pub version_id: String,
+    /// Document ID.
+    pub document_id: String,
+    /// Version number.
+    pub version_number: u64,
+    /// Full content of the version.
+    pub content: String,
+    /// Content size in bytes.
+    pub size_bytes: usize,
+    /// Message.
+    pub message: String,
+}
+
+/// Versioning statistics response.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct VersioningStatsResponse {
+    /// Whether versioning is enabled.
+    pub enabled: bool,
+    /// Storage type.
+    pub storage: String,
+    /// Delta threshold.
+    pub delta_threshold: usize,
+    /// Total versions across all documents.
+    pub total_versions: Option<usize>,
+    /// Total storage used by versions.
+    pub total_size_bytes: Option<u64>,
+    /// Retention policy info.
+    pub retention: VersioningRetentionInfo,
+}
+
+/// Versioning retention info.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct VersioningRetentionInfo {
+    /// Minimum versions to keep.
+    pub min_versions: usize,
+    /// Maximum versions to keep.
+    pub max_versions: usize,
+    /// Minimum age in days.
+    pub min_age_days: u32,
+    /// Maximum age in days.
+    pub max_age_days: u32,
+    /// Keep full versions.
+    pub keep_full_versions: bool,
+    /// Auto cleanup enabled.
+    pub auto_cleanup: bool,
+}
