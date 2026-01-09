@@ -72,6 +72,10 @@
 //! let report = review.generate_weekly_review(WeeklyReviewParams::default()).await?;
 //! ```
 
+pub mod attention;
+pub mod commitments;
+pub mod dependencies;
+pub mod horizons;
 pub mod inbox;
 mod projects;
 pub mod recommend;
@@ -103,3 +107,23 @@ pub use someday::SomedayManager;
 pub use tasks::TaskManager;
 pub use types::*;
 pub use waiting::WaitingManager;
+
+// Advanced features (Phase 8)
+pub use attention::{
+    AttentionImbalance, AttentionManager, AttentionMetrics, AttentionParams, AttentionScore,
+    AttentionTrend, DailyAttention, FocusDepth, FocusRating, ImbalanceSeverity,
+};
+pub use commitments::{
+    Commitment, CommitmentDirection, CommitmentExtractionResult, CommitmentFilter,
+    CommitmentManager, CommitmentStatus, CommitmentSummary, PersonCommitments,
+};
+pub use dependencies::{
+    BlockedItem, BlockerInfo, BlockerItem, BlockerSeverity, CriticalPath, DependencyEdge,
+    DependencyGraph, DependencyManager, DependencyNode, DependencyParams, DependencyType,
+    GraphStats, NodeType, OutputFormat,
+};
+pub use horizons::{
+    AlignmentAnalysis, AlignmentChain, AlignmentGap, ChainLink, Horizon, HorizonHealth,
+    HorizonItem, HorizonLevel, HorizonManager, HorizonMap, HorizonParams, HorizonRecommendation,
+    HorizonStatus, OrphanedItem,
+};

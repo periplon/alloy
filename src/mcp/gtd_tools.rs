@@ -855,3 +855,408 @@ impl GtdWeeklyReviewResponse {
         }
     }
 }
+
+// ============================================================================
+// Advanced Features: Attention Economics Tool Types
+// ============================================================================
+
+/// Parameters for the gtd_attention tool.
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+pub struct GtdAttentionParams {
+    /// Start of analysis period (ISO 8601).
+    #[serde(default)]
+    pub period_start: Option<DateTime<Utc>>,
+    /// End of analysis period (ISO 8601).
+    #[serde(default)]
+    pub period_end: Option<DateTime<Utc>>,
+    /// Number of days to analyze (default: 30).
+    #[serde(default = "default_attention_period")]
+    pub period_days: u32,
+    /// Include detailed project breakdown.
+    #[serde(default = "default_true")]
+    pub include_projects: bool,
+    /// Include attention trends over time.
+    #[serde(default = "default_true")]
+    pub include_trends: bool,
+    /// Focus areas to analyze (empty = all).
+    #[serde(default)]
+    pub focus_areas: Vec<String>,
+}
+
+fn default_attention_period() -> u32 {
+    30
+}
+
+impl Default for GtdAttentionParams {
+    fn default() -> Self {
+        Self {
+            period_start: None,
+            period_end: None,
+            period_days: 30,
+            include_projects: true,
+            include_trends: true,
+            focus_areas: Vec::new(),
+        }
+    }
+}
+
+/// Response for attention economics analysis.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct GtdAttentionResponse {
+    /// Whether the operation succeeded.
+    pub success: bool,
+    /// Attention metrics.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub metrics: Option<crate::gtd::AttentionMetrics>,
+    /// Status message.
+    pub message: String,
+}
+
+impl GtdAttentionResponse {
+    pub fn success(metrics: crate::gtd::AttentionMetrics, message: impl Into<String>) -> Self {
+        Self {
+            success: true,
+            metrics: Some(metrics),
+            message: message.into(),
+        }
+    }
+
+    pub fn error(message: impl Into<String>) -> Self {
+        Self {
+            success: false,
+            metrics: None,
+            message: message.into(),
+        }
+    }
+}
+
+// ============================================================================
+// Advanced Features: Commitment Tracking Tool Types
+// ============================================================================
+
+/// Action to perform on commitments.
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum CommitmentAction {
+    /// List commitments matching filters.
+    List,
+    /// Get a specific commitment.
+    Get,
+    /// Extract commitments from text.
+    Extract,
+    /// Create a new commitment.
+    Create,
+    /// Mark commitment as fulfilled.
+    Fulfill,
+    /// Mark commitment as cancelled.
+    Cancel,
+    /// Get commitment summary.
+    Summary,
+    /// Get overdue commitments.
+    Overdue,
+    /// Get commitments made to a person.
+    MadeTo,
+    /// Get commitments received from a person.
+    ReceivedFrom,
+}
+
+/// Parameters for the gtd_commitments tool.
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+pub struct GtdCommitmentsParams {
+    /// The action to perform.
+    pub action: CommitmentAction,
+    /// Commitment ID (for get, fulfill, cancel).
+    #[serde(default)]
+    pub commitment_id: Option<String>,
+    /// Text to extract commitments from (for extract).
+    #[serde(default)]
+    pub text: Option<String>,
+    /// Document ID for extraction context.
+    #[serde(default)]
+    pub document_id: Option<String>,
+    /// Person name (for made_to, received_from).
+    #[serde(default)]
+    pub person: Option<String>,
+    /// Filter by commitment type (made, received).
+    #[serde(default)]
+    pub commitment_type: Option<String>,
+    /// Filter by status.
+    #[serde(default)]
+    pub status: Option<String>,
+    /// Description (for create).
+    #[serde(default)]
+    pub description: Option<String>,
+    /// Maximum number of results.
+    #[serde(default = "default_commitment_limit")]
+    pub limit: usize,
+}
+
+fn default_commitment_limit() -> usize {
+    100
+}
+
+impl Default for GtdCommitmentsParams {
+    fn default() -> Self {
+        Self {
+            action: CommitmentAction::List,
+            commitment_id: None,
+            text: None,
+            document_id: None,
+            person: None,
+            commitment_type: None,
+            status: None,
+            description: None,
+            limit: 100,
+        }
+    }
+}
+
+/// Response for commitment operations.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct GtdCommitmentsResponse {
+    /// Whether the operation succeeded.
+    pub success: bool,
+    /// Single commitment (for get, create).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub commitment: Option<crate::gtd::Commitment>,
+    /// List of commitments.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub commitments: Option<Vec<crate::gtd::Commitment>>,
+    /// Extraction result (for extract).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub extraction: Option<crate::gtd::CommitmentExtractionResult>,
+    /// Summary (for summary).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub summary: Option<crate::gtd::CommitmentSummary>,
+    /// Status message.
+    pub message: String,
+}
+
+impl GtdCommitmentsResponse {
+    pub fn success_single(commitment: crate::gtd::Commitment, message: impl Into<String>) -> Self {
+        Self {
+            success: true,
+            commitment: Some(commitment),
+            commitments: None,
+            extraction: None,
+            summary: None,
+            message: message.into(),
+        }
+    }
+
+    pub fn success_list(
+        commitments: Vec<crate::gtd::Commitment>,
+        message: impl Into<String>,
+    ) -> Self {
+        Self {
+            success: true,
+            commitment: None,
+            commitments: Some(commitments),
+            extraction: None,
+            summary: None,
+            message: message.into(),
+        }
+    }
+
+    pub fn success_extraction(
+        result: crate::gtd::CommitmentExtractionResult,
+        message: impl Into<String>,
+    ) -> Self {
+        Self {
+            success: true,
+            commitment: None,
+            commitments: None,
+            extraction: Some(result),
+            summary: None,
+            message: message.into(),
+        }
+    }
+
+    pub fn success_summary(
+        summary: crate::gtd::CommitmentSummary,
+        message: impl Into<String>,
+    ) -> Self {
+        Self {
+            success: true,
+            commitment: None,
+            commitments: None,
+            extraction: None,
+            summary: Some(summary),
+            message: message.into(),
+        }
+    }
+
+    pub fn error(message: impl Into<String>) -> Self {
+        Self {
+            success: false,
+            commitment: None,
+            commitments: None,
+            extraction: None,
+            summary: None,
+            message: message.into(),
+        }
+    }
+}
+
+// ============================================================================
+// Advanced Features: Dependency Graph Tool Types
+// ============================================================================
+
+/// Parameters for the gtd_dependencies tool.
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+pub struct GtdDependenciesParams {
+    /// Focus on a specific project.
+    #[serde(default)]
+    pub project_id: Option<String>,
+    /// Include completed items.
+    #[serde(default)]
+    pub include_completed: bool,
+    /// Maximum depth to traverse.
+    #[serde(default = "default_max_depth")]
+    pub max_depth: usize,
+    /// Include critical path analysis.
+    #[serde(default = "default_true")]
+    pub include_critical_path: bool,
+    /// Include blocker analysis.
+    #[serde(default = "default_true")]
+    pub include_blockers: bool,
+    /// Output format (json, mermaid, dot, text).
+    #[serde(default = "default_output_format")]
+    pub output_format: String,
+}
+
+fn default_max_depth() -> usize {
+    10
+}
+
+fn default_output_format() -> String {
+    "json".to_string()
+}
+
+impl Default for GtdDependenciesParams {
+    fn default() -> Self {
+        Self {
+            project_id: None,
+            include_completed: false,
+            max_depth: 10,
+            include_critical_path: true,
+            include_blockers: true,
+            output_format: "json".to_string(),
+        }
+    }
+}
+
+/// Response for dependency graph operations.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct GtdDependenciesResponse {
+    /// Whether the operation succeeded.
+    pub success: bool,
+    /// The dependency graph.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub graph: Option<crate::gtd::DependencyGraph>,
+    /// Critical path (if requested).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub critical_path: Option<crate::gtd::CriticalPath>,
+    /// Blockers (if requested).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub blockers: Option<Vec<crate::gtd::BlockerInfo>>,
+    /// Status message.
+    pub message: String,
+}
+
+impl GtdDependenciesResponse {
+    pub fn success(graph: crate::gtd::DependencyGraph, message: impl Into<String>) -> Self {
+        Self {
+            success: true,
+            graph: Some(graph),
+            critical_path: None,
+            blockers: None,
+            message: message.into(),
+        }
+    }
+
+    pub fn error(message: impl Into<String>) -> Self {
+        Self {
+            success: false,
+            graph: None,
+            critical_path: None,
+            blockers: None,
+            message: message.into(),
+        }
+    }
+}
+
+// ============================================================================
+// Advanced Features: Horizons Mapping Tool Types
+// ============================================================================
+
+/// Parameters for the gtd_horizons tool.
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+pub struct GtdHorizonsParams {
+    /// Horizons to include (empty = all).
+    /// Options: runway, h10k, h20k, h30k, h40k, h50k
+    #[serde(default)]
+    pub horizons: Vec<String>,
+    /// Include item counts.
+    #[serde(default = "default_true")]
+    pub include_counts: bool,
+    /// Include health metrics.
+    #[serde(default = "default_true")]
+    pub include_health: bool,
+    /// Include alignment analysis.
+    #[serde(default = "default_true")]
+    pub include_alignment: bool,
+    /// Maximum items per horizon.
+    #[serde(default = "default_items_per_horizon")]
+    pub items_per_horizon: usize,
+    /// Filter by area.
+    #[serde(default)]
+    pub area: Option<String>,
+}
+
+fn default_items_per_horizon() -> usize {
+    10
+}
+
+impl Default for GtdHorizonsParams {
+    fn default() -> Self {
+        Self {
+            horizons: Vec::new(),
+            include_counts: true,
+            include_health: true,
+            include_alignment: true,
+            items_per_horizon: 10,
+            area: None,
+        }
+    }
+}
+
+/// Response for horizons mapping.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct GtdHorizonsResponse {
+    /// Whether the operation succeeded.
+    pub success: bool,
+    /// The horizon map.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub horizon_map: Option<crate::gtd::HorizonMap>,
+    /// Status message.
+    pub message: String,
+}
+
+impl GtdHorizonsResponse {
+    pub fn success(horizon_map: crate::gtd::HorizonMap, message: impl Into<String>) -> Self {
+        Self {
+            success: true,
+            horizon_map: Some(horizon_map),
+            message: message.into(),
+        }
+    }
+
+    pub fn error(message: impl Into<String>) -> Self {
+        Self {
+            success: false,
+            horizon_map: None,
+            message: message.into(),
+        }
+    }
+}
