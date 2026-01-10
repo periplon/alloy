@@ -1251,6 +1251,167 @@ impl IndexCoordinator {
         sources.values().cloned().collect()
     }
 
+    /// Add a document directly to the store from content bytes.
+    ///
+    /// This bypasses source scanning and change detection, allowing documents
+    /// to be added programmatically or via API.
+    pub async fn add_document_direct(
+        &self,
+        content: bytes::Bytes,
+        mime_type: &str,
+        source_id: &str,
+        title: Option<String>,
+        metadata: Option<serde_json::Value>,
+        extract_ontology: bool,
+    ) -> Result<(IndexedDocument, usize, Option<DocumentExtractionResult>)> {
+        let doc_id = format!("direct-{}", uuid::Uuid::new_v4());
+        let uri = format!("direct://{}/{}", source_id, doc_id);
+
+        let item = SourceItem {
+            id: doc_id.clone(),
+            uri: uri.clone(),
+            mime_type: mime_type.to_string(),
+            size: content.len() as u64,
+            modified: Utc::now(),
+            metadata: metadata.clone().unwrap_or_else(|| serde_json::json!({})),
+        };
+
+        // Process the document (extract text and chunk)
+        let processed = self.processors.process(content, &item).await?;
+
+        // Check for duplicates if deduplication is enabled
+        if let Some(dedup) = &self.deduplicator {
+            let dedup_result = dedup.check(&processed.text, &doc_id).await?;
+            if dedup_result.is_duplicate {
+                let action = self.config.indexing.deduplication.action;
+                if matches!(action, crate::config::DeduplicationAction::Skip) {
+                    return Err(crate::error::AlloyError::Mcp(format!(
+                        "Document skipped: duplicate of {} with similarity {:.2}",
+                        dedup_result.duplicate_of.unwrap_or_default(),
+                        dedup_result.similarity
+                    )));
+                }
+            }
+        }
+
+        // Generate embeddings for chunks
+        let embeddings = self.embed_chunks(&processed.chunks).await?;
+
+        // Build metadata
+        let mut final_metadata = serde_json::json!({
+            "title": title.clone().or_else(|| processed.metadata.title.clone()).unwrap_or_else(|| doc_id.clone()),
+            "author": processed.metadata.author,
+            "word_count": processed.metadata.word_count,
+            "added_directly": true,
+        });
+
+        // Merge additional metadata if provided
+        if let Some(extra) = metadata {
+            if let Some(obj) = final_metadata.as_object_mut() {
+                if let Some(extra_obj) = extra.as_object() {
+                    for (k, v) in extra_obj {
+                        obj.insert(k.clone(), v.clone());
+                    }
+                }
+            }
+        }
+
+        // Create indexed document
+        let doc = IndexedDocument {
+            id: doc_id.clone(),
+            source_id: source_id.to_string(),
+            path: uri.clone(),
+            mime_type: mime_type.to_string(),
+            size: item.size,
+            content: processed.text.clone(),
+            modified_at: item.modified,
+            indexed_at: Utc::now(),
+            metadata: final_metadata,
+        };
+
+        // Create vector chunks
+        let vector_chunks: Vec<VectorChunk> = processed
+            .chunks
+            .iter()
+            .zip(embeddings.iter())
+            .map(|(chunk, embedding)| VectorChunk {
+                id: chunk.id.clone(),
+                document_id: doc_id.clone(),
+                text: chunk.text.clone(),
+                vector: embedding.clone(),
+                start_offset: chunk.start_offset,
+                end_offset: chunk.end_offset,
+            })
+            .collect();
+
+        let chunk_count = vector_chunks.len();
+
+        // Store in backend
+        self.storage.store(doc.clone(), vector_chunks).await?;
+
+        // Update metrics
+        let metrics = get_metrics();
+        metrics.documents_indexed_total.inc();
+        metrics.chunks_created_total.inc_by(chunk_count as u64);
+
+        // Extract entities for ontology if requested
+        let mut extraction_result = None;
+        if extract_ontology {
+            if let Some(ref extractor) = self.extraction_processor {
+                match extractor.extract_from_content(&processed, &doc_id).await {
+                    Ok(result) => {
+                        // Store extracted entities in the ontology store
+                        let store = self.ontology_store.write().await;
+                        for entity in &result.entities {
+                            if let Err(e) = store.create_entity(entity.clone()).await {
+                                debug!("Failed to store extracted entity {}: {}", entity.name, e);
+                            }
+                        }
+                        for relationship in &result.relationships {
+                            if let Err(e) = store.create_relationship(relationship.clone()).await {
+                                debug!("Failed to store extracted relationship: {}", e);
+                            }
+                        }
+                        extraction_result = Some(result);
+                    }
+                    Err(e) => {
+                        warn!("Entity extraction failed for {}: {}", uri, e);
+                    }
+                }
+            }
+        }
+
+        // Register with deduplicator for future checks
+        if let Some(dedup) = &self.deduplicator {
+            dedup.register(&processed.text, &doc_id).await?;
+        }
+
+        // Update source tracking
+        {
+            let mut sources = self.sources.write().await;
+            if let Some(source) = sources.get_mut(source_id) {
+                source.document_count += 1;
+                source.last_scan = Utc::now();
+            } else {
+                sources.insert(source_id.to_string(), IndexedSource {
+                    id: source_id.to_string(),
+                    source_type: "direct".to_string(),
+                    path: source_id.to_string(),
+                    document_count: 1,
+                    watching: false,
+                    last_scan: Utc::now(),
+                    status: SourceStatus::Ready,
+                    error: None,
+                });
+            }
+        }
+
+        // Persist sources update
+        let _ = self.save_sources().await;
+
+        Ok((doc, chunk_count, extraction_result))
+    }
+
     /// Get storage statistics.
     pub async fn stats(&self) -> Result<StorageStats> {
         let stats = self.storage.stats().await?;
