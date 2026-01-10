@@ -38,6 +38,7 @@ use crate::mcp::tools::{
     VersioningStatsResponse, VisualizationPoint, WebhookDeliveryInfo, WebhookInfo,
 };
 use crate::metrics::get_metrics;
+use crate::ontology::DeletionStrategy;
 use crate::query::{IntentClassifier, QueryMode};
 use crate::search::{HybridQuery, SearchFilter};
 use crate::sources::parse_s3_uri;
@@ -327,6 +328,12 @@ pub struct GetDocumentParams {
 pub struct RemoveSourceParams {
     /// Source ID to remove
     pub source_id: String,
+    /// Knowledge graph deletion strategy. Options:
+    /// - "remove_source_refs" (default): Remove refs, delete only orphaned entities
+    /// - "delete_affected": Delete all entities/relationships referencing the source
+    /// - "preserve_knowledge": Remove refs only, never delete knowledge
+    #[serde(default)]
+    pub knowledge_strategy: Option<String>,
 }
 
 // Parameters for configure tool
@@ -962,7 +969,9 @@ impl AlloyServer {
     }
 
     /// Remove an indexed source and all its documents from the index.
-    #[tool(description = "Remove an indexed source and all its documents from the index.")]
+    #[tool(
+        description = "Remove an indexed source and all its documents from the index. Optionally specify a knowledge_strategy to control how associated entities/relationships are handled: 'remove_source_refs' (default) removes refs and deletes orphans, 'delete_affected' deletes all affected knowledge, 'preserve_knowledge' keeps all knowledge even if orphaned."
+    )]
     async fn remove_source(
         &self,
         Parameters(params): Parameters<RemoveSourceParams>,
@@ -1001,13 +1010,30 @@ impl AlloyServer {
             // If no source ACL exists, we allow the operation (default behavior)
         }
 
-        match coordinator.remove_source(&params.source_id).await {
-            Ok(Some(docs_removed)) => {
+        // Parse the deletion strategy from the parameter
+        let strategy = match &params.knowledge_strategy {
+            Some(s) => match s.parse::<DeletionStrategy>() {
+                Ok(strat) => strat,
+                Err(e) => {
+                    return Ok(CallToolResult::success(vec![Content::text(format!(
+                        "Invalid knowledge_strategy: {}",
+                        e
+                    ))]));
+                }
+            },
+            None => DeletionStrategy::default(),
+        };
+
+        match coordinator
+            .remove_source_with_strategy(&params.source_id, strategy)
+            .await
+        {
+            Ok(Some(result)) => {
                 // Dispatch source.removed webhook if enabled
                 if state.config.integration.webhooks.enabled {
                     let webhook_data = SourceRemovedData {
                         source_id: params.source_id.clone(),
-                        documents_removed: docs_removed,
+                        documents_removed: result.documents_removed,
                     };
                     state
                         .webhook_dispatcher
@@ -1015,12 +1041,25 @@ impl AlloyServer {
                         .await;
                 }
 
+                let knowledge = &result.knowledge_result;
                 let response = RemoveSourceResponse {
                     success: true,
-                    documents_removed: docs_removed,
+                    source_id: params.source_id.clone(),
+                    documents_removed: result.documents_removed,
+                    entities_affected: Some(knowledge.total_entities_affected()),
+                    entities_deleted: Some(knowledge.entities_deleted),
+                    relationships_affected: Some(knowledge.total_relationships_affected()),
+                    relationships_deleted: Some(knowledge.relationships_deleted),
+                    strategy: Some(strategy.to_string()),
                     message: format!(
-                        "Removed source {} with {} documents",
-                        params.source_id, docs_removed
+                        "Removed source {} with {} documents. Knowledge impact: {} entities affected ({} deleted), {} relationships affected ({} deleted). Strategy: {}",
+                        params.source_id,
+                        result.documents_removed,
+                        knowledge.total_entities_affected(),
+                        knowledge.entities_deleted,
+                        knowledge.total_relationships_affected(),
+                        knowledge.relationships_deleted,
+                        strategy
                     ),
                 };
 
@@ -1031,7 +1070,13 @@ impl AlloyServer {
             Ok(None) => {
                 let response = RemoveSourceResponse {
                     success: false,
+                    source_id: params.source_id.clone(),
                     documents_removed: 0,
+                    entities_affected: None,
+                    entities_deleted: None,
+                    relationships_affected: None,
+                    relationships_deleted: None,
+                    strategy: None,
                     message: format!("Source not found: {}", params.source_id),
                 };
 

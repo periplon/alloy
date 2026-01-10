@@ -1201,10 +1201,7 @@ impl IndexCoordinator {
         // Step 3: Remove documents from storage
         for doc in &documents {
             if let Err(e) = self.storage.remove(&doc.id).await {
-                warn!(
-                    "Failed to remove document '{}' from storage: {}",
-                    doc.id, e
-                );
+                warn!("Failed to remove document '{}' from storage: {}", doc.id, e);
             }
         }
 

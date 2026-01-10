@@ -183,8 +183,25 @@ pub struct RemoveSourceRequest {
 pub struct RemoveSourceResponse {
     /// Whether removal was successful
     pub success: bool,
+    /// Source ID that was removed
+    pub source_id: String,
     /// Number of documents removed
     pub documents_removed: usize,
+    /// Number of entities affected (updated or deleted)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub entities_affected: Option<usize>,
+    /// Number of entities deleted
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub entities_deleted: Option<usize>,
+    /// Number of relationships affected (updated or deleted)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub relationships_affected: Option<usize>,
+    /// Number of relationships deleted
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub relationships_deleted: Option<usize>,
+    /// Deletion strategy used
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub strategy: Option<String>,
     /// Status message
     pub message: String,
 }

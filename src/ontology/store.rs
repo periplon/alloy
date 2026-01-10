@@ -1014,9 +1014,7 @@ impl OntologyStore for EmbeddedOntologyStore {
             if let Some(entity) = data.entities.get_mut(&entity_id) {
                 // Remove source refs for this document
                 let initial_count = entity.source_refs.len();
-                entity
-                    .source_refs
-                    .retain(|r| r.document_id != document_id);
+                entity.source_refs.retain(|r| r.document_id != document_id);
 
                 if entity.source_refs.len() < initial_count {
                     entity.updated_at = chrono::Utc::now();
@@ -1822,7 +1820,8 @@ mod tests {
 
         // Create relationship with source_ref
         let doc_ref = DocumentRef::new("doc1").with_text("John works at Acme");
-        let rel = Relationship::new(&e1.id, RelationType::WorksFor, &e2.id).with_source_ref(doc_ref);
+        let rel =
+            Relationship::new(&e1.id, RelationType::WorksFor, &e2.id).with_source_ref(doc_ref);
         store.create_relationship(rel).await.unwrap();
 
         // Find relationships by document
@@ -1905,10 +1904,7 @@ mod tests {
         let created_rel = store.create_relationship(rel).await.unwrap();
 
         // Remove refs for doc1
-        let (updated, orphaned) = store
-            .remove_relationship_source_refs("doc1")
-            .await
-            .unwrap();
+        let (updated, orphaned) = store.remove_relationship_source_refs("doc1").await.unwrap();
         assert_eq!(updated.len(), 1);
         assert!(orphaned.is_empty());
 
@@ -2023,16 +2019,14 @@ mod tests {
         // Create entities for different docs
         let e1 = store
             .create_entity(
-                Entity::new(EntityType::Person, "John")
-                    .with_source_ref(DocumentRef::new("doc1")),
+                Entity::new(EntityType::Person, "John").with_source_ref(DocumentRef::new("doc1")),
             )
             .await
             .unwrap();
 
         let e2 = store
             .create_entity(
-                Entity::new(EntityType::Person, "Jane")
-                    .with_source_ref(DocumentRef::new("doc2")),
+                Entity::new(EntityType::Person, "Jane").with_source_ref(DocumentRef::new("doc2")),
             )
             .await
             .unwrap();

@@ -176,21 +176,46 @@ pub async fn list_sources(config: Config) -> Result<ListSourcesResponse> {
 
 /// Remove an indexed source.
 pub async fn remove_source(config: Config, source_id: String) -> Result<RemoveSourceResponse> {
+    use alloy::ontology::DeletionStrategy;
+
     let coordinator = IndexCoordinator::new(config).await?;
-    let result = coordinator.remove_source(&source_id).await?;
+    let strategy = DeletionStrategy::default();
+    let result = coordinator
+        .remove_source_with_strategy(&source_id, strategy)
+        .await?;
 
     match result {
-        Some(docs_removed) => Ok(RemoveSourceResponse {
-            success: true,
-            documents_removed: docs_removed,
-            message: format!(
-                "Removed {} documents from source {}",
-                docs_removed, source_id
-            ),
-        }),
+        Some(removal_result) => {
+            let knowledge = &removal_result.knowledge_result;
+            Ok(RemoveSourceResponse {
+                success: true,
+                source_id: source_id.clone(),
+                documents_removed: removal_result.documents_removed,
+                entities_affected: Some(knowledge.total_entities_affected()),
+                entities_deleted: Some(knowledge.entities_deleted),
+                relationships_affected: Some(knowledge.total_relationships_affected()),
+                relationships_deleted: Some(knowledge.relationships_deleted),
+                strategy: Some(strategy.to_string()),
+                message: format!(
+                    "Removed {} documents from source {}. Knowledge: {} entities ({} deleted), {} relationships ({} deleted)",
+                    removal_result.documents_removed,
+                    source_id,
+                    knowledge.total_entities_affected(),
+                    knowledge.entities_deleted,
+                    knowledge.total_relationships_affected(),
+                    knowledge.relationships_deleted
+                ),
+            })
+        }
         None => Ok(RemoveSourceResponse {
             success: false,
+            source_id: source_id.clone(),
             documents_removed: 0,
+            entities_affected: None,
+            entities_deleted: None,
+            relationships_affected: None,
+            relationships_deleted: None,
+            strategy: None,
             message: format!("Source {} not found", source_id),
         }),
     }
