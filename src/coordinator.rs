@@ -178,6 +178,9 @@ pub struct IndexedSource {
     /// Error message if status is Failed.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub error: Option<String>,
+    /// Override for ontology extraction (None = use global config, Some(true/false) = force enable/disable).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub extract_ontology: Option<bool>,
 }
 
 /// The main index coordinator.
@@ -589,6 +592,20 @@ impl IndexCoordinator {
         exclude_patterns: Vec<String>,
         watch: bool,
     ) -> Result<IndexedSource> {
+        self.index_local_with_options(path, patterns, exclude_patterns, watch, false, None)
+            .await
+    }
+
+    /// Index a local path with options including create_if_missing and extract_ontology.
+    pub async fn index_local_with_options(
+        &self,
+        path: PathBuf,
+        patterns: Vec<String>,
+        exclude_patterns: Vec<String>,
+        watch: bool,
+        create_if_missing: bool,
+        extract_ontology: Option<bool>,
+    ) -> Result<IndexedSource> {
         let config = LocalSourceConfig {
             path,
             patterns: if patterns.is_empty() {
@@ -603,10 +620,12 @@ impl IndexCoordinator {
             },
             watch,
             follow_symlinks: false,
+            create_if_missing,
         };
 
         let source = LocalSource::new(config)?;
-        self.index_source(Box::new(source), "local", watch).await
+        self.index_source(Box::new(source), "local", watch, extract_ontology)
+            .await
     }
 
     /// Index an S3 path.
@@ -616,6 +635,19 @@ impl IndexCoordinator {
         prefix: Option<String>,
         patterns: Vec<String>,
         region: Option<String>,
+    ) -> Result<IndexedSource> {
+        self.index_s3_with_options(bucket, prefix, patterns, region, None)
+            .await
+    }
+
+    /// Index an S3 path with options including extract_ontology.
+    pub async fn index_s3_with_options(
+        &self,
+        bucket: String,
+        prefix: Option<String>,
+        patterns: Vec<String>,
+        region: Option<String>,
+        extract_ontology: Option<bool>,
     ) -> Result<IndexedSource> {
         let config = S3SourceConfig {
             bucket,
@@ -630,7 +662,8 @@ impl IndexCoordinator {
         };
 
         let source = S3Source::new(config).await?;
-        self.index_source(Box::new(source), "s3", false).await
+        self.index_source(Box::new(source), "s3", false, extract_ontology)
+            .await
     }
 
     /// Register a pending source before indexing starts.
@@ -661,6 +694,7 @@ impl IndexCoordinator {
             last_scan: Utc::now(),
             status: SourceStatus::Indexing,
             error: None,
+            extract_ontology: None,
         };
 
         // Store immediately and persist
@@ -710,6 +744,7 @@ impl IndexCoordinator {
         source: Box<dyn Source>,
         source_type: &str,
         _watch: bool,
+        extract_ontology: Option<bool>,
     ) -> Result<IndexedSource> {
         let source_id = source.id().to_string();
         let start_time = std::time::Instant::now();
@@ -813,7 +848,7 @@ impl IndexCoordinator {
             });
 
             match self
-                .process_and_index_item(&source_id, &*source, item)
+                .process_and_index_item(&source_id, &*source, item, extract_ontology)
                 .await
             {
                 Ok(IndexItemResult::Indexed(chunk_count)) => {
@@ -879,6 +914,7 @@ impl IndexCoordinator {
             last_scan: Utc::now(),
             status: SourceStatus::Ready,
             error: None,
+            extract_ontology,
         };
 
         // Store in sources map and persist
@@ -897,11 +933,13 @@ impl IndexCoordinator {
 
     /// Process and index a single item.
     /// Returns Ok(Some(chunks)) if indexed, Ok(None) if skipped due to deduplication.
+    /// The `extract_ontology` parameter overrides the global config if Some.
     async fn process_and_index_item(
         &self,
         source_id: &str,
         source: &dyn Source,
         item: &SourceItem,
+        extract_ontology_override: Option<bool>,
     ) -> Result<IndexItemResult> {
         // Fetch content
         let content = source.fetch(&item.uri).await?;
@@ -987,34 +1025,50 @@ impl IndexCoordinator {
         self.storage.store(doc, vector_chunks).await?;
 
         // Extract entities for ontology if extraction is enabled
-        if let Some(ref extractor) = self.extraction_processor {
-            match extractor.extract_from_content(&processed, &item.id).await {
-                Ok(extraction_result) => {
-                    let entity_count = extraction_result.entities.len();
-                    let relationship_count = extraction_result.relationships.len();
+        // Per-source override takes precedence over global config
+        let should_extract = match extract_ontology_override {
+            Some(true) => true,  // Source explicitly enabled extraction
+            Some(false) => false, // Source explicitly disabled extraction
+            None => self.extraction_processor.is_some(), // Use global config
+        };
 
-                    // Store extracted entities in the ontology store
-                    let store = self.ontology_store.write().await;
-                    for entity in extraction_result.entities {
-                        if let Err(e) = store.create_entity(entity.clone()).await {
-                            debug!("Failed to store extracted entity {}: {}", entity.name, e);
+        if should_extract {
+            if let Some(ref extractor) = self.extraction_processor {
+                match extractor.extract_from_content(&processed, &item.id).await {
+                    Ok(extraction_result) => {
+                        let entity_count = extraction_result.entities.len();
+                        let relationship_count = extraction_result.relationships.len();
+
+                        // Store extracted entities in the ontology store
+                        let store = self.ontology_store.write().await;
+                        for entity in extraction_result.entities {
+                            if let Err(e) = store.create_entity(entity.clone()).await {
+                                debug!("Failed to store extracted entity {}: {}", entity.name, e);
+                            }
+                        }
+                        for relationship in extraction_result.relationships {
+                            if let Err(e) = store.create_relationship(relationship.clone()).await {
+                                debug!("Failed to store extracted relationship: {}", e);
+                            }
+                        }
+                        if entity_count > 0 || relationship_count > 0 {
+                            info!(
+                                "Extracted {} entities and {} relationships from {}",
+                                entity_count, relationship_count, item.uri
+                            );
                         }
                     }
-                    for relationship in extraction_result.relationships {
-                        if let Err(e) = store.create_relationship(relationship.clone()).await {
-                            debug!("Failed to store extracted relationship: {}", e);
-                        }
-                    }
-                    if entity_count > 0 || relationship_count > 0 {
-                        info!(
-                            "Extracted {} entities and {} relationships from {}",
-                            entity_count, relationship_count, item.uri
-                        );
+                    Err(e) => {
+                        warn!("Entity extraction failed for {}: {}", item.uri, e);
                     }
                 }
-                Err(e) => {
-                    warn!("Entity extraction failed for {}: {}", item.uri, e);
-                }
+            } else if extract_ontology_override == Some(true) {
+                // Source requested extraction but no processor is configured
+                warn!(
+                    "Ontology extraction requested for {} but no extraction processor is configured. \
+                     Enable extraction in config with ontology.extraction.extract_on_index = true",
+                    item.uri
+                );
             }
         }
 
@@ -1402,6 +1456,7 @@ impl IndexCoordinator {
                     last_scan: Utc::now(),
                     status: SourceStatus::Ready,
                     error: None,
+                    extract_ontology: None, // Direct adds use the extract_ontology parameter
                 });
             }
         }

@@ -4,7 +4,7 @@ Alloy exposes MCP tools for document indexing, search, GTD workflow, calendar in
 
 ## index_path
 
-Index a local path or S3 URI for hybrid search.
+Index a local path or S3 URI for hybrid search. Supports creating missing directories, indexing empty sources, and per-source ontology extraction control.
 
 ### Parameters
 
@@ -14,6 +14,8 @@ Index a local path or S3 URI for hybrid search.
 | `pattern` | string | No | - | Glob pattern to filter files (e.g., `*.md`, `**/*.py`) |
 | `watch` | boolean | No | `false` | Watch for file changes and auto-reindex |
 | `recursive` | boolean | No | `true` | Recursively index subdirectories |
+| `create_if_missing` | boolean | No | `false` | Create the directory if it doesn't exist (local paths only) |
+| `extract_ontology` | boolean | No | - | Override ontology extraction for this source (see notes) |
 
 ### Response
 
@@ -41,7 +43,29 @@ index_path(path: "s3://my-bucket/documents")
 
 # Index specific file types
 index_path(path: "~/code", pattern: "**/*.{rs,py,js}")
+
+# Create directory if it doesn't exist and register as source
+index_path(path: "~/new-docs", create_if_missing: true)
+
+# Create and watch a new directory for incoming documents
+index_path(path: "~/inbox", create_if_missing: true, watch: true)
+
+# Enable ontology extraction for this source (even if globally disabled)
+index_path(path: "~/meeting-notes", extract_ontology: true)
+
+# Disable ontology extraction for this source (even if globally enabled)
+index_path(path: "~/raw-data", extract_ontology: false)
 ```
+
+### Notes
+
+- **Empty sources**: Sources can be registered with 0 documents. Files added later will be indexed if `watch: true` is enabled, or on the next scan.
+- **Local paths**: Use `create_if_missing: true` to automatically create directories that don't exist. Parent directories are created recursively.
+- **S3 sources**: Buckets must exist beforehand. Empty prefixes are supported and will index 0 documents until objects are added.
+- **Ontology extraction**: The `extract_ontology` parameter overrides the global `ontology.extraction.extract_on_index` config setting for this source only:
+  - `extract_ontology: true` - Force extraction even if globally disabled
+  - `extract_ontology: false` - Skip extraction even if globally enabled
+  - Not specified - Use global config setting
 
 ## search
 
@@ -140,6 +164,92 @@ get_document(document_id: "doc_xyz789")
 # Get metadata only
 get_document(document_id: "doc_xyz789", include_content: false)
 ```
+
+## document_add
+
+Add a document directly to the store from text or base64-encoded content without indexing from a file path. Supports text, markdown, PDF, and other formats. Optionally extracts entities, relationships, and temporal information for the knowledge graph.
+
+### Parameters
+
+| Name | Type | Required | Default | Description |
+|------|------|----------|---------|-------------|
+| `content` | string | Yes | - | Document content (raw text or base64-encoded binary) |
+| `content_type` | string | No | `text` | How to interpret content: `text` or `base64` for binary files |
+| `mime_type` | string | No | `text/plain` | MIME type for processing (e.g., `text/plain`, `text/markdown`, `application/pdf`) |
+| `title` | string | No | - | Document title/name for metadata |
+| `source_id` | string | No | `direct-add` | Source ID for grouping documents |
+| `extract_ontology` | boolean | No | `false` | Extract entities and relationships for knowledge graph |
+| `metadata` | object | No | - | Additional metadata as JSON |
+
+### Response
+
+```json
+{
+  "success": true,
+  "document_id": "doc_abc123",
+  "source_id": "direct-add",
+  "chunks_created": 3,
+  "entities_extracted": 5,
+  "relationships_extracted": 2,
+  "entity_names": ["Alice Chen", "Project Alpha", "Acme Corp"],
+  "processing_ms": 156,
+  "message": "Document added successfully"
+}
+```
+
+### Supported MIME Types
+
+| MIME Type | Description |
+|-----------|-------------|
+| `text/plain` | Plain text |
+| `text/markdown` | Markdown documents |
+| `application/pdf` | PDF files (use base64 encoding) |
+| `text/html` | HTML documents |
+| `application/json` | JSON files |
+
+### Examples
+
+```
+# Add plain text document
+document_add(
+  content: "Meeting notes from Q1 planning session...",
+  title: "Q1 Planning Notes",
+  source_id: "meetings"
+)
+
+# Add markdown with ontology extraction
+document_add(
+  content: "# Project Alpha\n\nAlice Chen leads the team...",
+  mime_type: "text/markdown",
+  title: "Project Alpha Overview",
+  extract_ontology: true
+)
+
+# Add PDF document (base64 encoded)
+document_add(
+  content: "JVBERi0xLjQKJeLjz9...",
+  content_type: "base64",
+  mime_type: "application/pdf",
+  title: "Contract Draft",
+  metadata: { "department": "Legal", "version": "1.0" }
+)
+
+# Add to custom source for grouping
+document_add(
+  content: "API documentation for the payment service...",
+  source_id: "api-docs",
+  title: "Payment API",
+  metadata: { "service": "payments", "version": "2.1" }
+)
+```
+
+### Use Cases
+
+- **Chat context injection**: Add conversation context or user-provided information directly
+- **API integrations**: Ingest documents from external APIs without writing to disk
+- **Dynamic content**: Add generated or transformed content to the index
+- **Meeting transcripts**: Inject transcripts with ontology extraction to build knowledge graph
+- **Quick notes**: Add ad-hoc notes without file system management
 
 ## list_sources
 

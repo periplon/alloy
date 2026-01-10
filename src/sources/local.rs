@@ -41,6 +41,17 @@ pub struct LocalSource {
 impl LocalSource {
     /// Create a new local source from configuration.
     pub fn new(config: LocalSourceConfig) -> Result<Self> {
+        // Create directory if it doesn't exist and create_if_missing is true
+        if config.create_if_missing && !config.path.exists() {
+            std::fs::create_dir_all(&config.path).map_err(|e| {
+                SourceError::Io(std::io::Error::new(
+                    e.kind(),
+                    format!("Failed to create directory {}: {}", config.path.display(), e),
+                ))
+            })?;
+            info!("Created directory: {}", config.path.display());
+        }
+
         let canonical_path = config
             .path
             .canonicalize()
@@ -339,6 +350,7 @@ impl Source for LocalSource {
                     exclude_patterns: vec![],
                     watch: false,
                     follow_symlinks,
+                    create_if_missing: false,
                 },
                 include_patterns,
                 exclude_patterns,
@@ -477,6 +489,7 @@ mod tests {
             exclude_patterns: vec!["**/node_modules/**".to_string()],
             watch: false,
             follow_symlinks: false,
+            create_if_missing: false,
         };
 
         let source = LocalSource::new(config).unwrap();
@@ -581,9 +594,37 @@ mod tests {
             exclude_patterns: vec!["**/node_modules/**".to_string(), "**/.git/**".to_string()],
             watch: false,
             follow_symlinks: false,
+            create_if_missing: false,
         };
 
         // This should not panic
         let _ = LocalSource::new(config);
+    }
+
+    #[tokio::test]
+    async fn test_local_source_create_if_missing() {
+        let temp_dir = TempDir::new().unwrap();
+        let new_dir = temp_dir.path().join("new_subdir");
+
+        // Directory doesn't exist yet
+        assert!(!new_dir.exists());
+
+        let config = LocalSourceConfig {
+            path: new_dir.clone(),
+            patterns: vec!["**/*".to_string()],
+            exclude_patterns: vec![],
+            watch: false,
+            follow_symlinks: false,
+            create_if_missing: true,
+        };
+
+        let source = LocalSource::new(config).unwrap();
+
+        // Directory should now exist
+        assert!(new_dir.exists());
+
+        // Scan should return 0 items (empty directory)
+        let items = source.scan().await.unwrap();
+        assert_eq!(items.len(), 0);
     }
 }

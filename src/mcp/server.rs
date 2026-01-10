@@ -288,6 +288,12 @@ pub struct IndexPathParams {
     /// Recursively index subdirectories
     #[serde(default)]
     pub recursive: Option<bool>,
+    /// Create the directory or S3 prefix if it doesn't exist
+    #[serde(default)]
+    pub create_if_missing: Option<bool>,
+    /// Override ontology extraction for this source (None = use global config, true/false = force)
+    #[serde(default)]
+    pub extract_ontology: Option<bool>,
 }
 
 // Parameters for search tool
@@ -681,9 +687,9 @@ pub struct TestWebhookParams {
 
 #[tool_router]
 impl AlloyServer {
-    /// Index a local path or S3 URI for hybrid search. Supports glob patterns and optional file watching.
+    /// Index a local path or S3 URI for hybrid search. Supports glob patterns, optional file watching, and auto-creation of missing directories.
     #[tool(
-        description = "Index a local path or S3 URI for hybrid search. Supports glob patterns and optional file watching."
+        description = "Index a local path or S3 URI for hybrid search. Supports glob patterns, optional file watching, and auto-creation of missing directories/prefixes."
     )]
     async fn index_path(
         &self,
@@ -693,6 +699,8 @@ impl AlloyServer {
         self.ensure_coordinator().await?;
 
         let watch = params.watch.unwrap_or(false);
+        let create_if_missing = params.create_if_missing.unwrap_or(false);
+        let extract_ontology = params.extract_ontology;
         let patterns = params.pattern.map(|p| vec![p]).unwrap_or_default();
 
         // Get coordinator and perform indexing
@@ -705,29 +713,32 @@ impl AlloyServer {
                 .map_err(|e| McpError::invalid_params(e.to_string(), None))?;
 
             coordinator
-                .index_s3(
+                .index_s3_with_options(
                     bucket,
                     Some(prefix),
                     patterns,
                     None, // Use default region
+                    extract_ontology,
                 )
                 .await
         } else {
             // Local path
             let path = PathBuf::from(&params.path);
-            if !path.exists() {
+            if !path.exists() && !create_if_missing {
                 return Err(McpError::invalid_params(
-                    format!("Path does not exist: {}", params.path),
+                    format!("Path does not exist: {}. Use create_if_missing: true to create it.", params.path),
                     None,
                 ));
             }
 
             coordinator
-                .index_local(
+                .index_local_with_options(
                     path,
                     patterns,
                     vec![], // Use default exclude patterns
                     watch,
+                    create_if_missing,
+                    extract_ontology,
                 )
                 .await
         };

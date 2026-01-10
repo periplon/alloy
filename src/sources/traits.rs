@@ -117,6 +117,9 @@ pub struct LocalSourceConfig {
     pub watch: bool,
     /// Whether to follow symlinks
     pub follow_symlinks: bool,
+    /// Create the directory if it doesn't exist
+    #[serde(default)]
+    pub create_if_missing: bool,
 }
 
 impl Default for LocalSourceConfig {
@@ -134,6 +137,7 @@ impl Default for LocalSourceConfig {
             ],
             watch: false,
             follow_symlinks: false,
+            create_if_missing: false,
         }
     }
 }
