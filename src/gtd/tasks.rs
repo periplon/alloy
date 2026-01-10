@@ -288,6 +288,14 @@ impl TaskManager {
             }
         }
 
+        // Filter by description (case-insensitive substring match)
+        if let Some(ref pattern) = filter.description_contains {
+            let pattern_lower = pattern.to_lowercase();
+            if !task.description.to_lowercase().contains(&pattern_lower) {
+                return false;
+            }
+        }
+
         true
     }
 

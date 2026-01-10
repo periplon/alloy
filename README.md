@@ -131,6 +131,9 @@ Alloy provides direct CLI access to all functionality:
 # Get context-aware task recommendations
 alloy gtd tasks -a recommend --context @computer --energy low --time 30
 
+# Filter tasks by description (case-insensitive)
+alloy gtd tasks --description-contains "report"
+
 # Create a new project
 alloy gtd projects -a create \
   --name "Website Redesign" \

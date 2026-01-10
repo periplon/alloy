@@ -151,6 +151,10 @@ pub struct GtdTasksParams {
     /// Priority level.
     #[serde(default)]
     pub priority: Option<Priority>,
+    // Filter parameters
+    /// Filter by description (case-insensitive substring match).
+    #[serde(default)]
+    pub description_contains: Option<String>,
     // Recommendation parameters
     /// Current context for recommendations.
     #[serde(default)]

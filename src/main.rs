@@ -237,6 +237,9 @@ pub enum GtdCommand {
         /// Due before date (YYYY-MM-DD)
         #[arg(long)]
         due_before: Option<String>,
+        /// Filter by description (case-insensitive substring match)
+        #[arg(long)]
+        description_contains: Option<String>,
         /// Result limit
         #[arg(short, long, default_value = "20")]
         limit: usize,

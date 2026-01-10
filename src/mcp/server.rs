@@ -3330,6 +3330,7 @@ impl AlloyServer {
                     time_available: params.time_available,
                     due_before: params.due_date,
                     priority: params.priority,
+                    description_contains: params.description_contains.clone(),
                     limit: params.limit.unwrap_or(100),
                     offset: 0,
                 };

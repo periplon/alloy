@@ -406,6 +406,7 @@ Options:
   -p, --project <PROJECT_ID>  Filter by project ID
       --status <STATUS>       Filter: next, scheduled, waiting, someday, done
       --due-before <DATE>     Due before date (YYYY-MM-DD)
+      --description-contains <TEXT>  Filter by description (case-insensitive substring)
   -l, --limit <N>             Result limit (default: 20)
 
 Create/Update Options:
@@ -425,6 +426,10 @@ Create/Update Options:
 ```bash
 # List all tasks
 alloy gtd tasks
+
+# Filter tasks by description (case-insensitive)
+alloy gtd tasks --description-contains "report"
+alloy gtd tasks --description-contains "review" --status next
 
 # Get task recommendations based on context
 alloy gtd tasks -a recommend --context @computer --energy low --time 30

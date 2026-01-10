@@ -762,6 +762,7 @@ pub async fn gtd(config: Config, command: GtdCommand) -> Result<GtdResult> {
             project,
             status,
             due_before,
+            description_contains,
             limit,
             description,
             set_contexts,
@@ -800,6 +801,9 @@ pub async fn gtd(config: Config, command: GtdCommand) -> Result<GtdResult> {
                     }
                     if let Some(db) = due_before {
                         filter.due_before = parse_date(&db);
+                    }
+                    if description_contains.is_some() {
+                        filter.description_contains = description_contains.clone();
                     }
                     filter.limit = limit;
 

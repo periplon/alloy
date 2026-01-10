@@ -680,6 +680,9 @@ pub struct TaskFilter {
     /// Filter by priority.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub priority: Option<Priority>,
+    /// Filter by description (case-insensitive substring match).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub description_contains: Option<String>,
     /// Maximum number of results.
     #[serde(default = "default_limit")]
     pub limit: usize,
@@ -698,6 +701,7 @@ impl Default for TaskFilter {
             time_available: None,
             due_before: None,
             priority: None,
+            description_contains: None,
             limit: 100,
             offset: 0,
         }

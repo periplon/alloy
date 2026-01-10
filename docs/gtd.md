@@ -52,6 +52,9 @@ gtd_tasks(action: "list", filters: { contexts: ["@computer"] })
 
 # Low energy tasks under 15 minutes
 gtd_tasks(action: "list", filters: { energy_level: "low", time_available: 15 })
+
+# Filter by description (case-insensitive substring match)
+gtd_tasks(action: "list", filters: { description_contains: "report" })
 ```
 
 ### Contexts
@@ -311,6 +314,10 @@ All GTD features are available via the command line with the `alloy gtd` command
 ```bash
 # Get task recommendations based on context
 alloy gtd tasks -a recommend --context @computer --energy medium --time 60
+
+# Search tasks by description (case-insensitive)
+alloy gtd tasks --description-contains "review"
+alloy gtd tasks --description-contains "report" --status next
 
 # Check overdue waiting items
 alloy gtd waiting --status overdue
