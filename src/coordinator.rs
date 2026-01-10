@@ -1923,4 +1923,36 @@ mod tests {
         let sources = coordinator.list_sources().await;
         assert_eq!(sources.len(), 1);
     }
+
+    #[tokio::test]
+    #[ignore = "requires embedding model download"]
+    async fn test_add_document_direct() {
+        let temp_dir = TempDir::new().unwrap();
+        let config = create_test_config(temp_dir.path());
+        let coordinator = IndexCoordinator::new(config).await.unwrap();
+
+        let content = bytes::Bytes::from("This is a direct document addition.");
+        let result = coordinator
+            .add_document_direct(
+                content,
+                "text/plain",
+                "direct-source",
+                Some("Direct Doc".to_string()),
+                None,
+                false,
+            )
+            .await;
+
+        assert!(result.is_ok());
+        let (doc, chunks, extraction) = result.unwrap();
+        assert_eq!(doc.content, "This is a direct document addition.");
+        assert_eq!(doc.source_id, "direct-source");
+        assert!(chunks > 0);
+        assert!(extraction.is_none());
+
+        // Verify we can retrieve it
+        let retrieved = coordinator.get_document(&doc.id).await.unwrap();
+        assert!(retrieved.is_some());
+        assert_eq!(retrieved.unwrap().content, "This is a direct document addition.");
+    }
 }
