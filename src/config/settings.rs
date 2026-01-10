@@ -110,6 +110,8 @@ pub struct ServerConfig {
     pub http_port: u16,
     /// Maximum concurrent indexing tasks
     pub max_concurrent_tasks: usize,
+    /// TLS/HTTPS configuration
+    pub tls: TlsConfig,
 }
 
 impl Default for ServerConfig {
@@ -118,6 +120,32 @@ impl Default for ServerConfig {
             transport: TransportType::Stdio,
             http_port: 8080,
             max_concurrent_tasks: 4,
+            tls: TlsConfig::default(),
+        }
+    }
+}
+
+/// TLS/HTTPS configuration.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(default)]
+pub struct TlsConfig {
+    /// Enable HTTPS with auto-generated certificates
+    pub enabled: bool,
+    /// Automatically install CA certificate to system trust store
+    pub auto_install_ca: bool,
+    /// Custom certificate file path (PEM format). If not set, auto-generates.
+    pub cert_file: Option<String>,
+    /// Custom private key file path (PEM format). Required if cert_file is set.
+    pub key_file: Option<String>,
+}
+
+impl Default for TlsConfig {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            auto_install_ca: true,
+            cert_file: None,
+            key_file: None,
         }
     }
 }

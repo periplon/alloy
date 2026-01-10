@@ -23,6 +23,7 @@ pub mod query;
 pub mod search;
 pub mod sources;
 pub mod storage;
+pub mod tls;
 pub mod utils;
 pub mod versioning;
 pub mod web;
@@ -77,6 +78,7 @@ pub use query::{
     KnowledgeIntent, QueryExecutor, QueryIntent, QueryMode, QueryStats, UnifiedQueryResult,
 };
 pub use web::{create_web_ui_router, WebUiConfig};
+pub use tls::{CertManager, GeneratedCerts, TrustResult, TrustStore};
 pub use webhooks::{
     create_dispatcher, DocumentDeletedData, DocumentIndexedData, IndexErrorData,
     SharedWebhookDispatcher, SourceAddedData, SourceRemovedData, WebhookConfig,

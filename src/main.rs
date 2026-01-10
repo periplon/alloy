@@ -129,6 +129,9 @@ enum Command {
         /// HTTP port (when using http transport). If not specified, uses config file value.
         #[arg(short, long)]
         port: Option<u16>,
+        /// Enable HTTPS with auto-generated certificates
+        #[arg(long)]
+        https: bool,
         /// Enable JSON logging format
         #[arg(long)]
         json_logs: bool,
@@ -829,8 +832,9 @@ async fn main() -> anyhow::Result<()> {
         Some(Command::Serve {
             transport,
             port,
+            https,
             json_logs,
-        }) => run_mcp_server(&args.config, transport, port, json_logs).await,
+        }) => run_mcp_server(&args.config, transport, port, https, json_logs).await,
 
         // GTD commands
         Some(Command::Gtd { action }) => cli::run_gtd(mode, action, args.json).await,
@@ -852,7 +856,7 @@ async fn main() -> anyhow::Result<()> {
 
         None => {
             // Default: run as MCP server using config file settings
-            run_mcp_server(&args.config, None, None, false).await
+            run_mcp_server(&args.config, None, None, false, false).await
         }
     }
 }
@@ -862,6 +866,7 @@ async fn run_mcp_server(
     config_path: &Option<String>,
     transport: Option<String>,
     port: Option<u16>,
+    https: bool,
     json_logs: bool,
 ) -> anyhow::Result<()> {
     // Initialize tracing for server mode
@@ -897,6 +902,14 @@ async fn run_mcp_server(
     }
     if let Some(p) = port {
         config.server.http_port = p;
+    }
+    // Enable HTTPS if --https flag is provided
+    if https {
+        config.server.tls.enabled = true;
+        // Also switch to HTTP transport if using stdio (HTTPS requires HTTP transport)
+        if config.server.transport == alloy::config::TransportType::Stdio {
+            config.server.transport = alloy::config::TransportType::Http;
+        }
     }
 
     tracing::info!(

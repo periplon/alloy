@@ -20,6 +20,18 @@ http_port = 8080
 # Maximum concurrent indexing tasks
 max_concurrent_tasks = 4
 
+# TLS/HTTPS Configuration
+[server.tls]
+# Enable HTTPS with auto-generated certificates
+enabled = false
+
+# Automatically install CA to system trust store
+auto_install_ca = true
+
+# Custom certificate (optional, auto-generates if not set)
+# cert_file = "/path/to/cert.pem"
+# key_file = "/path/to/key.pem"
+
 [embedding]
 # Provider type: "local" or "api"
 provider = "local"
@@ -196,6 +208,23 @@ auto_create_events = true
 | `transport` | string | `"stdio"` | Transport protocol. Use `stdio` for MCP clients, `http` for network access |
 | `http_port` | integer | `8080` | Port for HTTP transport |
 | `max_concurrent_tasks` | integer | `4` | Maximum parallel indexing operations |
+
+#### TLS Configuration
+
+| Option | Type | Default | Description |
+|--------|------|---------|-------------|
+| `enabled` | boolean | `false` | Enable HTTPS with auto-generated certificates |
+| `auto_install_ca` | boolean | `true` | Automatically install CA certificate to system trust store |
+| `cert_file` | string | - | Custom certificate file path (PEM format) |
+| `key_file` | string | - | Custom private key file path (PEM format) |
+
+When `enabled` is `true` and no custom certificates are provided, Alloy:
+1. Creates a local Certificate Authority (CA) stored in `~/.local/share/alloy/certs/`
+2. Generates a localhost certificate signed by this CA
+3. Attempts to install the CA to the system trust store (if `auto_install_ca` is true)
+4. Starts HTTPS on the configured port
+
+The CA persists across restarts, so browsers only need to trust it once.
 
 ### Embedding
 
@@ -422,4 +451,29 @@ model = "gpt-4o-mini"
 extract_tasks = true
 extract_relationships = true
 rate_limit_rpm = 30
+```
+
+### HTTPS Server
+
+```toml
+[server]
+transport = "http"
+http_port = 8443
+
+[server.tls]
+enabled = true
+auto_install_ca = true
+```
+
+### HTTPS with Custom Certificates
+
+```toml
+[server]
+transport = "http"
+http_port = 443
+
+[server.tls]
+enabled = true
+cert_file = "/etc/ssl/certs/myserver.pem"
+key_file = "/etc/ssl/private/myserver-key.pem"
 ```

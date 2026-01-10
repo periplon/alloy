@@ -13,6 +13,21 @@ http_port = 8080
 # Maximum concurrent indexing tasks
 max_concurrent_tasks = 4
 
+# TLS/HTTPS Configuration
+[server.tls]
+# Enable HTTPS with auto-generated certificates
+enabled = false
+# Automatically install CA certificate to system trust store
+# On macOS: installs to login keychain
+# On Windows: installs to user certificate store
+# On Linux: attempts NSS database (Chrome) or prints instructions
+auto_install_ca = true
+# Custom certificate file path (PEM format)
+# If not set, auto-generates a localhost certificate signed by a local CA
+# cert_file = "/path/to/cert.pem"
+# Custom private key file path (PEM format, required if cert_file is set)
+# key_file = "/path/to/key.pem"
+
 # =============================================================================
 # Embedding Configuration
 # =============================================================================

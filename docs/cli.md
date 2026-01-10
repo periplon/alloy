@@ -315,6 +315,7 @@ alloy serve [OPTIONS]
 Options:
   -t, --transport <TYPE>  Transport type: stdio or http (default: stdio)
   -p, --port <PORT>       HTTP port (default: 8080)
+      --https             Enable HTTPS with auto-generated certificates
       --json-logs         Enable JSON logging format
 ```
 
@@ -327,8 +328,45 @@ alloy serve
 # HTTP transport (for network access)
 alloy serve --transport http --port 8080
 
+# HTTPS with auto-generated certificates
+alloy serve --https --port 8443
+
 # With JSON logging
 alloy serve --transport http --json-logs
+```
+
+#### HTTPS Mode
+
+When using `--https`, Alloy automatically:
+
+1. Creates a local Certificate Authority (CA) on first run
+2. Generates a localhost certificate signed by the CA
+3. Attempts to install the CA to your system trust store
+4. Starts the HTTPS server
+
+The CA certificate is stored at `~/.local/share/alloy/certs/alloy-ca.pem` and persists across restarts.
+
+**First-time setup output:**
+
+```
+Generating new local CA certificate
+CA certificate installed to macOS keychain
+CA certificate: /Users/you/.local/share/alloy/certs/alloy-ca.pem
+Alloy MCP server listening on https://0.0.0.0:8443
+```
+
+If automatic CA installation fails, you'll see manual instructions:
+
+```bash
+# macOS
+security add-trusted-cert -r trustRoot -k ~/Library/Keychains/login.keychain-db ~/.local/share/alloy/certs/alloy-ca.pem
+
+# Linux (Debian/Ubuntu)
+sudo cp ~/.local/share/alloy/certs/alloy-ca.pem /usr/local/share/ca-certificates/alloy-ca.crt
+sudo update-ca-certificates
+
+# Windows
+certutil -user -addstore Root ~/.local/share/alloy/certs/alloy-ca.pem
 ```
 
 ---
@@ -1292,17 +1330,26 @@ Remote mode allows you to connect to a running Alloy server instead of using loc
 
 ### Setup
 
-1. Start the server with HTTP transport:
+1. Start the server with HTTP or HTTPS transport:
 
 ```bash
+# HTTP
 alloy serve --transport http --port 8080
+
+# HTTPS (recommended for production)
+alloy serve --https --port 8443
 ```
 
 2. Use CLI with `--remote`:
 
 ```bash
+# HTTP
 alloy --remote http://localhost:8080 search "query"
 alloy -r http://server.example.com:8080 stats
+
+# HTTPS
+alloy --remote https://localhost:8443 search "query"
+alloy -r https://server.example.com:8443 stats
 ```
 
 All commands work with remote mode:
