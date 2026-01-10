@@ -1,6 +1,10 @@
 # Alloy MCP Server Configuration Example
 # Copy this file to config.toml and adjust as needed.
+# All values shown are defaults - uncomment and modify as needed.
 
+# =============================================================================
+# Server Configuration
+# =============================================================================
 [server]
 # Transport type: "stdio" or "http"
 transport = "stdio"
@@ -9,10 +13,14 @@ http_port = 8080
 # Maximum concurrent indexing tasks
 max_concurrent_tasks = 4
 
+# =============================================================================
+# Embedding Configuration
+# =============================================================================
 [embedding]
 # Provider type: "local" or "api"
 provider = "local"
 # Model name for local embeddings (fastembed)
+# Options: BAAI/bge-small-en-v1.5, BAAI/bge-base-en-v1.5, sentence-transformers/all-MiniLM-L6-v2
 model = "BAAI/bge-small-en-v1.5"
 
 [embedding.api]
@@ -27,6 +35,9 @@ batch_size = 100
 # Request timeout in seconds
 timeout_secs = 30
 
+# =============================================================================
+# Storage Configuration
+# =============================================================================
 [storage]
 # Backend type: "embedded" or "qdrant"
 backend = "embedded"
@@ -41,6 +52,9 @@ collection = "alloy"
 # API key (optional)
 # api_key = "..."
 
+# =============================================================================
+# Processing Configuration
+# =============================================================================
 [processing]
 # Chunk size in tokens
 chunk_size = 512
@@ -54,3 +68,372 @@ ocr = true
 clip = true
 # Enable Vision API descriptions (requires API key)
 vision_api = false
+
+# =============================================================================
+# Search Configuration
+# =============================================================================
+[search.reranking]
+# Enable reranking
+enabled = false
+# Reranker type: "score_based", "local_cross_encoder", "cross_encoder", "llm"
+reranker_type = "score_based"
+# Model for local cross-encoder (used when reranker_type is "local_cross_encoder")
+# Options: bge-reranker-base, bge-reranker-v2-m3, jina-reranker-v1-turbo-en, jina-reranker-v2-base-multilingual
+model = "bge-reranker-base"
+# Number of top candidates to rerank
+top_k = 100
+# Final number of results after reranking
+final_k = 10
+# Minimum score threshold for reranked results (optional)
+# min_score = 0.5
+# API endpoint for cross-encoder API (used when reranker_type is "cross_encoder")
+# api_url = "https://..."
+# API key for cross-encoder API
+# api_key = "..."
+
+[search.expansion]
+# Enable query expansion
+enabled = false
+# Expansion method: "embedding", "synonym", "hybrid", "llm"
+method = "embedding"
+# Maximum number of expansion terms
+max_expansions = 3
+# Similarity threshold for embedding-based expansion
+similarity_threshold = 0.7
+# Use pseudo-relevance feedback (expand based on top results)
+pseudo_relevance = false
+# Number of top documents to use for pseudo-relevance feedback
+prf_top_k = 5
+# LLM API URL for LLM-based expansion (defaults to OpenAI)
+# llm_api_url = "https://api.openai.com/v1"
+# LLM API key (loaded from environment if not set)
+# llm_api_key = "..."
+# LLM model name for expansion
+llm_model = "gpt-4o-mini"
+
+[search.clustering]
+# Enable clustering
+enabled = true
+# Default clustering algorithm: "kmeans", "dbscan", "gmm", "agglomerative"
+algorithm = "kmeans"
+# Default number of clusters (0 = auto-detect)
+default_num_clusters = 5
+# Minimum cluster size for DBSCAN/HDBSCAN
+min_cluster_size = 3
+# Cache clustering results
+cache_results = true
+# Cache TTL in seconds
+cache_ttl_secs = 3600
+# Maximum number of cached clustering results
+max_cached_results = 100
+# Generate labels for clusters
+generate_labels = true
+# Maximum keywords per cluster label
+max_keywords = 5
+# Automatically reduce dimensionality for large datasets
+auto_reduce_above = 10000
+# Target dimensions for reduction
+reduction_target_dims = 50
+# Epsilon for DBSCAN (neighborhood distance)
+dbscan_epsilon = 0.5
+# Distance threshold for Agglomerative clustering (optional)
+# agglomerative_distance_threshold = 1.0
+# Linkage type for Agglomerative clustering: "single", "complete", "average", "ward"
+agglomerative_linkage = "ward"
+
+[search.clustering.labeling]
+# Labeling method: "keywords", "llm", "hybrid"
+method = "keywords"
+# Maximum keywords to extract per cluster
+max_keywords = 5
+# LLM model for label generation (when method is "llm" or "hybrid")
+llm_model = "gpt-4o-mini"
+# LLM API URL for label generation
+# llm_api_url = "https://api.openai.com/v1"
+# LLM API key for label generation
+# llm_api_key = "..."
+
+[search.cache]
+# Enable caching
+enabled = true
+# Maximum number of cached entries
+max_entries = 10000
+# TTL for cached entries in seconds
+ttl_secs = 3600
+# Cache embeddings
+cache_embeddings = true
+# Cache search results
+cache_results = true
+
+# =============================================================================
+# Indexing Configuration (Data Management)
+# =============================================================================
+[indexing.incremental]
+# Enable incremental indexing
+enabled = true
+# Change detection strategy: "hash", "mtime", "both"
+change_detection = "both"
+# Whether to verify content hash even if mtime unchanged
+verify_hash = false
+
+[indexing.deduplication]
+# Enable deduplication
+enabled = false
+# Deduplication strategy: "exact", "min_hash", "semantic"
+strategy = "exact"
+# Similarity threshold for fuzzy matching (0.0-1.0)
+threshold = 0.85
+# Action to take when duplicate is detected: "skip", "flag", "update"
+action = "skip"
+# Number of hash functions for MinHash
+minhash_num_hashes = 128
+# Shingle size for MinHash (number of consecutive tokens)
+shingle_size = 3
+
+[indexing.versioning]
+# Enable versioning
+enabled = false
+# Storage type: "memory" or "file"
+storage = "memory"
+# Store full version every N versions (0 = always full)
+delta_threshold = 10
+# Compression method: "none", "gzip", "zstd"
+compression = "none"
+
+[indexing.versioning.retention]
+# Minimum number of versions to keep
+min_versions = 5
+# Maximum number of versions to keep (0 = unlimited)
+max_versions = 100
+# Keep versions newer than this many days
+min_age_days = 7
+# Delete versions older than this many days
+max_age_days = 365
+# Always keep full versions (for delta reconstruction)
+keep_full_versions = true
+# Enable automatic cleanup
+auto_cleanup = false
+# Cleanup interval in hours
+cleanup_interval_hours = 24
+
+# =============================================================================
+# Operations Configuration
+# =============================================================================
+[operations.metrics]
+# Enable metrics collection
+enabled = true
+# Enable Prometheus endpoint at /metrics
+prometheus_enabled = true
+# Metrics update interval in seconds
+update_interval_secs = 15
+
+[operations.health]
+# Enable health endpoints
+enabled = true
+# Health check timeout in milliseconds
+timeout_ms = 5000
+# Include detailed health checks (storage, embedding)
+detailed_checks = true
+
+[operations.backup]
+# Enable backup functionality
+enabled = true
+# Backup directory (defaults to data_dir/backups)
+# backup_dir = "~/.local/share/alloy/backups"
+# Maximum number of backups to keep (0 = unlimited)
+max_backups = 10
+# Include embeddings in backup (increases size significantly)
+include_embeddings = true
+# Compress backups
+compress = false
+
+# =============================================================================
+# Security Configuration
+# =============================================================================
+[security.auth]
+# Enable authentication
+enabled = false
+# Authentication method: "api_key", "jwt", "basic"
+method = "api_key"
+# API keys for API key authentication
+# Can be loaded from environment variable ALLOY_API_KEYS (comma-separated)
+# api_keys = ["key1", "key2"]
+
+[security.auth.jwt]
+# JWT secret (can be loaded from environment variable ALLOY_JWT_SECRET)
+# secret = "your-secret-key"
+# JWT issuer
+issuer = "alloy"
+# JWT audience
+audience = "alloy-users"
+# Token expiry in seconds (0 = no expiry check)
+expiry_secs = 3600
+
+# Basic auth credentials (username -> password hash)
+# [security.auth.basic_auth]
+# admin = "hashed_password"
+
+[security.acl]
+# Enable ACL enforcement
+enabled = false
+# Default public access for new documents
+default_public = true
+# Allow read access for any authenticated user by default
+default_authenticated_read = true
+# Enforce ACL on search operations
+enforce_on_search = true
+# Enforce ACL on document retrieval
+enforce_on_get = true
+# Enforce ACL on document deletion
+enforce_on_delete = true
+
+# Role definitions (default roles provided)
+# [[security.acl.roles]]
+# name = "admin"
+# inherits_from = []
+# permissions = ["read", "write", "delete", "admin"]
+#
+# [[security.acl.roles]]
+# name = "editor"
+# inherits_from = ["viewer"]
+# permissions = ["write"]
+#
+# [[security.acl.roles]]
+# name = "viewer"
+# inherits_from = []
+# permissions = ["read"]
+
+# =============================================================================
+# Integration Configuration
+# =============================================================================
+[integration.webhooks]
+# Enable webhooks
+enabled = false
+# Maximum retries for failed webhook deliveries
+max_retries = 3
+# Timeout in seconds for webhook requests
+timeout_secs = 30
+
+# Webhook endpoints configuration
+# [[integration.webhooks.endpoints]]
+# url = "https://example.com/webhook"
+# events = ["document.indexed", "document.deleted"]
+# secret = "webhook-secret"
+# description = "Example webhook"
+
+[integration.rest_api]
+# Enable REST API
+enabled = true
+# API prefix
+prefix = "/api/v1"
+# Enable CORS
+enable_cors = true
+# Allowed CORS origins
+cors_origins = ["*"]
+
+[integration.web_ui]
+# Enable web UI
+enabled = true
+# Path prefix for web UI
+path_prefix = "/ui"
+
+# =============================================================================
+# Ontology Configuration (Semantic Entity Storage)
+# =============================================================================
+[ontology]
+# Enable ontology features
+enabled = true
+# Storage backend: "embedded" or "neo4j"
+storage_backend = "embedded"
+
+[ontology.extraction]
+# Extract entities on indexing
+extract_on_index = true
+# Minimum confidence threshold to store entities
+confidence_threshold = 0.7
+
+[ontology.extraction.local]
+# Enable temporal extraction (date/time parsing)
+enable_temporal = true
+# Enable pattern-based entity detection
+enable_patterns = true
+# Enable embedding-based NER clustering
+enable_embedding_ner = true
+
+[ontology.extraction.llm]
+# Enable LLM-based extraction (higher accuracy, requires API)
+enabled = false
+# LLM provider: "openai", "anthropic", "local"
+provider = "openai"
+# Custom API endpoint if needed
+# api_endpoint = "https://api.openai.com/v1"
+# Model name
+model = "gpt-4o-mini"
+# Extract action items from prose
+extract_tasks = true
+# Extract entity relationships
+extract_relationships = true
+# Generate entity summaries
+extract_summaries = true
+# Maximum tokens per document for cost control
+max_tokens_per_doc = 4000
+# Rate limit (requests per minute)
+rate_limit_rpm = 60
+
+# =============================================================================
+# GTD (Getting Things Done) Configuration
+# =============================================================================
+[gtd]
+# Enable GTD features
+enabled = true
+# GTD mode: "inference_and_manual", "manual_only", "inference_with_review"
+mode = "inference_and_manual"
+# Default contexts for tasks
+default_contexts = ["@home", "@work", "@phone", "@computer", "@errand", "@anywhere"]
+# Day of week for weekly review
+weekly_review_day = "Sunday"
+# Days without activity to consider project stalled
+stalled_project_days = 7
+# Maximum minutes for 2-minute rule quick tasks
+quick_task_minutes = 2
+# Auto-create projects from extracted items
+auto_create_projects = true
+# Auto-link tasks to source documents
+auto_link_references = true
+
+[gtd.attention]
+# Enable attention tracking
+enabled = true
+# Default analysis period in days
+default_period_days = 30
+# Track time invested (if available)
+track_time = true
+# Alert on imbalance threshold (0.0-1.0)
+imbalance_threshold = 0.3
+
+[gtd.commitments]
+# Enable commitment tracking
+enabled = true
+# Auto-extract commitments from documents
+auto_extract = true
+# Confidence threshold for auto-extraction
+confidence_threshold = 0.75
+# Days before follow-up reminder
+follow_up_reminder_days = 7
+
+# =============================================================================
+# Calendar Configuration
+# =============================================================================
+[calendar]
+# Enable calendar features
+enabled = true
+# Default timezone (IANA format)
+default_timezone = "UTC"
+# Working hours start (HH:MM format)
+working_hours_start = "09:00"
+# Working hours end (HH:MM format)
+working_hours_end = "17:00"
+# Auto-create calendar events from extracted dates
+auto_create_events = true
+# Include weekends in scheduling
+include_weekends = false

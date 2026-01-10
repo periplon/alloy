@@ -39,3 +39,5 @@ plan/
 
 # Embedding cache
 .fastembed_cache/
+
+tmp/
