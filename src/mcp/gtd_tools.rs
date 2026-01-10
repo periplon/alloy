@@ -20,22 +20,24 @@ use crate::gtd::{
 // ============================================================================
 
 /// Action to perform on projects.
+///
+/// Available actions: `list`, `get`, `create`, `update`, `archive`, `complete`, `health`
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum ProjectAction {
-    /// List projects matching filters.
+    /// List projects matching filters. Use with optional `status`, `area`, `has_next_action`, `stalled_days`, `limit` parameters.
     List,
-    /// Get a specific project by ID.
+    /// Get a specific project by ID. Requires `project_id` parameter.
     Get,
-    /// Create a new project.
+    /// Create a new project. Requires `name` parameter. Optional: `outcome`, `area`, `goal`.
     Create,
-    /// Update an existing project.
+    /// Update an existing project. Requires `project_id`. Optional: `name`, `outcome`, `area`, `goal`.
     Update,
-    /// Archive a project.
+    /// Archive a project (soft delete). Requires `project_id`.
     Archive,
-    /// Complete a project.
+    /// Mark a project as complete. Requires `project_id`.
     Complete,
-    /// Get project health score.
+    /// Get project health score and metrics. Requires `project_id`.
     Health,
 }
 
@@ -96,26 +98,28 @@ pub struct GtdProjectsResponse {
 // ============================================================================
 
 /// Action to perform on tasks.
+///
+/// Available actions: `list`, `get`, `create`, `update`, `complete`, `delete`, `recommend`, `quick_wins`, `overdue`
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum TaskAction {
-    /// List tasks matching filters.
+    /// List tasks matching filters. Use with optional `project_id`, `contexts`, `status`, `energy_level`, `priority`, `description_contains`, `limit` parameters.
     List,
-    /// Get a specific task by ID.
+    /// Get a specific task by ID. Requires `task_id` parameter.
     Get,
-    /// Create a new task.
+    /// Create a new task. Requires `description`. Optional: `project_id`, `contexts`, `status`, `energy_level`, `estimated_minutes`, `due_date`, `priority`.
     Create,
-    /// Update an existing task.
+    /// Update an existing task. Requires `task_id`. Optional: `description`, `project_id`, `contexts`, `status`, `energy_level`, `estimated_minutes`, `due_date`, `priority`.
     Update,
-    /// Complete a task.
+    /// Mark a task as complete. Requires `task_id`.
     Complete,
-    /// Delete a task.
+    /// Delete a task permanently. Requires `task_id`.
     Delete,
-    /// Get task recommendations.
+    /// Get task recommendations based on context. Use with optional `current_context`, `time_available`, `limit` parameters.
     Recommend,
-    /// Get quick wins (2-minute tasks).
+    /// Get quick wins - tasks that take 2 minutes or less. Use with optional `limit` parameter.
     QuickWins,
-    /// Get overdue tasks.
+    /// Get overdue tasks. Use with optional `limit` parameter.
     Overdue,
 }
 
@@ -190,20 +194,22 @@ pub struct GtdTasksResponse {
 // ============================================================================
 
 /// Action to perform on waiting-for items.
+///
+/// Available actions: `list`, `get`, `add`, `follow_up`, `resolve`, `overdue`
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum WaitingAction {
-    /// List waiting-for items.
+    /// List waiting-for items. Use with optional `status`, `limit` parameters.
     List,
-    /// Get a specific item.
+    /// Get a specific waiting-for item. Requires `item_id` parameter.
     Get,
-    /// Add a new waiting-for item.
+    /// Add a new waiting-for item. Requires `description`, `delegated_to`. Optional: `project_id`, `expected_by`.
     Add,
-    /// Record a follow-up.
+    /// Record a follow-up on a waiting-for item. Requires `item_id`.
     FollowUp,
-    /// Resolve a waiting-for item.
+    /// Resolve/complete a waiting-for item. Requires `item_id`. Optional: `resolution` (text describing resolution).
     Resolve,
-    /// Get overdue items.
+    /// Get overdue waiting-for items. Use with optional `limit` parameter.
     Overdue,
 }
 
@@ -258,24 +264,26 @@ pub struct GtdWaitingResponse {
 // ============================================================================
 
 /// Action to perform on someday/maybe items.
+///
+/// Available actions: `list`, `get`, `add`, `update`, `activate`, `archive`, `categories`, `due_for_review`
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum SomedayAction {
-    /// List someday/maybe items.
+    /// List someday/maybe items. Use with optional `category`, `limit` parameters.
     List,
-    /// Get a specific item.
+    /// Get a specific someday/maybe item. Requires `item_id` parameter.
     Get,
-    /// Add a new item.
+    /// Add a new someday/maybe item. Requires `description`. Optional: `category`, `trigger`, `review_date`.
     Add,
-    /// Update an existing item.
+    /// Update an existing someday/maybe item. Requires `item_id`. Optional: `description`, `category`, `trigger`, `review_date`.
     Update,
-    /// Activate (convert to task).
+    /// Activate a someday/maybe item - converts it to an active task. Requires `item_id`.
     Activate,
-    /// Archive/delete an item.
+    /// Archive/delete a someday/maybe item. Requires `item_id`.
     Archive,
-    /// Get categories.
+    /// Get all categories used in someday/maybe items.
     Categories,
-    /// Get items due for review.
+    /// Get items that are due for periodic review.
     DueForReview,
 }
 
@@ -507,16 +515,18 @@ impl GtdSomedayResponse {
 // ============================================================================
 
 /// Action to perform on inbox.
+///
+/// Available actions: `process`, `classify`, `classify_as`, `inbox_zero`
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum InboxAction {
-    /// Process inbox items with auto-classification.
+    /// Process inbox items with auto-classification. Use with optional `document_id`, `source_id`, `auto_classify`, `auto_threshold`, `batch_size` parameters.
     Process,
-    /// Classify a single text item.
+    /// Classify a single text item. Requires `content` parameter.
     Classify,
-    /// Classify an item manually.
+    /// Manually classify an inbox item to a specific GTD type. Requires `item_id`, `target_type`. Optional: `project_id`, `contexts`.
     ClassifyAs,
-    /// Get inbox to zero (auto-classify high confidence).
+    /// Auto-classify all high-confidence inbox items to reach inbox zero.
     InboxZero,
 }
 
@@ -789,14 +799,16 @@ pub struct GtdWeeklyReviewParams {
 }
 
 /// Type of review to generate.
+///
+/// Available types: `weekly`, `daily`, `custom`
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum ReviewType {
-    /// Full weekly review.
+    /// Full weekly review with all GTD sections (inbox, projects, waiting, someday, calendar).
     Weekly,
-    /// Quick daily review.
+    /// Quick daily review focusing on today's tasks and upcoming items.
     Daily,
-    /// Custom sections.
+    /// Custom review with specified sections. Use with `sections` parameter to specify which sections to include.
     Custom,
 }
 
@@ -939,28 +951,30 @@ impl GtdAttentionResponse {
 // ============================================================================
 
 /// Action to perform on commitments.
+///
+/// Available actions: `list`, `get`, `extract`, `create`, `fulfill`, `cancel`, `summary`, `overdue`, `made_to`, `received_from`
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum CommitmentAction {
-    /// List commitments matching filters.
+    /// List commitments matching filters. Use with optional `commitment_type`, `status`, `person`, `limit` parameters.
     List,
-    /// Get a specific commitment.
+    /// Get a specific commitment. Requires `commitment_id` parameter.
     Get,
-    /// Extract commitments from text.
+    /// Extract commitments from text. Requires `text` parameter. Optional: `document_id`.
     Extract,
-    /// Create a new commitment.
+    /// Create a new commitment. Requires `description`. Optional: `commitment_type` (made/received), `person`.
     Create,
-    /// Mark commitment as fulfilled.
+    /// Mark a commitment as fulfilled. Requires `commitment_id`.
     Fulfill,
-    /// Mark commitment as cancelled.
+    /// Mark a commitment as cancelled. Requires `commitment_id`.
     Cancel,
-    /// Get commitment summary.
+    /// Get summary of all commitments (made vs received, pending vs fulfilled).
     Summary,
-    /// Get overdue commitments.
+    /// Get overdue commitments. Use with optional `limit` parameter.
     Overdue,
-    /// Get commitments made to a person.
+    /// Get commitments made to a specific person. Requires `person` parameter.
     MadeTo,
-    /// Get commitments received from a person.
+    /// Get commitments received from a specific person. Requires `person` parameter.
     ReceivedFrom,
 }
 

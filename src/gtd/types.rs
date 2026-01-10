@@ -126,17 +126,19 @@ impl Project {
 }
 
 /// Status of a project.
+///
+/// Available values: `active`, `on_hold`, `completed`, `archived`
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum ProjectStatus {
-    /// Actively being worked on.
+    /// Actively being worked on (default). Project has next actions and is making progress.
     #[default]
     Active,
-    /// Temporarily paused.
+    /// Temporarily paused. Project is valid but work is suspended (e.g., waiting for external input).
     OnHold,
-    /// Successfully completed.
+    /// Successfully completed. All outcomes achieved.
     Completed,
-    /// No longer relevant, archived.
+    /// No longer relevant, archived. Project was abandoned or became obsolete.
     Archived,
 }
 
@@ -404,19 +406,21 @@ impl Task {
 }
 
 /// Status of a task.
+///
+/// Available values: `next`, `scheduled`, `waiting`, `someday`, `done`
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum TaskStatus {
-    /// Ready to be worked on next.
+    /// Ready to be worked on next (default). This is the GTD "Next Actions" list.
     #[default]
     Next,
-    /// Scheduled for a specific time.
+    /// Scheduled for a specific time/date. Task has a calendar commitment.
     Scheduled,
-    /// Waiting for someone else.
+    /// Waiting for someone else before this can proceed.
     Waiting,
-    /// Deferred to someday/maybe.
+    /// Deferred to someday/maybe list. Not active but worth keeping.
     Someday,
-    /// Completed.
+    /// Task is completed.
     Done,
 }
 
@@ -528,15 +532,17 @@ impl WaitingFor {
 }
 
 /// Status of a waiting-for item.
+///
+/// Available values: `pending`, `overdue`, `resolved`
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum WaitingStatus {
-    /// Still waiting.
+    /// Still waiting for response (default).
     #[default]
     Pending,
-    /// Past expected date.
+    /// Past the expected response date - needs follow-up.
     Overdue,
-    /// Received response/completed.
+    /// Response received or item no longer needed.
     Resolved,
 }
 

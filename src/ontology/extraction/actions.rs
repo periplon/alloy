@@ -84,32 +84,36 @@ pub enum CommitmentType {
 }
 
 /// Priority level.
+///
+/// Available values: `low`, `normal`, `high`, `critical`
 #[derive(
     Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Default, Serialize, Deserialize, JsonSchema,
 )]
 #[serde(rename_all = "snake_case")]
 pub enum Priority {
-    /// Low priority.
+    /// Low priority - can be deferred without impact.
     Low,
-    /// Normal/medium priority.
+    /// Normal/medium priority (default) - standard work items.
     #[default]
     Normal,
-    /// High priority.
+    /// High priority - should be completed soon.
     High,
-    /// Critical/urgent priority.
+    /// Critical/urgent priority - requires immediate attention.
     Critical,
 }
 
 /// Energy level required for a task.
+///
+/// Available values: `low`, `medium`, `high`
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum EnergyLevel {
-    /// Low energy, routine task.
+    /// Low energy - routine tasks doable when tired (email, filing, simple reviews).
     Low,
-    /// Medium energy, focused work.
+    /// Medium energy (default) - focused work requiring concentration.
     #[default]
     Medium,
-    /// High energy, demanding task.
+    /// High energy - demanding tasks requiring peak mental capacity (complex problem-solving, creative work).
     High,
 }
 

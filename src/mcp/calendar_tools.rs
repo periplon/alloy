@@ -149,20 +149,22 @@ impl From<CalendarEvent> for CalendarEventInfo {
 // ============================================================================
 
 /// Action to perform on calendar events.
+///
+/// Available actions: `create`, `get`, `update`, `delete`, `list`, `stats`
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum CalendarAction {
-    /// Create a new event.
+    /// Create a new calendar event. Requires `title`, `start`. Optional: `description`, `event_type`, `end`, `duration_minutes`, `all_day`, `location`, `participants`, `project_id`, `task_id`, `notes`, `recurrence_pattern`, `recurrence_interval`, `recurrence_until`, `recurrence_count`.
     Create,
-    /// Get an event by ID.
+    /// Get a calendar event by ID. Requires `event_id` parameter.
     Get,
-    /// Update an existing event.
+    /// Update an existing calendar event. Requires `event_id`. Optional: any create parameters to modify.
     Update,
-    /// Delete an event.
+    /// Delete a calendar event. Requires `event_id` parameter.
     Delete,
-    /// List events with filters.
+    /// List calendar events with filters. Use with optional `filter` parameter containing query options.
     List,
-    /// Get calendar statistics.
+    /// Get calendar statistics (event counts, busy time, etc.).
     Stats,
 }
 

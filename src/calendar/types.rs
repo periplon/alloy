@@ -264,29 +264,31 @@ impl CalendarEvent {
 }
 
 /// Type of calendar event.
+///
+/// Available types: `event`, `meeting`, `deadline`, `reminder`, `blocked_time`, `milestone`, `appointment`, `travel`, `call`, `standup`
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum EventType {
-    /// A general event.
+    /// A general event (default type).
     #[default]
     Event,
-    /// A meeting with participants.
+    /// A meeting with one or more participants.
     Meeting,
-    /// A deadline for a task or project.
+    /// A deadline for a task, project, or deliverable.
     Deadline,
-    /// A reminder.
+    /// A reminder notification.
     Reminder,
-    /// Blocked time (focus time, do not disturb).
+    /// Blocked time for focus work or do-not-disturb periods.
     BlockedTime,
-    /// A milestone or checkpoint.
+    /// A milestone or project checkpoint.
     Milestone,
-    /// An appointment.
+    /// An appointment (e.g., doctor, client).
     Appointment,
     /// Travel or commute time.
     Travel,
-    /// A call or video conference.
+    /// A phone call or video conference.
     Call,
-    /// A recurring stand-up or check-in.
+    /// A recurring stand-up or daily check-in meeting.
     Standup,
 }
 
@@ -484,29 +486,31 @@ pub enum ReminderType {
 // ============================================================================
 
 /// Type of calendar query.
+///
+/// Available query types: `upcoming`, `today`, `this_week`, `next_week`, `date_range`, `free_time`, `conflicts`, `commitments`, `by_type`, `search`
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum CalendarQueryType {
-    /// Get upcoming events.
+    /// Get upcoming events. Use with optional `days` parameter (default: 7 days) and `limit`.
     #[default]
     Upcoming,
-    /// Get today's events.
+    /// Get today's events only.
     Today,
-    /// Get this week's events.
+    /// Get events for the current week (Monday to Sunday).
     ThisWeek,
-    /// Get next week's events.
+    /// Get events for next week.
     NextWeek,
-    /// Get events in a date range.
+    /// Get events in a specific date range. Requires `start_date` and `end_date` parameters.
     DateRange,
-    /// Find free time slots.
+    /// Find available free time slots. Use with optional `min_duration_minutes`, `working_hours_start`, `working_hours_end`, `exclude_weekends`.
     FreeTime,
-    /// Find scheduling conflicts.
+    /// Find scheduling conflicts (overlapping events).
     Conflicts,
-    /// Get all commitments (deadlines, meetings).
+    /// Get all commitments - events that are deadlines or meetings with external parties.
     Commitments,
-    /// Get events by type.
+    /// Get events filtered by type. Use with `event_types` parameter (array of: meeting, deadline, reminder, blocked_time, standup, one_on_one, review, travel, personal).
     ByType,
-    /// Search events by text.
+    /// Search events by text in title/description. Use with `search_query` parameter.
     Search,
 }
 
