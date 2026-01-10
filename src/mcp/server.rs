@@ -294,6 +294,85 @@ pub struct IndexPathParams {
     /// Override ontology extraction for this source (None = use global config, true/false = force)
     #[serde(default)]
     pub extract_ontology: Option<bool>,
+    /// Human-readable name for the source (for search and display)
+    #[serde(default)]
+    pub name: Option<String>,
+    /// Description of the source contents or purpose
+    #[serde(default)]
+    pub description: Option<String>,
+}
+
+// Parameters for create_source tool - comprehensive source configuration
+#[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema)]
+pub struct CreateSourceParams {
+    /// Path to index (local path or s3://bucket/prefix)
+    pub path: String,
+
+    // === Naming & Metadata ===
+    /// Human-readable name for the source (for search and display)
+    #[serde(default)]
+    pub name: Option<String>,
+    /// Description of the source contents or purpose
+    #[serde(default)]
+    pub description: Option<String>,
+
+    // === File Filtering ===
+    /// Glob patterns to include files (e.g., ['*.md', '**/*.py']). Default: ['**/*']
+    #[serde(default)]
+    pub patterns: Option<Vec<String>>,
+    /// Glob patterns to exclude files (e.g., ['**/node_modules/**', '*.tmp'])
+    #[serde(default)]
+    pub exclude_patterns: Option<Vec<String>>,
+
+    // === Behavior Options ===
+    /// Watch for file changes and auto-reindex (local sources only)
+    #[serde(default)]
+    pub watch: Option<bool>,
+    /// Create the directory if it doesn't exist (local sources only)
+    #[serde(default)]
+    pub create_if_missing: Option<bool>,
+    /// Follow symbolic links when scanning (local sources only)
+    #[serde(default)]
+    pub follow_symlinks: Option<bool>,
+
+    // === Ontology ===
+    /// Override ontology extraction for this source (None = use global config)
+    #[serde(default)]
+    pub extract_ontology: Option<bool>,
+
+    // === S3-specific Options ===
+    /// AWS region for S3 sources
+    #[serde(default)]
+    pub region: Option<String>,
+    /// Custom S3 endpoint URL (for MinIO, LocalStack, etc.)
+    #[serde(default)]
+    pub endpoint_url: Option<String>,
+    /// Polling interval in seconds for S3 change detection (default: 300)
+    #[serde(default)]
+    pub poll_interval_secs: Option<u64>,
+}
+
+// Response for create_source tool
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CreateSourceResponse {
+    /// Unique source identifier
+    pub source_id: String,
+    /// Human-readable name (if provided)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub name: Option<String>,
+    /// Source type ('local' or 's3')
+    pub source_type: String,
+    /// Number of documents indexed
+    pub documents_indexed: usize,
+    /// Number of chunks created
+    pub chunks_created: usize,
+    /// Whether file watching is enabled
+    pub watching: bool,
+    /// Whether ontology extraction is enabled for this source
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub extract_ontology: Option<bool>,
+    /// Status message
+    pub message: String,
 }
 
 // Parameters for search tool
@@ -701,6 +780,8 @@ impl AlloyServer {
         let watch = params.watch.unwrap_or(false);
         let create_if_missing = params.create_if_missing.unwrap_or(false);
         let extract_ontology = params.extract_ontology;
+        let name = params.name;
+        let description = params.description;
         let patterns = params.pattern.map(|p| vec![p]).unwrap_or_default();
 
         // Get coordinator and perform indexing
@@ -719,6 +800,8 @@ impl AlloyServer {
                     patterns,
                     None, // Use default region
                     extract_ontology,
+                    name,
+                    description,
                 )
                 .await
         } else {
@@ -739,6 +822,8 @@ impl AlloyServer {
                     watch,
                     create_if_missing,
                     extract_ontology,
+                    name,
+                    description,
                 )
                 .await
         };
@@ -762,6 +847,99 @@ impl AlloyServer {
             }
             Err(e) => Ok(CallToolResult::success(vec![Content::text(format!(
                 "Failed to index path: {}",
+                e
+            ))])),
+        }
+    }
+
+    /// Create a source with full configuration options for comprehensive control over indexing behavior.
+    #[tool(
+        description = "Create and index a source with comprehensive configuration options. Supports local paths and S3 URIs with full control over file patterns, watching, symlinks, ontology extraction, and S3-specific settings."
+    )]
+    async fn create_source(
+        &self,
+        Parameters(params): Parameters<CreateSourceParams>,
+    ) -> Result<CallToolResult, McpError> {
+        use crate::coordinator::{LocalSourceOptions, S3SourceOptions};
+
+        // Ensure coordinator is initialized
+        self.ensure_coordinator().await?;
+
+        let state = self.state.read().await;
+        let coordinator = state.coordinator.as_ref().unwrap();
+
+        let result = if params.path.starts_with("s3://") {
+            // Parse S3 URI
+            let (bucket, prefix) = parse_s3_uri(&params.path)
+                .map_err(|e| McpError::invalid_params(e.to_string(), None))?;
+
+            let options = S3SourceOptions {
+                bucket,
+                prefix: Some(prefix),
+                name: params.name.clone(),
+                description: params.description.clone(),
+                patterns: params.patterns,
+                exclude_patterns: params.exclude_patterns,
+                region: params.region,
+                endpoint_url: params.endpoint_url,
+                poll_interval_secs: params.poll_interval_secs,
+                extract_ontology: params.extract_ontology,
+            };
+
+            coordinator.create_s3_source(options).await
+        } else {
+            // Local path
+            let path = PathBuf::from(&params.path);
+            let create_if_missing = params.create_if_missing.unwrap_or(false);
+
+            if !path.exists() && !create_if_missing {
+                return Err(McpError::invalid_params(
+                    format!(
+                        "Path does not exist: {}. Use create_if_missing: true to create it.",
+                        params.path
+                    ),
+                    None,
+                ));
+            }
+
+            let options = LocalSourceOptions {
+                path,
+                name: params.name.clone(),
+                description: params.description.clone(),
+                patterns: params.patterns,
+                exclude_patterns: params.exclude_patterns,
+                watch: params.watch,
+                create_if_missing: params.create_if_missing,
+                follow_symlinks: params.follow_symlinks,
+                extract_ontology: params.extract_ontology,
+            };
+
+            coordinator.create_local_source(options).await
+        };
+
+        match result {
+            Ok(source) => {
+                let response = CreateSourceResponse {
+                    source_id: source.id.clone(),
+                    name: source.name.clone(),
+                    source_type: source.source_type.clone(),
+                    documents_indexed: source.document_count,
+                    chunks_created: 0, // TODO: track chunk count
+                    watching: source.watching,
+                    extract_ontology: source.extract_ontology,
+                    message: format!(
+                        "Successfully created source '{}' with {} documents indexed",
+                        source.name.as_deref().unwrap_or(&source.id),
+                        source.document_count
+                    ),
+                };
+
+                Ok(CallToolResult::success(vec![Content::text(
+                    serde_json::to_string_pretty(&response).unwrap(),
+                )]))
+            }
+            Err(e) => Ok(CallToolResult::success(vec![Content::text(format!(
+                "Failed to create source: {}",
                 e
             ))])),
         }

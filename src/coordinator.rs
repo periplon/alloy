@@ -162,6 +162,12 @@ impl std::fmt::Display for SourceStatus {
 pub struct IndexedSource {
     /// Source identifier.
     pub id: String,
+    /// Optional human-readable name for the source.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub name: Option<String>,
+    /// Optional description of the source.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub description: Option<String>,
     /// Source type ("local" or "s3").
     pub source_type: String,
     /// Source path or URI.
@@ -180,6 +186,54 @@ pub struct IndexedSource {
     pub error: Option<String>,
     /// Override for ontology extraction (None = use global config, Some(true/false) = force enable/disable).
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub extract_ontology: Option<bool>,
+}
+
+/// Options for creating a local source.
+#[derive(Debug, Clone, Default)]
+pub struct LocalSourceOptions {
+    /// Base path for the source.
+    pub path: PathBuf,
+    /// Optional human-readable name.
+    pub name: Option<String>,
+    /// Optional description.
+    pub description: Option<String>,
+    /// Glob patterns to include (e.g., "**/*.md", "*.txt").
+    pub patterns: Option<Vec<String>>,
+    /// Glob patterns to exclude (e.g., "**/node_modules/**").
+    pub exclude_patterns: Option<Vec<String>>,
+    /// Whether to watch for changes.
+    pub watch: Option<bool>,
+    /// Create the directory if it doesn't exist.
+    pub create_if_missing: Option<bool>,
+    /// Whether to follow symlinks.
+    pub follow_symlinks: Option<bool>,
+    /// Override for ontology extraction.
+    pub extract_ontology: Option<bool>,
+}
+
+/// Options for creating an S3 source.
+#[derive(Debug, Clone, Default)]
+pub struct S3SourceOptions {
+    /// S3 bucket name.
+    pub bucket: String,
+    /// Prefix to filter objects (e.g., "documents/").
+    pub prefix: Option<String>,
+    /// Optional human-readable name.
+    pub name: Option<String>,
+    /// Optional description.
+    pub description: Option<String>,
+    /// File patterns to include.
+    pub patterns: Option<Vec<String>>,
+    /// File patterns to exclude.
+    pub exclude_patterns: Option<Vec<String>>,
+    /// AWS region.
+    pub region: Option<String>,
+    /// Custom endpoint URL (for MinIO, LocalStack, etc.).
+    pub endpoint_url: Option<String>,
+    /// Polling interval in seconds for change detection.
+    pub poll_interval_secs: Option<u64>,
+    /// Override for ontology extraction.
     pub extract_ontology: Option<bool>,
 }
 
@@ -592,11 +646,11 @@ impl IndexCoordinator {
         exclude_patterns: Vec<String>,
         watch: bool,
     ) -> Result<IndexedSource> {
-        self.index_local_with_options(path, patterns, exclude_patterns, watch, false, None)
+        self.index_local_with_options(path, patterns, exclude_patterns, watch, false, None, None, None)
             .await
     }
 
-    /// Index a local path with options including create_if_missing and extract_ontology.
+    /// Index a local path with options including create_if_missing, extract_ontology, name, and description.
     pub async fn index_local_with_options(
         &self,
         path: PathBuf,
@@ -605,27 +659,49 @@ impl IndexCoordinator {
         watch: bool,
         create_if_missing: bool,
         extract_ontology: Option<bool>,
+        name: Option<String>,
+        description: Option<String>,
     ) -> Result<IndexedSource> {
-        let config = LocalSourceConfig {
+        self.create_local_source(LocalSourceOptions {
             path,
-            patterns: if patterns.is_empty() {
-                vec!["**/*".to_string()]
-            } else {
-                patterns
-            },
-            exclude_patterns: if exclude_patterns.is_empty() {
-                LocalSourceConfig::default().exclude_patterns
-            } else {
-                exclude_patterns
-            },
-            watch,
-            follow_symlinks: false,
-            create_if_missing,
+            patterns: if patterns.is_empty() { None } else { Some(patterns) },
+            exclude_patterns: if exclude_patterns.is_empty() { None } else { Some(exclude_patterns) },
+            watch: Some(watch),
+            create_if_missing: Some(create_if_missing),
+            follow_symlinks: None,
+            extract_ontology,
+            name,
+            description,
+        })
+        .await
+    }
+
+    /// Create a local source with full configuration options.
+    pub async fn create_local_source(&self, options: LocalSourceOptions) -> Result<IndexedSource> {
+        let default_config = LocalSourceConfig::default();
+
+        let config = LocalSourceConfig {
+            path: options.path,
+            patterns: options.patterns.unwrap_or_else(|| default_config.patterns),
+            exclude_patterns: options
+                .exclude_patterns
+                .unwrap_or_else(|| default_config.exclude_patterns),
+            watch: options.watch.unwrap_or(false),
+            follow_symlinks: options.follow_symlinks.unwrap_or(false),
+            create_if_missing: options.create_if_missing.unwrap_or(false),
         };
 
+        let watch = config.watch;
         let source = LocalSource::new(config)?;
-        self.index_source(Box::new(source), "local", watch, extract_ontology)
-            .await
+        self.index_source(
+            Box::new(source),
+            "local",
+            watch,
+            options.extract_ontology,
+            options.name,
+            options.description,
+        )
+        .await
     }
 
     /// Index an S3 path.
@@ -636,11 +712,11 @@ impl IndexCoordinator {
         patterns: Vec<String>,
         region: Option<String>,
     ) -> Result<IndexedSource> {
-        self.index_s3_with_options(bucket, prefix, patterns, region, None)
+        self.index_s3_with_options(bucket, prefix, patterns, region, None, None, None)
             .await
     }
 
-    /// Index an S3 path with options including extract_ontology.
+    /// Index an S3 path with options including extract_ontology, name, and description.
     pub async fn index_s3_with_options(
         &self,
         bucket: String,
@@ -648,22 +724,48 @@ impl IndexCoordinator {
         patterns: Vec<String>,
         region: Option<String>,
         extract_ontology: Option<bool>,
+        name: Option<String>,
+        description: Option<String>,
     ) -> Result<IndexedSource> {
-        let config = S3SourceConfig {
+        self.create_s3_source(S3SourceOptions {
             bucket,
             prefix,
+            patterns: if patterns.is_empty() { None } else { Some(patterns) },
+            exclude_patterns: None,
             region,
-            patterns: if patterns.is_empty() {
-                vec!["*".to_string()]
-            } else {
-                patterns
-            },
-            ..Default::default()
+            endpoint_url: None,
+            poll_interval_secs: None,
+            extract_ontology,
+            name,
+            description,
+        })
+        .await
+    }
+
+    /// Create an S3 source with full configuration options.
+    pub async fn create_s3_source(&self, options: S3SourceOptions) -> Result<IndexedSource> {
+        let default_config = S3SourceConfig::default();
+
+        let config = S3SourceConfig {
+            bucket: options.bucket,
+            prefix: options.prefix,
+            region: options.region,
+            endpoint_url: options.endpoint_url,
+            poll_interval_secs: options.poll_interval_secs.unwrap_or(default_config.poll_interval_secs),
+            patterns: options.patterns.unwrap_or_else(|| default_config.patterns),
+            exclude_patterns: options.exclude_patterns.unwrap_or_else(|| default_config.exclude_patterns),
         };
 
         let source = S3Source::new(config).await?;
-        self.index_source(Box::new(source), "s3", false, extract_ontology)
-            .await
+        self.index_source(
+            Box::new(source),
+            "s3",
+            false,
+            options.extract_ontology,
+            options.name,
+            options.description,
+        )
+        .await
     }
 
     /// Register a pending source before indexing starts.
@@ -687,6 +789,8 @@ impl IndexCoordinator {
 
         let pending_source = IndexedSource {
             id: source_id.clone(),
+            name: None,
+            description: None,
             source_type: source_type.to_string(),
             path: source_id.clone(), // Use canonical path for consistency
             document_count: 0,
@@ -745,6 +849,8 @@ impl IndexCoordinator {
         source_type: &str,
         _watch: bool,
         extract_ontology: Option<bool>,
+        name: Option<String>,
+        description: Option<String>,
     ) -> Result<IndexedSource> {
         let source_id = source.id().to_string();
         let start_time = std::time::Instant::now();
@@ -907,6 +1013,8 @@ impl IndexCoordinator {
 
         let indexed_source = IndexedSource {
             id: source_id.clone(),
+            name,
+            description,
             source_type: source_type.to_string(),
             path: source.id().to_string(),
             document_count: documents_indexed + unchanged_count,
@@ -1449,6 +1557,8 @@ impl IndexCoordinator {
             } else {
                 sources.insert(source_id.to_string(), IndexedSource {
                     id: source_id.to_string(),
+                    name: None,
+                    description: None,
                     source_type: "direct".to_string(),
                     path: source_id.to_string(),
                     document_count: 1,

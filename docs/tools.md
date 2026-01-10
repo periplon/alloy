@@ -4,7 +4,7 @@ Alloy exposes MCP tools for document indexing, search, GTD workflow, calendar in
 
 ## index_path
 
-Index a local path or S3 URI for hybrid search. Supports creating missing directories, indexing empty sources, and per-source ontology extraction control.
+Index a local path or S3 URI for hybrid search. Supports creating missing directories, indexing empty sources, per-source ontology extraction control, and custom naming.
 
 ### Parameters
 
@@ -16,6 +16,8 @@ Index a local path or S3 URI for hybrid search. Supports creating missing direct
 | `recursive` | boolean | No | `true` | Recursively index subdirectories |
 | `create_if_missing` | boolean | No | `false` | Create the directory if it doesn't exist (local paths only) |
 | `extract_ontology` | boolean | No | - | Override ontology extraction for this source (see notes) |
+| `name` | string | No | - | Human-readable name for the source (for search and display) |
+| `description` | string | No | - | Description of the source contents or purpose |
 
 ### Response
 
@@ -55,6 +57,20 @@ index_path(path: "~/meeting-notes", extract_ontology: true)
 
 # Disable ontology extraction for this source (even if globally enabled)
 index_path(path: "~/raw-data", extract_ontology: false)
+
+# Index with a human-readable name and description
+index_path(
+  path: "~/projects/backend",
+  name: "Backend API",
+  description: "Rust backend service with REST API endpoints"
+)
+
+# Named S3 source with description
+index_path(
+  path: "s3://company-docs/engineering",
+  name: "Engineering Docs",
+  description: "Technical documentation, RFCs, and architecture decisions"
+)
 ```
 
 ### Notes
@@ -66,6 +82,123 @@ index_path(path: "~/raw-data", extract_ontology: false)
   - `extract_ontology: true` - Force extraction even if globally disabled
   - `extract_ontology: false` - Skip extraction even if globally enabled
   - Not specified - Use global config setting
+- **Source naming**: Use `name` and `description` to make sources easier to identify and search. The name can be used to find sources in `list_sources` and filter searches by source.
+
+## create_source
+
+Create and index a source with comprehensive configuration options. This is the advanced version of `index_path` that exposes all source configuration options including file patterns, symlink handling, and S3-specific settings.
+
+### Parameters
+
+| Name | Type | Required | Default | Description |
+|------|------|----------|---------|-------------|
+| `path` | string | Yes | - | Local path or S3 URI (`s3://bucket/prefix`) |
+| `name` | string | No | - | Human-readable name for the source |
+| `description` | string | No | - | Description of the source contents or purpose |
+| `patterns` | string[] | No | `["**/*"]` | Glob patterns to include files (e.g., `["*.md", "**/*.py"]`) |
+| `exclude_patterns` | string[] | No | (see notes) | Glob patterns to exclude files (e.g., `["**/node_modules/**"]`) |
+| `watch` | boolean | No | `false` | Watch for file changes and auto-reindex (local sources only) |
+| `create_if_missing` | boolean | No | `false` | Create the directory if it doesn't exist (local sources only) |
+| `follow_symlinks` | boolean | No | `false` | Follow symbolic links when scanning (local sources only) |
+| `extract_ontology` | boolean | No | - | Override ontology extraction for this source |
+| `region` | string | No | (auto) | AWS region for S3 sources |
+| `endpoint_url` | string | No | - | Custom S3 endpoint URL (for MinIO, LocalStack, etc.) |
+| `poll_interval_secs` | integer | No | `300` | Polling interval in seconds for S3 change detection |
+
+### Response
+
+```json
+{
+  "source_id": "/path/to/source",
+  "name": "My Documents",
+  "source_type": "local",
+  "documents_indexed": 42,
+  "chunks_created": 156,
+  "watching": true,
+  "extract_ontology": true,
+  "message": "Successfully created source 'My Documents' with 42 documents indexed"
+}
+```
+
+### Examples
+
+```
+# Basic local source with all defaults
+create_source(path: "~/documents")
+
+# Local source with custom patterns
+create_source(
+  path: "~/code/project",
+  name: "My Project",
+  description: "Main development project with Rust and Python",
+  patterns: ["**/*.rs", "**/*.py", "**/*.md"],
+  exclude_patterns: ["**/target/**", "**/__pycache__/**", "**/venv/**"],
+  watch: true
+)
+
+# Create a watched inbox folder for new documents
+create_source(
+  path: "~/inbox",
+  name: "Document Inbox",
+  description: "Folder for incoming documents to be processed",
+  create_if_missing: true,
+  watch: true,
+  extract_ontology: true
+)
+
+# S3 source with custom settings
+create_source(
+  path: "s3://my-bucket/documents",
+  name: "Company Documents",
+  description: "Shared company documentation",
+  patterns: ["*.pdf", "*.docx", "*.md"],
+  region: "us-west-2",
+  poll_interval_secs: 60
+)
+
+# MinIO/LocalStack source
+create_source(
+  path: "s3://local-bucket/data",
+  name: "Local Development Data",
+  endpoint_url: "http://localhost:9000",
+  region: "us-east-1"
+)
+
+# Source with symlink following
+create_source(
+  path: "~/linked-docs",
+  name: "Linked Documents",
+  follow_symlinks: true,
+  patterns: ["**/*.md"]
+)
+```
+
+### Notes
+
+- **Default exclude patterns** (local sources): `**/node_modules/**`, `**/.git/**`, `**/target/**`, `**/__pycache__/**`, `**/venv/**`, `**/.venv/**`
+- **Patterns**: Use glob syntax. Multiple patterns are ORed together. Examples:
+  - `*.md` - Markdown files in root
+  - `**/*.md` - Markdown files recursively
+  - `**/*.{rs,py,js}` - Multiple extensions
+  - `docs/**/*` - All files under docs/
+- **Symlinks**: By default, symlinks are not followed to prevent infinite loops. Enable `follow_symlinks` if your directory structure requires it.
+- **S3 polling**: S3 sources don't have native file watching. Instead, they poll for changes at the configured interval.
+- **Ontology extraction**: See `index_path` notes for details on ontology extraction override behavior.
+
+### Comparison with index_path
+
+| Feature | index_path | create_source |
+|---------|------------|---------------|
+| Basic indexing | ✓ | ✓ |
+| Single pattern | ✓ | ✓ |
+| Multiple patterns | - | ✓ |
+| Exclude patterns | - | ✓ |
+| Follow symlinks | - | ✓ |
+| S3 region | - | ✓ |
+| S3 endpoint URL | - | ✓ |
+| S3 poll interval | - | ✓ |
+
+Use `index_path` for quick, simple indexing. Use `create_source` when you need fine-grained control over source configuration.
 
 ## search
 
