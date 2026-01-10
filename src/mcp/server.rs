@@ -972,6 +972,71 @@ impl AlloyServer {
         }
     }
 
+    /// Add a document directly to the store from text or base64-encoded content. Supports text, markdown, PDF, and other formats. Optionally extracts entities, relationships, and temporal information.
+    #[tool(
+        description = "Add a document directly to the store from text or base64-encoded content. Supports text, markdown, PDF, and other formats. Optionally extracts entities, relationships, and temporal information."
+    )]
+    async fn document_add(
+        &self,
+        Parameters(params): Parameters<DocumentAddParams>,
+    ) -> Result<CallToolResult, McpError> {
+        // Ensure coordinator is initialized
+        self.ensure_coordinator().await?;
+
+        // Decode content
+        let content_bytes = if params.content_type == "base64" {
+            base64::engine::general_purpose::STANDARD
+                .decode(&params.content)
+                .map_err(|e| {
+                    McpError::invalid_params(format!("Failed to decode base64 content: {}", e), None)
+                })?
+        } else {
+            params.content.as_bytes().to_vec()
+        };
+
+        let state = self.state.read().await;
+        let coordinator = state.coordinator.as_ref().unwrap();
+
+        let source_id = params.source_id.as_deref().unwrap_or("direct-add");
+        let extract_ontology = params.extract_ontology.unwrap_or(false);
+
+        let start_time = Instant::now();
+        match coordinator
+            .add_document_direct(
+                Bytes::from(content_bytes),
+                &params.mime_type,
+                source_id,
+                params.title.clone(),
+                params.metadata.clone(),
+                extract_ontology,
+            )
+            .await
+        {
+            Ok((doc, chunk_count, extraction)) => {
+                let response = DocumentAddResponse {
+                    success: true,
+                    document_id: doc.id,
+                    source_id: doc.source_id,
+                    chunks_created: chunk_count,
+                    entities_extracted: extraction.as_ref().map(|e| e.entities.len()),
+                    relationships_extracted: extraction.as_ref().map(|e| e.relationships.len()),
+                    entity_names: extraction
+                        .map(|e| e.entities.into_iter().map(|ent| ent.name).collect()),
+                    processing_ms: start_time.elapsed().as_millis() as u64,
+                    message: "Document added successfully".to_string(),
+                };
+
+                Ok(CallToolResult::success(vec![Content::text(
+                    serde_json::to_string_pretty(&response).unwrap(),
+                )]))
+            }
+            Err(e) => Ok(CallToolResult::success(vec![Content::text(format!(
+                "Failed to add document: {}",
+                e
+            ))])),
+        }
+    }
+
     /// List all indexed sources with their status and document counts.
     #[tool(description = "List all indexed sources with their status and document counts.")]
     async fn list_sources(&self) -> Result<CallToolResult, McpError> {
