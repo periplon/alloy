@@ -324,6 +324,27 @@ nav a:hover, nav a.active {
     color: var(--text-secondary);
 }
 
+.badge.indexing {
+    background: rgba(59, 130, 246, 0.2);
+    color: var(--primary);
+    animation: pulse 1.5s ease-in-out infinite;
+}
+
+.badge.failed {
+    background: rgba(239, 68, 68, 0.2);
+    color: var(--error);
+    cursor: help;
+}
+
+@keyframes pulse {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.5; }
+}
+
+.source-item.indexing {
+    border-left: 3px solid var(--primary);
+}
+
 .btn {
     padding: 8px 16px;
     border: none;
@@ -1084,7 +1105,7 @@ async function renderSearchPage() {
                     <select id="source-filter">
                         <option value="">All Sources</option>
                         ${state.sources.map(s => `
-                            <option value="${escapeHtml(s.source_id)}">${escapeHtml(s.path)}</option>
+                            <option value="${escapeHtml(s.id)}">${escapeHtml(s.path)}</option>
                         `).join('')}
                     </select>
                 </label>
@@ -1262,6 +1283,46 @@ async function renderSourcesPage() {
         e.preventDefault();
         await addSource();
     });
+
+    // Auto-refresh if any sources are indexing
+    startSourcesAutoRefresh();
+}
+
+// Auto-refresh interval for sources page
+let sourcesRefreshInterval = null;
+
+function startSourcesAutoRefresh() {
+    // Clear any existing interval
+    if (sourcesRefreshInterval) {
+        clearInterval(sourcesRefreshInterval);
+        sourcesRefreshInterval = null;
+    }
+
+    // Check if any sources are indexing
+    const hasIndexing = state.sources.some(s => s.status === 'indexing');
+    if (!hasIndexing) return;
+
+    // Start auto-refresh every 2 seconds
+    sourcesRefreshInterval = setInterval(async () => {
+        if (state.currentPage !== 'sources') {
+            clearInterval(sourcesRefreshInterval);
+            sourcesRefreshInterval = null;
+            return;
+        }
+
+        await loadSources();
+        const container = document.getElementById('sources-container');
+        if (container) {
+            container.innerHTML = renderSourcesList(state.sources, false);
+        }
+
+        // Stop if no more indexing sources
+        const stillIndexing = state.sources.some(s => s.status === 'indexing');
+        if (!stillIndexing) {
+            clearInterval(sourcesRefreshInterval);
+            sourcesRefreshInterval = null;
+        }
+    }, 2000);
 }
 
 function renderSourcesList(sources, compact = false) {
@@ -1274,31 +1335,41 @@ function renderSourcesList(sources, compact = false) {
         `;
     }
 
-    return sources.map(source => `
-        <div class="source-item" data-id="${source.source_id}">
-            <div class="source-info">
-                <h3>${escapeHtml(source.path)}</h3>
-                <p>${source.source_type} • Last scan: ${formatDate(source.last_scan)}</p>
-            </div>
-            <div class="source-stats">
-                <div class="count">
-                    <div class="value">${source.document_count}</div>
-                    <div class="label">Documents</div>
+    return sources.map(source => {
+        const status = source.status || 'ready';
+        const statusBadge = status === 'indexing'
+            ? '<span class="badge indexing">Indexing...</span>'
+            : status === 'failed'
+            ? `<span class="badge failed" title="${escapeHtml(source.error || 'Unknown error')}">Failed</span>`
+            : '';
+
+        return `
+            <div class="source-item ${status === 'indexing' ? 'indexing' : ''}" data-id="${source.id}">
+                <div class="source-info">
+                    <h3>${escapeHtml(source.path)}</h3>
+                    <p>${source.source_type} • Last scan: ${formatDate(source.last_scan)}</p>
                 </div>
-                <span class="badge ${source.watching ? 'watching' : 'static'}">
-                    ${source.watching ? 'Watching' : 'Static'}
-                </span>
-                ${compact ? '' : `
-                    <button class="btn btn-secondary" onclick="refreshSource('${source.source_id}')">
-                        Refresh
-                    </button>
-                    <button class="btn btn-danger" onclick="removeSource('${source.source_id}')">
-                        Remove
-                    </button>
-                `}
+                <div class="source-stats">
+                    <div class="count">
+                        <div class="value">${source.document_count}</div>
+                        <div class="label">Documents</div>
+                    </div>
+                    ${statusBadge}
+                    <span class="badge ${source.watching ? 'watching' : 'static'}">
+                        ${source.watching ? 'Watching' : 'Static'}
+                    </span>
+                    ${compact ? '' : `
+                        <button class="btn btn-secondary" onclick="refreshSource('${source.id}')" ${status === 'indexing' ? 'disabled' : ''}>
+                            Refresh
+                        </button>
+                        <button class="btn btn-danger" onclick="removeSource('${source.id}')">
+                            Remove
+                        </button>
+                    `}
+                </div>
             </div>
-        </div>
-    `).join('');
+        `;
+    }).join('');
 }
 
 async function addSource() {
@@ -1347,7 +1418,7 @@ async function removeSource(sourceId) {
 
 async function refreshSource(sourceId) {
     try {
-        const source = state.sources.find(s => s.source_id === sourceId);
+        const source = state.sources.find(s => s.id === sourceId);
         if (source) {
             await api('/index', {
                 method: 'POST',
@@ -1381,8 +1452,8 @@ async function renderDocumentsPage() {
                     <select id="doc-source-filter" class="form-select">
                         <option value="">All Sources</option>
                         ${state.sources.map(s => `
-                            <option value="${escapeHtml(s.source_id)}"
-                                ${state.selectedSource === s.source_id ? 'selected' : ''}>
+                            <option value="${escapeHtml(s.id)}"
+                                ${state.selectedSource === s.id ? 'selected' : ''}>
                                 ${escapeHtml(s.path)} (${s.document_count} docs)
                             </option>
                         `).join('')}

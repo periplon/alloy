@@ -9,7 +9,7 @@ use axum::{
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 
-use crate::coordinator::IndexCoordinator;
+use crate::coordinator::{IndexCoordinator, SourceStatus};
 use crate::search::{HybridQuery, SearchFilter};
 
 /// Application state shared across handlers.
@@ -49,6 +49,8 @@ pub struct IndexResponse {
     pub documents_indexed: usize,
     pub watching: bool,
     pub message: String,
+    /// Status of the indexing operation.
+    pub status: String,
 }
 
 /// Search query parameters.
@@ -161,21 +163,20 @@ pub struct RemoveSourceResponse {
 // ============================================================================
 
 /// POST /api/v1/index - Index a path.
+///
+/// This immediately registers the source and starts indexing in the background.
+/// The response indicates that indexing has started, not that it's complete.
 pub async fn index_handler(
     State(state): State<Arc<ApiState>>,
     Json(request): Json<IndexRequest>,
 ) -> impl IntoResponse {
-    let patterns = request.pattern.map(|p| vec![p]).unwrap_or_default();
+    let patterns = request.pattern.clone().map(|p| vec![p]).unwrap_or_default();
 
-    let result = if request.path.starts_with("s3://") {
-        // Parse S3 URI
+    // Determine source type and validate
+    let (source_type, validated_path) = if request.path.starts_with("s3://") {
+        // Parse and validate S3 URI
         match crate::sources::parse_s3_uri(&request.path) {
-            Ok((bucket, prefix)) => {
-                state
-                    .coordinator
-                    .index_s3(bucket, Some(prefix), patterns, None)
-                    .await
-            }
+            Ok(_) => ("s3", request.path.clone()),
             Err(e) => {
                 return (
                     StatusCode::BAD_REQUEST,
@@ -199,33 +200,90 @@ pub async fn index_handler(
             )
                 .into_response();
         }
-
-        state
-            .coordinator
-            .index_local(path, patterns, vec![], request.watch)
-            .await
+        ("local", request.path.clone())
     };
 
-    match result {
-        Ok(source) => (
-            StatusCode::OK,
-            Json(IndexResponse {
-                source_id: source.id,
-                documents_indexed: source.document_count,
-                watching: source.watching,
-                message: "Indexing complete".to_string(),
-            }),
-        )
-            .into_response(),
-        Err(e) => (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(ErrorResponse {
-                error: e.to_string(),
-                code: "indexing_failed".to_string(),
-            }),
-        )
-            .into_response(),
-    }
+    // Register the source immediately (with "indexing" status)
+    let pending_source = match state
+        .coordinator
+        .register_pending_source(source_type, &validated_path, request.watch)
+        .await
+    {
+        Ok(source) => source,
+        Err(e) => {
+            return (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(ErrorResponse {
+                    error: e.to_string(),
+                    code: "registration_failed".to_string(),
+                }),
+            )
+                .into_response();
+        }
+    };
+
+    let source_id = pending_source.id.clone();
+
+    // Spawn background indexing task
+    let coordinator = state.coordinator.clone();
+    let path = validated_path.clone();
+    let watch = request.watch;
+
+    tokio::spawn(async move {
+        let result = if path.starts_with("s3://") {
+            match crate::sources::parse_s3_uri(&path) {
+                Ok((bucket, prefix)) => {
+                    coordinator
+                        .index_s3(bucket, Some(prefix), patterns, None)
+                        .await
+                }
+                Err(e) => Err(e),
+            }
+        } else {
+            let path_buf = std::path::PathBuf::from(&path);
+            coordinator
+                .index_local(path_buf, patterns, vec![], watch)
+                .await
+        };
+
+        // Update source status based on result
+        match result {
+            Ok(indexed) => {
+                let _ = coordinator
+                    .update_source_status(
+                        &indexed.id,
+                        SourceStatus::Ready,
+                        Some(indexed.document_count),
+                        None,
+                    )
+                    .await;
+                tracing::info!(
+                    "Background indexing complete for {}: {} documents",
+                    indexed.id,
+                    indexed.document_count
+                );
+            }
+            Err(e) => {
+                let _ = coordinator
+                    .update_source_status(&path, SourceStatus::Failed, None, Some(e.to_string()))
+                    .await;
+                tracing::error!("Background indexing failed for {}: {}", path, e);
+            }
+        }
+    });
+
+    // Return immediately with "indexing" status
+    (
+        StatusCode::ACCEPTED,
+        Json(IndexResponse {
+            source_id,
+            documents_indexed: 0,
+            watching: request.watch,
+            message: "Indexing started in background".to_string(),
+            status: "indexing".to_string(),
+        }),
+    )
+        .into_response()
 }
 
 /// GET /api/v1/search - Search documents.

@@ -132,6 +132,19 @@ pub enum IndexItemResult {
     Skipped(DeduplicationResult),
 }
 
+/// Status of an indexed source.
+#[derive(Debug, Clone, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum SourceStatus {
+    /// Source is being indexed.
+    #[default]
+    Indexing,
+    /// Source has been indexed successfully.
+    Ready,
+    /// Indexing failed with an error.
+    Failed,
+}
+
 /// Indexed source information.
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct IndexedSource {
@@ -147,6 +160,12 @@ pub struct IndexedSource {
     pub watching: bool,
     /// Last scan time.
     pub last_scan: chrono::DateTime<Utc>,
+    /// Current status of the source.
+    #[serde(default)]
+    pub status: SourceStatus,
+    /// Error message if status is Failed.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub error: Option<String>,
 }
 
 /// The main index coordinator.
@@ -362,8 +381,10 @@ impl IndexCoordinator {
             EmbeddingProviderType::Api => config.embedding.api.model.clone(),
         };
 
-        // Initialize ontology store for GTD features
-        let ontology_store = Arc::new(RwLock::new(EmbeddedOntologyStore::new()));
+        // Initialize ontology store for GTD features with persistence
+        let ontology_store = Arc::new(RwLock::new(
+            EmbeddedOntologyStore::with_persistence(&data_dir).await?,
+        ));
 
         // Initialize entity extraction processor if enabled
         let extraction_processor = if config.ontology.enabled
@@ -592,6 +613,68 @@ impl IndexCoordinator {
         self.index_source(Box::new(source), "s3", false).await
     }
 
+    /// Register a pending source before indexing starts.
+    /// Returns the source ID that will be used for indexing.
+    pub async fn register_pending_source(
+        &self,
+        source_type: &str,
+        path: &str,
+        watch: bool,
+    ) -> Result<IndexedSource> {
+        let source_id = path.to_string();
+
+        let pending_source = IndexedSource {
+            id: source_id.clone(),
+            source_type: source_type.to_string(),
+            path: path.to_string(),
+            document_count: 0,
+            watching: watch,
+            last_scan: Utc::now(),
+            status: SourceStatus::Indexing,
+            error: None,
+        };
+
+        // Store immediately and persist
+        {
+            let mut sources = self.sources.write().await;
+            sources.insert(source_id, pending_source.clone());
+        }
+
+        if let Err(e) = self.save_sources().await {
+            warn!("Failed to persist pending source: {}", e);
+        }
+
+        info!("Registered pending source: {}", pending_source.id);
+        Ok(pending_source)
+    }
+
+    /// Update the status of an existing source.
+    pub async fn update_source_status(
+        &self,
+        source_id: &str,
+        status: SourceStatus,
+        document_count: Option<usize>,
+        error: Option<String>,
+    ) -> Result<()> {
+        {
+            let mut sources = self.sources.write().await;
+            if let Some(source) = sources.get_mut(source_id) {
+                source.status = status;
+                source.last_scan = Utc::now();
+                if let Some(count) = document_count {
+                    source.document_count = count;
+                }
+                source.error = error;
+            }
+        }
+
+        if let Err(e) = self.save_sources().await {
+            warn!("Failed to persist source status update: {}", e);
+        }
+
+        Ok(())
+    }
+
     /// Index a source.
     async fn index_source(
         &self,
@@ -765,6 +848,8 @@ impl IndexCoordinator {
             document_count: documents_indexed + unchanged_count,
             watching: false, // TODO: implement watching
             last_scan: Utc::now(),
+            status: SourceStatus::Ready,
+            error: None,
         };
 
         // Store in sources map and persist
@@ -894,10 +979,12 @@ impl IndexCoordinator {
                             debug!("Failed to store extracted relationship: {}", e);
                         }
                     }
-                    debug!(
-                        "Extracted {} entities and {} relationships from {}",
-                        entity_count, relationship_count, item.uri
-                    );
+                    if entity_count > 0 || relationship_count > 0 {
+                        info!(
+                            "Extracted {} entities and {} relationships from {}",
+                            entity_count, relationship_count, item.uri
+                        );
+                    }
                 }
                 Err(e) => {
                     warn!("Entity extraction failed for {}: {}", item.uri, e);
