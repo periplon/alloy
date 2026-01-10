@@ -815,6 +815,94 @@ nav a:hover, nav a.active {
         margin: 10px;
     }
 }
+
+/* Toast notifications */
+.toast-container {
+    position: fixed;
+    top: 20px;
+    right: 20px;
+    z-index: 2000;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+}
+
+.toast {
+    background: var(--bg-secondary);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 12px 16px;
+    min-width: 280px;
+    max-width: 400px;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+    animation: slideIn 0.3s ease;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+}
+
+.toast.error {
+    border-color: var(--danger);
+    background: rgba(239, 68, 68, 0.1);
+}
+
+.toast.success {
+    border-color: var(--success);
+    background: rgba(34, 197, 94, 0.1);
+}
+
+.toast.info {
+    border-color: var(--primary);
+    background: rgba(59, 130, 246, 0.1);
+}
+
+.toast-message {
+    flex: 1;
+    font-size: 0.875rem;
+}
+
+.toast-close {
+    background: none;
+    border: none;
+    color: var(--text-secondary);
+    cursor: pointer;
+    padding: 4px;
+    font-size: 1.25rem;
+    line-height: 1;
+}
+
+.toast-close:hover {
+    color: var(--text-primary);
+}
+
+@keyframes slideIn {
+    from {
+        transform: translateX(100%);
+        opacity: 0;
+    }
+    to {
+        transform: translateX(0);
+        opacity: 1;
+    }
+}
+
+/* Confirmation modal body */
+.confirm-body {
+    padding: 20px;
+}
+
+.confirm-body p {
+    margin: 0;
+    color: var(--text-secondary);
+}
+
+.confirm-actions {
+    display: flex;
+    justify-content: flex-end;
+    gap: 10px;
+    padding: 15px 20px;
+    border-top: 1px solid var(--border);
+}
 "#;
 
 /// JavaScript for the web UI.
@@ -834,6 +922,68 @@ let state = {
     currentPage: 'dashboard',
     selectedSource: null,
 };
+
+// ============================================================================
+// Toast Notifications & Confirmation Dialog
+// ============================================================================
+
+function showToast(message, type = 'error', duration = 5000) {
+    const container = document.getElementById('toast-container');
+    if (!container) return;
+
+    const toast = document.createElement('div');
+    toast.className = `toast ${type}`;
+    toast.innerHTML = `
+        <span class="toast-message">${escapeHtml(message)}</span>
+        <button class="toast-close" onclick="this.parentElement.remove()">&times;</button>
+    `;
+
+    container.appendChild(toast);
+
+    // Auto-remove after duration
+    setTimeout(() => {
+        if (toast.parentElement) {
+            toast.style.animation = 'slideIn 0.3s ease reverse';
+            setTimeout(() => toast.remove(), 300);
+        }
+    }, duration);
+}
+
+function showConfirmDialog(title, message) {
+    return new Promise((resolve) => {
+        const modal = document.getElementById('confirm-modal');
+        const titleEl = document.getElementById('confirm-title');
+        const messageEl = document.getElementById('confirm-message');
+        const okBtn = document.getElementById('confirm-ok');
+        const cancelBtn = document.getElementById('confirm-cancel');
+        const closeBtn = document.getElementById('confirm-close');
+
+        titleEl.textContent = title;
+        messageEl.textContent = message;
+        modal.style.display = 'flex';
+
+        function cleanup(result) {
+            modal.style.display = 'none';
+            okBtn.removeEventListener('click', onOk);
+            cancelBtn.removeEventListener('click', onCancel);
+            closeBtn.removeEventListener('click', onCancel);
+            resolve(result);
+        }
+
+        function onOk() { cleanup(true); }
+        function onCancel() { cleanup(false); }
+
+        okBtn.addEventListener('click', onOk);
+        cancelBtn.addEventListener('click', onCancel);
+        closeBtn.addEventListener('click', onCancel);
+    });
+}
+
+function escapeHtml(text) {
+    const div = document.createElement('div');
+    div.textContent = text;
+    return div.innerHTML;
+}
 
 // DOM Elements
 const mainContent = () => document.getElementById('main-content');
@@ -1390,15 +1540,19 @@ async function addSource() {
 
         document.getElementById('add-source-modal').style.display = 'none';
         await renderSourcesPage();
+        showToast('Source added successfully', 'success');
     } catch (error) {
-        alert('Failed to add source: ' + error.message);
+        showToast('Failed to add source: ' + error.message, 'error');
     }
 }
 
 async function removeSource(sourceId) {
-    if (!confirm('Are you sure you want to remove this source? All indexed documents will be deleted.')) {
-        return;
-    }
+    const confirmed = await showConfirmDialog(
+        'Remove Source',
+        'Are you sure you want to remove this source? All indexed documents will be deleted.'
+    );
+
+    if (!confirmed) return;
 
     try {
         await api('/sources/' + encodeURIComponent(sourceId), { method: 'DELETE' });
@@ -1411,8 +1565,9 @@ async function removeSource(sourceId) {
         } else if (state.currentPage === 'dashboard') {
             await renderDashboard();
         }
+        showToast('Source removed successfully', 'success');
     } catch (error) {
-        alert('Failed to remove source: ' + error.message);
+        showToast('Failed to remove source: ' + error.message, 'error');
     }
 }
 
@@ -1425,9 +1580,10 @@ async function refreshSource(sourceId) {
                 body: JSON.stringify({ path: source.path })
             });
             await renderSourcesPage();
+            showToast('Source refresh started', 'success');
         }
     } catch (error) {
-        alert('Failed to refresh source: ' + error.message);
+        showToast('Failed to refresh source: ' + error.message, 'error');
     }
 }
 
@@ -1742,18 +1898,18 @@ async function renderSettingsPage() {
 async function clearCache() {
     try {
         // Note: This would need a specific endpoint - for now show a message
-        alert('Cache clearing is available via the MCP tool: clear_cache');
+        showToast('Cache clearing is available via the MCP tool: clear_cache', 'info', 6000);
     } catch (error) {
-        alert('Failed to clear cache: ' + error.message);
+        showToast('Failed to clear cache: ' + error.message, 'error');
     }
 }
 
 async function createBackup() {
     try {
         // Note: This would need a specific endpoint - for now show a message
-        alert('Backup creation is available via the MCP tool: create_backup\n\nOr use the CLI: alloy backup');
+        showToast('Backup creation is available via the MCP tool: create_backup or CLI: alloy backup', 'info', 6000);
     } catch (error) {
-        alert('Failed to create backup: ' + error.message);
+        showToast('Failed to create backup: ' + error.message, 'error');
     }
 }
 
@@ -1875,6 +2031,26 @@ pub const INDEX_HTML: &str = r#"<!DOCTYPE html>
         <div class="loading"><div class="spinner"></div></div>
     </main>
 
+    <!-- Toast notifications container -->
+    <div class="toast-container" id="toast-container"></div>
+
+    <!-- Confirmation modal -->
+    <div class="modal" id="confirm-modal" style="display: none;">
+        <div class="modal-content" style="max-width: 400px;">
+            <div class="modal-header">
+                <h2 id="confirm-title">Confirm</h2>
+                <button class="btn-close" id="confirm-close">&times;</button>
+            </div>
+            <div class="confirm-body">
+                <p id="confirm-message">Are you sure?</p>
+            </div>
+            <div class="confirm-actions">
+                <button class="btn btn-secondary" id="confirm-cancel">Cancel</button>
+                <button class="btn btn-danger" id="confirm-ok">Confirm</button>
+            </div>
+        </div>
+    </div>
+
     <script src="/ui/app.js"></script>
 </body>
 </html>
@@ -1894,7 +2070,7 @@ pub async fn serve_css() -> impl IntoResponse {
     Response::builder()
         .status(StatusCode::OK)
         .header(header::CONTENT_TYPE, "text/css; charset=utf-8")
-        .header(header::CACHE_CONTROL, "public, max-age=3600")
+        .header(header::CACHE_CONTROL, "no-cache, no-store, must-revalidate")
         .body(Body::from(CSS))
         .unwrap()
 }
@@ -1907,7 +2083,7 @@ pub async fn serve_js() -> impl IntoResponse {
             header::CONTENT_TYPE,
             "application/javascript; charset=utf-8",
         )
-        .header(header::CACHE_CONTROL, "public, max-age=3600")
+        .header(header::CACHE_CONTROL, "no-cache, no-store, must-revalidate")
         .body(Body::from(JS))
         .unwrap()
 }
