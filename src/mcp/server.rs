@@ -4181,6 +4181,593 @@ impl AlloyServer {
     }
 
     // ========================================================================
+    // Simplified GTD Tools (one tool per action for better LLM compatibility)
+    // ========================================================================
+
+    /// Create a new GTD task.
+    #[tool(description = "Create a new GTD task. Provide description (required) and optional: project_id, contexts (array like [\"@phone\", \"@computer\"]), energy_level (low/medium/high), estimated_minutes, due_date (ISO 8601), priority (low/normal/high/critical).")]
+    async fn task_create(
+        &self,
+        Parameters(params): Parameters<crate::mcp::gtd_simple_tools::TaskCreateParams>,
+    ) -> Result<CallToolResult, McpError> {
+        use crate::gtd::{Task, TaskManager};
+        use crate::mcp::gtd_tools::GtdTasksResponse;
+
+        self.ensure_coordinator().await?;
+        let state = self.state.read().await;
+        let coordinator = state.coordinator.as_ref().unwrap();
+        let ontology_store = coordinator.ontology_store();
+        let manager = TaskManager::new(ontology_store);
+
+        let mut task = Task::new(&params.description);
+        if let Some(project_id) = params.project_id {
+            task = task.with_project(project_id);
+        }
+        if let Some(contexts) = params.contexts {
+            task = task.with_contexts(contexts);
+        }
+        if let Some(energy) = params.energy_level {
+            task = task.with_energy(energy);
+        }
+        if let Some(duration) = params.estimated_minutes {
+            task = task.with_duration(duration);
+        }
+        if let Some(due) = params.due_date {
+            task = task.with_due_date(due);
+        }
+        if let Some(priority) = params.priority {
+            task = task.with_priority(priority);
+        }
+
+        let response = match manager.create(task).await {
+            Ok(created) => GtdTasksResponse::success_single(created, "Task created successfully"),
+            Err(e) => GtdTasksResponse::error(format!("Failed to create task: {}", e)),
+        };
+
+        Ok(CallToolResult::success(vec![Content::text(
+            serde_json::to_string_pretty(&response).unwrap(),
+        )]))
+    }
+
+    /// List GTD tasks with optional filters.
+    #[tool(description = "List GTD tasks. Optional filters: project_id, contexts, status (next/scheduled/waiting/someday/done), energy_level (low/medium/high), priority (low/normal/high/critical), description_contains, limit.")]
+    async fn task_list(
+        &self,
+        Parameters(params): Parameters<crate::mcp::gtd_simple_tools::TaskListParams>,
+    ) -> Result<CallToolResult, McpError> {
+        use crate::gtd::{TaskFilter, TaskManager};
+        use crate::mcp::gtd_tools::GtdTasksResponse;
+
+        self.ensure_coordinator().await?;
+        let state = self.state.read().await;
+        let coordinator = state.coordinator.as_ref().unwrap();
+        let ontology_store = coordinator.ontology_store();
+        let manager = TaskManager::new(ontology_store);
+
+        let filter = TaskFilter {
+            contexts: params.contexts.unwrap_or_default(),
+            project_id: params.project_id,
+            status: params.status,
+            energy_level: params.energy_level,
+            time_available: None,
+            due_before: None,
+            priority: params.priority,
+            description_contains: params.description_contains,
+            limit: params.limit.unwrap_or(100),
+            offset: 0,
+        };
+
+        let response = match manager.list(filter).await {
+            Ok(tasks) => {
+                GtdTasksResponse::success_list(tasks.clone(), format!("Found {} tasks", tasks.len()))
+            }
+            Err(e) => GtdTasksResponse::error(format!("Failed to list tasks: {}", e)),
+        };
+
+        Ok(CallToolResult::success(vec![Content::text(
+            serde_json::to_string_pretty(&response).unwrap(),
+        )]))
+    }
+
+    /// Get a specific GTD task by ID.
+    #[tool(description = "Get a specific GTD task by its ID.")]
+    async fn task_get(
+        &self,
+        Parameters(params): Parameters<crate::mcp::gtd_simple_tools::TaskGetParams>,
+    ) -> Result<CallToolResult, McpError> {
+        use crate::gtd::TaskManager;
+        use crate::mcp::gtd_tools::GtdTasksResponse;
+
+        self.ensure_coordinator().await?;
+        let state = self.state.read().await;
+        let coordinator = state.coordinator.as_ref().unwrap();
+        let ontology_store = coordinator.ontology_store();
+        let manager = TaskManager::new(ontology_store);
+
+        let response = match manager.get(&params.task_id).await {
+            Ok(Some(task)) => GtdTasksResponse::success_single(task, "Task retrieved"),
+            Ok(None) => GtdTasksResponse::error(format!("Task not found: {}", params.task_id)),
+            Err(e) => GtdTasksResponse::error(format!("Failed to get task: {}", e)),
+        };
+
+        Ok(CallToolResult::success(vec![Content::text(
+            serde_json::to_string_pretty(&response).unwrap(),
+        )]))
+    }
+
+    /// Mark a GTD task as complete.
+    #[tool(description = "Mark a GTD task as complete by its ID.")]
+    async fn task_complete(
+        &self,
+        Parameters(params): Parameters<crate::mcp::gtd_simple_tools::TaskCompleteParams>,
+    ) -> Result<CallToolResult, McpError> {
+        use crate::gtd::TaskManager;
+        use crate::mcp::gtd_tools::GtdTasksResponse;
+
+        self.ensure_coordinator().await?;
+        let state = self.state.read().await;
+        let coordinator = state.coordinator.as_ref().unwrap();
+        let ontology_store = coordinator.ontology_store();
+        let manager = TaskManager::new(ontology_store);
+
+        let response = match manager.complete(&params.task_id).await {
+            Ok(Some(task)) => GtdTasksResponse::success_single(task, "Task completed"),
+            Ok(None) => GtdTasksResponse::error(format!("Task not found: {}", params.task_id)),
+            Err(e) => GtdTasksResponse::error(format!("Failed to complete task: {}", e)),
+        };
+
+        Ok(CallToolResult::success(vec![Content::text(
+            serde_json::to_string_pretty(&response).unwrap(),
+        )]))
+    }
+
+    /// Delete a GTD task.
+    #[tool(description = "Delete a GTD task by its ID.")]
+    async fn task_delete(
+        &self,
+        Parameters(params): Parameters<crate::mcp::gtd_simple_tools::TaskDeleteParams>,
+    ) -> Result<CallToolResult, McpError> {
+        use crate::gtd::TaskManager;
+        use crate::mcp::gtd_tools::GtdTasksResponse;
+
+        self.ensure_coordinator().await?;
+        let state = self.state.read().await;
+        let coordinator = state.coordinator.as_ref().unwrap();
+        let ontology_store = coordinator.ontology_store();
+        let manager = TaskManager::new(ontology_store);
+
+        let response = match manager.delete(&params.task_id).await {
+            Ok(true) => GtdTasksResponse {
+                success: true,
+                task: None,
+                tasks: None,
+                recommendations: None,
+                message: "Task deleted".to_string(),
+            },
+            Ok(false) => GtdTasksResponse::error(format!("Task not found: {}", params.task_id)),
+            Err(e) => GtdTasksResponse::error(format!("Failed to delete task: {}", e)),
+        };
+
+        Ok(CallToolResult::success(vec![Content::text(
+            serde_json::to_string_pretty(&response).unwrap(),
+        )]))
+    }
+
+    /// Update an existing GTD task.
+    #[tool(description = "Update a GTD task. Requires task_id. Optional fields to update: description, project_id, contexts, status (next/scheduled/waiting/someday/done), energy_level, estimated_minutes, due_date, priority.")]
+    async fn task_update(
+        &self,
+        Parameters(params): Parameters<crate::mcp::gtd_simple_tools::TaskUpdateParams>,
+    ) -> Result<CallToolResult, McpError> {
+        use crate::gtd::TaskManager;
+        use crate::mcp::gtd_tools::GtdTasksResponse;
+
+        self.ensure_coordinator().await?;
+        let state = self.state.read().await;
+        let coordinator = state.coordinator.as_ref().unwrap();
+        let ontology_store = coordinator.ontology_store();
+        let manager = TaskManager::new(ontology_store);
+
+        let response = match manager.get(&params.task_id).await {
+            Ok(Some(mut task)) => {
+                if let Some(desc) = params.description {
+                    task.description = desc;
+                }
+                if let Some(project_id) = params.project_id {
+                    task.project_id = Some(project_id);
+                }
+                if let Some(contexts) = params.contexts {
+                    task.contexts = contexts;
+                }
+                if let Some(status) = params.status {
+                    task.status = status;
+                }
+                if let Some(energy) = params.energy_level {
+                    task.energy_level = energy;
+                }
+                if let Some(duration) = params.estimated_minutes {
+                    task.estimated_minutes = Some(duration);
+                }
+                if let Some(due) = params.due_date {
+                    task.due_date = Some(due);
+                }
+                if let Some(priority) = params.priority {
+                    task.priority = priority;
+                }
+                match manager.update(&params.task_id, task).await {
+                    Ok(updated) => GtdTasksResponse::success_single(updated, "Task updated"),
+                    Err(e) => GtdTasksResponse::error(format!("Failed to update: {}", e)),
+                }
+            }
+            Ok(None) => GtdTasksResponse::error(format!("Task not found: {}", params.task_id)),
+            Err(e) => GtdTasksResponse::error(format!("Failed to get task: {}", e)),
+        };
+
+        Ok(CallToolResult::success(vec![Content::text(
+            serde_json::to_string_pretty(&response).unwrap(),
+        )]))
+    }
+
+    /// Create a new GTD project.
+    #[tool(description = "Create a new GTD project. Requires name. Optional: outcome (what does done look like?), area (Work/Personal/etc.), goal.")]
+    async fn project_create(
+        &self,
+        Parameters(params): Parameters<crate::mcp::gtd_simple_tools::ProjectCreateParams>,
+    ) -> Result<CallToolResult, McpError> {
+        use crate::gtd::{Project, ProjectManager};
+        use crate::mcp::gtd_tools::GtdProjectsResponse;
+
+        self.ensure_coordinator().await?;
+        let state = self.state.read().await;
+        let coordinator = state.coordinator.as_ref().unwrap();
+        let ontology_store = coordinator.ontology_store();
+        let manager = ProjectManager::new(ontology_store);
+
+        let mut project = Project::new(&params.name);
+        if let Some(outcome) = params.outcome {
+            project = project.with_outcome(outcome);
+        }
+        if let Some(area) = params.area {
+            project = project.with_area(area);
+        }
+        if let Some(goal) = params.goal {
+            project = project.with_goal(goal);
+        }
+
+        let response = match manager.create(project).await {
+            Ok(created) => GtdProjectsResponse::success_single(created, "Project created"),
+            Err(e) => GtdProjectsResponse::error(format!("Failed to create project: {}", e)),
+        };
+
+        Ok(CallToolResult::success(vec![Content::text(
+            serde_json::to_string_pretty(&response).unwrap(),
+        )]))
+    }
+
+    /// List GTD projects with optional filters.
+    #[tool(description = "List GTD projects. Optional filters: status (active/on_hold/completed/archived), area, has_next_action (true/false), stalled_days, limit.")]
+    async fn project_list(
+        &self,
+        Parameters(params): Parameters<crate::mcp::gtd_simple_tools::ProjectListParams>,
+    ) -> Result<CallToolResult, McpError> {
+        use crate::gtd::{ProjectFilter, ProjectManager};
+        use crate::mcp::gtd_tools::GtdProjectsResponse;
+
+        self.ensure_coordinator().await?;
+        let state = self.state.read().await;
+        let coordinator = state.coordinator.as_ref().unwrap();
+        let ontology_store = coordinator.ontology_store();
+        let manager = ProjectManager::new(ontology_store);
+
+        let filter = ProjectFilter {
+            status: params.status,
+            area: params.area,
+            has_next_action: params.has_next_action,
+            stalled_days: params.stalled_days,
+            limit: params.limit.unwrap_or(100),
+            offset: 0,
+        };
+
+        let response = match manager.list(filter).await {
+            Ok(projects) => GtdProjectsResponse::success_list(
+                projects.clone(),
+                format!("Found {} projects", projects.len()),
+            ),
+            Err(e) => GtdProjectsResponse::error(format!("Failed to list projects: {}", e)),
+        };
+
+        Ok(CallToolResult::success(vec![Content::text(
+            serde_json::to_string_pretty(&response).unwrap(),
+        )]))
+    }
+
+    /// Get a specific GTD project by ID.
+    #[tool(description = "Get a specific GTD project by its ID.")]
+    async fn project_get(
+        &self,
+        Parameters(params): Parameters<crate::mcp::gtd_simple_tools::ProjectGetParams>,
+    ) -> Result<CallToolResult, McpError> {
+        use crate::gtd::ProjectManager;
+        use crate::mcp::gtd_tools::GtdProjectsResponse;
+
+        self.ensure_coordinator().await?;
+        let state = self.state.read().await;
+        let coordinator = state.coordinator.as_ref().unwrap();
+        let ontology_store = coordinator.ontology_store();
+        let manager = ProjectManager::new(ontology_store);
+
+        let response = match manager.get(&params.project_id).await {
+            Ok(Some(project)) => GtdProjectsResponse::success_single(project, "Project retrieved"),
+            Ok(None) => {
+                GtdProjectsResponse::error(format!("Project not found: {}", params.project_id))
+            }
+            Err(e) => GtdProjectsResponse::error(format!("Failed to get project: {}", e)),
+        };
+
+        Ok(CallToolResult::success(vec![Content::text(
+            serde_json::to_string_pretty(&response).unwrap(),
+        )]))
+    }
+
+    /// Mark a GTD project as complete.
+    #[tool(description = "Mark a GTD project as complete by its ID.")]
+    async fn project_complete(
+        &self,
+        Parameters(params): Parameters<crate::mcp::gtd_simple_tools::ProjectCompleteParams>,
+    ) -> Result<CallToolResult, McpError> {
+        use crate::gtd::ProjectManager;
+        use crate::mcp::gtd_tools::GtdProjectsResponse;
+
+        self.ensure_coordinator().await?;
+        let state = self.state.read().await;
+        let coordinator = state.coordinator.as_ref().unwrap();
+        let ontology_store = coordinator.ontology_store();
+        let manager = ProjectManager::new(ontology_store);
+
+        let response = match manager.complete(&params.project_id).await {
+            Ok(Some(project)) => GtdProjectsResponse::success_single(project, "Project completed"),
+            Ok(None) => {
+                GtdProjectsResponse::error(format!("Project not found: {}", params.project_id))
+            }
+            Err(e) => GtdProjectsResponse::error(format!("Failed to complete project: {}", e)),
+        };
+
+        Ok(CallToolResult::success(vec![Content::text(
+            serde_json::to_string_pretty(&response).unwrap(),
+        )]))
+    }
+
+    /// Archive a GTD project.
+    #[tool(description = "Archive a GTD project by its ID.")]
+    async fn project_archive(
+        &self,
+        Parameters(params): Parameters<crate::mcp::gtd_simple_tools::ProjectArchiveParams>,
+    ) -> Result<CallToolResult, McpError> {
+        use crate::gtd::ProjectManager;
+        use crate::mcp::gtd_tools::GtdProjectsResponse;
+
+        self.ensure_coordinator().await?;
+        let state = self.state.read().await;
+        let coordinator = state.coordinator.as_ref().unwrap();
+        let ontology_store = coordinator.ontology_store();
+        let manager = ProjectManager::new(ontology_store);
+
+        let response = match manager.archive(&params.project_id).await {
+            Ok(Some(project)) => GtdProjectsResponse::success_single(project, "Project archived"),
+            Ok(None) => {
+                GtdProjectsResponse::error(format!("Project not found: {}", params.project_id))
+            }
+            Err(e) => GtdProjectsResponse::error(format!("Failed to archive project: {}", e)),
+        };
+
+        Ok(CallToolResult::success(vec![Content::text(
+            serde_json::to_string_pretty(&response).unwrap(),
+        )]))
+    }
+
+    /// Add a waiting-for item.
+    #[tool(description = "Add a new waiting-for item. Requires description and delegated_to (person/entity you're waiting on). Optional: project_id, expected_by (ISO 8601 date).")]
+    async fn waiting_add(
+        &self,
+        Parameters(params): Parameters<crate::mcp::gtd_simple_tools::WaitingAddParams>,
+    ) -> Result<CallToolResult, McpError> {
+        use crate::gtd::{WaitingFor, WaitingManager};
+        use crate::mcp::gtd_tools::GtdWaitingResponse;
+
+        self.ensure_coordinator().await?;
+        let state = self.state.read().await;
+        let coordinator = state.coordinator.as_ref().unwrap();
+        let ontology_store = coordinator.ontology_store();
+        let manager = WaitingManager::new(ontology_store);
+
+        let mut item = WaitingFor::new(&params.description, &params.delegated_to);
+        if let Some(project_id) = params.project_id {
+            item = item.with_project(project_id);
+        }
+        if let Some(expected) = params.expected_by {
+            item = item.with_expected_by(expected);
+        }
+
+        let response = match manager.create(item).await {
+            Ok(created) => GtdWaitingResponse::success_single(created, "Waiting-for item added"),
+            Err(e) => GtdWaitingResponse::error(format!("Failed to add waiting-for item: {}", e)),
+        };
+
+        Ok(CallToolResult::success(vec![Content::text(
+            serde_json::to_string_pretty(&response).unwrap(),
+        )]))
+    }
+
+    /// List waiting-for items.
+    #[tool(description = "List waiting-for items. Optional filters: status (pending/overdue/resolved), limit.")]
+    async fn waiting_list(
+        &self,
+        Parameters(params): Parameters<crate::mcp::gtd_simple_tools::WaitingListParams>,
+    ) -> Result<CallToolResult, McpError> {
+        use crate::gtd::{WaitingFilter, WaitingManager};
+        use crate::mcp::gtd_tools::GtdWaitingResponse;
+
+        self.ensure_coordinator().await?;
+        let state = self.state.read().await;
+        let coordinator = state.coordinator.as_ref().unwrap();
+        let ontology_store = coordinator.ontology_store();
+        let manager = WaitingManager::new(ontology_store);
+
+        let filter = WaitingFilter {
+            status: params.status,
+            delegated_to: None,
+            project_id: None,
+            overdue_only: false,
+            limit: params.limit.unwrap_or(100),
+            offset: 0,
+        };
+
+        let response = match manager.list(filter).await {
+            Ok(items) => GtdWaitingResponse::success_list(
+                items.clone(),
+                format!("Found {} waiting-for items", items.len()),
+            ),
+            Err(e) => GtdWaitingResponse::error(format!("Failed to list waiting-for items: {}", e)),
+        };
+
+        Ok(CallToolResult::success(vec![Content::text(
+            serde_json::to_string_pretty(&response).unwrap(),
+        )]))
+    }
+
+    /// Resolve a waiting-for item.
+    #[tool(description = "Resolve/complete a waiting-for item. Requires item_id. Optional: resolution (text describing how it was resolved).")]
+    async fn waiting_resolve(
+        &self,
+        Parameters(params): Parameters<crate::mcp::gtd_simple_tools::WaitingResolveParams>,
+    ) -> Result<CallToolResult, McpError> {
+        use crate::gtd::WaitingManager;
+        use crate::mcp::gtd_tools::GtdWaitingResponse;
+
+        self.ensure_coordinator().await?;
+        let state = self.state.read().await;
+        let coordinator = state.coordinator.as_ref().unwrap();
+        let ontology_store = coordinator.ontology_store();
+        let manager = WaitingManager::new(ontology_store);
+
+        let resolution = params.resolution.as_deref().unwrap_or("Resolved");
+        let response = match manager.resolve(&params.item_id, resolution).await {
+            Ok(Some(item)) => GtdWaitingResponse::success_single(item, "Waiting-for item resolved"),
+            Ok(None) => {
+                GtdWaitingResponse::error(format!("Waiting-for item not found: {}", params.item_id))
+            }
+            Err(e) => GtdWaitingResponse::error(format!("Failed to resolve: {}", e)),
+        };
+
+        Ok(CallToolResult::success(vec![Content::text(
+            serde_json::to_string_pretty(&response).unwrap(),
+        )]))
+    }
+
+    /// Add a someday/maybe item.
+    #[tool(description = "Add a new someday/maybe item for future consideration. Requires description. Optional: category, trigger (what would make this active?), review_date (ISO 8601).")]
+    async fn someday_add(
+        &self,
+        Parameters(params): Parameters<crate::mcp::gtd_simple_tools::SomedayAddParams>,
+    ) -> Result<CallToolResult, McpError> {
+        use crate::gtd::{SomedayItem, SomedayManager};
+        use crate::mcp::gtd_tools::GtdSomedayResponse;
+
+        self.ensure_coordinator().await?;
+        let state = self.state.read().await;
+        let coordinator = state.coordinator.as_ref().unwrap();
+        let ontology_store = coordinator.ontology_store();
+        let manager = SomedayManager::new(ontology_store);
+
+        let mut item = SomedayItem::new(&params.description);
+        if let Some(category) = params.category {
+            item = item.with_category(category);
+        }
+        if let Some(trigger) = params.trigger {
+            item = item.with_trigger(trigger);
+        }
+        if let Some(review_date) = params.review_date {
+            item = item.with_review_date(review_date);
+        }
+
+        let response = match manager.create(item).await {
+            Ok(created) => GtdSomedayResponse::success_single(created, "Someday/maybe item added"),
+            Err(e) => {
+                GtdSomedayResponse::error(format!("Failed to add someday/maybe item: {}", e))
+            }
+        };
+
+        Ok(CallToolResult::success(vec![Content::text(
+            serde_json::to_string_pretty(&response).unwrap(),
+        )]))
+    }
+
+    /// List someday/maybe items.
+    #[tool(description = "List someday/maybe items. Optional filters: category, limit.")]
+    async fn someday_list(
+        &self,
+        Parameters(params): Parameters<crate::mcp::gtd_simple_tools::SomedayListParams>,
+    ) -> Result<CallToolResult, McpError> {
+        use crate::gtd::{SomedayFilter, SomedayManager};
+        use crate::mcp::gtd_tools::GtdSomedayResponse;
+
+        self.ensure_coordinator().await?;
+        let state = self.state.read().await;
+        let coordinator = state.coordinator.as_ref().unwrap();
+        let ontology_store = coordinator.ontology_store();
+        let manager = SomedayManager::new(ontology_store);
+
+        let filter = SomedayFilter {
+            category: params.category,
+            due_for_review: false,
+            limit: params.limit.unwrap_or(100),
+            offset: 0,
+        };
+
+        let response = match manager.list(filter).await {
+            Ok(items) => GtdSomedayResponse::success_list(
+                items.clone(),
+                format!("Found {} someday/maybe items", items.len()),
+            ),
+            Err(e) => {
+                GtdSomedayResponse::error(format!("Failed to list someday/maybe items: {}", e))
+            }
+        };
+
+        Ok(CallToolResult::success(vec![Content::text(
+            serde_json::to_string_pretty(&response).unwrap(),
+        )]))
+    }
+
+    /// Activate a someday/maybe item (convert to task).
+    #[tool(description = "Activate a someday/maybe item - converts it to an active task. Requires item_id.")]
+    async fn someday_activate(
+        &self,
+        Parameters(params): Parameters<crate::mcp::gtd_simple_tools::SomedayActivateParams>,
+    ) -> Result<CallToolResult, McpError> {
+        use crate::gtd::SomedayManager;
+        use crate::mcp::gtd_tools::GtdSomedayResponse;
+
+        self.ensure_coordinator().await?;
+        let state = self.state.read().await;
+        let coordinator = state.coordinator.as_ref().unwrap();
+        let ontology_store = coordinator.ontology_store();
+        let manager = SomedayManager::new(ontology_store);
+
+        let response = match manager.activate(&params.item_id).await {
+            Ok(Some(task)) => GtdSomedayResponse::success_activated(task, "Item activated as task"),
+            Ok(None) => {
+                GtdSomedayResponse::error(format!("Someday/maybe item not found: {}", params.item_id))
+            }
+            Err(e) => GtdSomedayResponse::error(format!("Failed to activate: {}", e)),
+        };
+
+        Ok(CallToolResult::success(vec![Content::text(
+            serde_json::to_string_pretty(&response).unwrap(),
+        )]))
+    }
+
+    // ========================================================================
     // Knowledge Graph Tools
     // ========================================================================
 
