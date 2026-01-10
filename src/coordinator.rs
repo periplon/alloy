@@ -23,7 +23,11 @@ use crate::embedding::{
 };
 use crate::error::Result;
 use crate::metrics::{get_metrics, Metrics};
-use crate::ontology::EmbeddedOntologyStore;
+use crate::ontology::extraction::{
+    EntityExtractionProcessor, EntityExtractionProcessorConfig,
+    ExtractionConfig as PipelineExtractionConfig,
+};
+use crate::ontology::{EmbeddedOntologyStore, OntologyStore};
 use crate::processing::{
     CompositeDeduplicator, DeduplicationResult, Deduplicator, ProcessorRegistry, TextChunk,
 };
@@ -129,7 +133,7 @@ pub enum IndexItemResult {
 }
 
 /// Indexed source information.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct IndexedSource {
     /// Source identifier.
     pub id: String,
@@ -177,6 +181,10 @@ pub struct IndexCoordinator {
     model_name: String,
     /// Ontology store for GTD and knowledge graph features.
     ontology_store: Arc<RwLock<EmbeddedOntologyStore>>,
+    /// Entity extraction processor for ontology extraction during indexing.
+    extraction_processor: Option<EntityExtractionProcessor>,
+    /// Path to persist sources metadata.
+    sources_path: PathBuf,
 }
 
 impl IndexCoordinator {
@@ -357,12 +365,80 @@ impl IndexCoordinator {
         // Initialize ontology store for GTD features
         let ontology_store = Arc::new(RwLock::new(EmbeddedOntologyStore::new()));
 
+        // Initialize entity extraction processor if enabled
+        let extraction_processor = if config.ontology.enabled
+            && config.ontology.extraction.extract_on_index
+        {
+            let extraction_config = &config.ontology.extraction;
+
+            // Map config settings to pipeline extraction config
+            let pipeline_config = PipelineExtractionConfig {
+                enable_temporal: extraction_config.local.enable_temporal,
+                enable_actions: true, // Always enable action detection
+                enable_local_ner: extraction_config.local.enable_patterns,
+                enable_llm_ner: extraction_config.llm.enabled,
+                enable_relations: true, // Always enable relation extraction
+                confidence_threshold: extraction_config.confidence_threshold,
+                llm_config: if extraction_config.llm.enabled {
+                    Some(crate::ontology::extraction::LlmExtractionConfig {
+                        api_endpoint: if extraction_config.llm.api_endpoint.is_empty() {
+                            "https://api.openai.com/v1".to_string()
+                        } else {
+                            extraction_config.llm.api_endpoint.clone()
+                        },
+                        api_key: std::env::var("OPENAI_API_KEY").ok(),
+                        model: extraction_config.llm.model.clone(),
+                        max_tokens: extraction_config.llm.max_tokens_per_doc,
+                        rate_limit_rpm: extraction_config.llm.rate_limit_rpm,
+                    })
+                } else {
+                    None
+                },
+            };
+
+            let processor_config = EntityExtractionProcessorConfig {
+                enabled: true,
+                extraction_config: pipeline_config,
+                extract_from_full_text: true,
+                extract_from_chunks: false,
+                min_confidence: extraction_config.confidence_threshold,
+            };
+
+            Some(EntityExtractionProcessor::new(processor_config))
+        } else {
+            None
+        };
+
+        // Set up sources persistence path and load existing sources
+        let sources_path = data_dir.join("sources.json");
+        let sources = if sources_path.exists() {
+            match std::fs::read_to_string(&sources_path) {
+                Ok(content) => match serde_json::from_str::<HashMap<String, IndexedSource>>(&content)
+                {
+                    Ok(loaded) => {
+                        info!("Loaded {} sources from {}", loaded.len(), sources_path.display());
+                        loaded
+                    }
+                    Err(e) => {
+                        warn!("Failed to parse sources file: {}", e);
+                        HashMap::new()
+                    }
+                },
+                Err(e) => {
+                    warn!("Failed to read sources file: {}", e);
+                    HashMap::new()
+                }
+            }
+        } else {
+            HashMap::new()
+        };
+
         Ok(Self {
             config,
             processors,
             embedder,
             storage,
-            sources: RwLock::new(HashMap::new()),
+            sources: RwLock::new(sources),
             watchers: RwLock::new(HashMap::new()),
             progress_tx: None,
             searcher: Arc::new(searcher),
@@ -372,7 +448,18 @@ impl IndexCoordinator {
             cache,
             model_name,
             ontology_store,
+            extraction_processor,
+            sources_path,
         })
+    }
+
+    /// Save sources to disk.
+    async fn save_sources(&self) -> Result<()> {
+        let sources = self.sources.read().await;
+        let content = serde_json::to_string_pretty(&*sources)?;
+        std::fs::write(&self.sources_path, content)?;
+        debug!("Saved {} sources to {}", sources.len(), self.sources_path.display());
+        Ok(())
     }
 
     /// Set the progress callback channel.
@@ -680,10 +767,15 @@ impl IndexCoordinator {
             last_scan: Utc::now(),
         };
 
-        // Store in sources map
+        // Store in sources map and persist
         {
             let mut sources = self.sources.write().await;
             sources.insert(source_id, indexed_source.clone());
+        }
+
+        // Persist sources to disk
+        if let Err(e) = self.save_sources().await {
+            warn!("Failed to persist sources: {}", e);
         }
 
         Ok(indexed_source)
@@ -779,6 +871,39 @@ impl IndexCoordinator {
 
         // Store in backend
         self.storage.store(doc, vector_chunks).await?;
+
+        // Extract entities for ontology if extraction is enabled
+        if let Some(ref extractor) = self.extraction_processor {
+            match extractor.extract_from_content(&processed, &item.id).await {
+                Ok(extraction_result) => {
+                    let entity_count = extraction_result.entities.len();
+                    let relationship_count = extraction_result.relationships.len();
+
+                    // Store extracted entities in the ontology store
+                    let store = self.ontology_store.write().await;
+                    for entity in extraction_result.entities {
+                        if let Err(e) = store.create_entity(entity.clone()).await {
+                            debug!(
+                                "Failed to store extracted entity {}: {}",
+                                entity.name, e
+                            );
+                        }
+                    }
+                    for relationship in extraction_result.relationships {
+                        if let Err(e) = store.create_relationship(relationship.clone()).await {
+                            debug!("Failed to store extracted relationship: {}", e);
+                        }
+                    }
+                    debug!(
+                        "Extracted {} entities and {} relationships from {}",
+                        entity_count, relationship_count, item.uri
+                    );
+                }
+                Err(e) => {
+                    warn!("Entity extraction failed for {}: {}", item.uri, e);
+                }
+            }
+        }
 
         // Register with deduplicator for future checks
         if let Some(dedup) = &self.deduplicator {
@@ -882,12 +1007,19 @@ impl IndexCoordinator {
         // For now, we'll just remove from our tracking
         // A full implementation would query storage for all docs with this source_id
 
-        let mut sources = self.sources.write().await;
-        if let Some(source) = sources.remove(source_id) {
-            Ok(source.document_count)
-        } else {
-            Ok(0)
+        let result = {
+            let mut sources = self.sources.write().await;
+            sources.remove(source_id).map(|s| s.document_count)
+        };
+
+        // Persist sources to disk if we removed something
+        if result.is_some() {
+            if let Err(e) = self.save_sources().await {
+                warn!("Failed to persist sources after removal: {}", e);
+            }
         }
+
+        Ok(result.unwrap_or(0))
     }
 
     /// List all indexed sources.
