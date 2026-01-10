@@ -11,8 +11,8 @@ use tokio::sync::{Mutex as AsyncMutex, RwLock};
 
 use crate::error::{AlloyError, Result, StorageError};
 use crate::ontology::{
-    DocumentRef, Entity, EntityFilter, EntityType, EntityUpdate, OntologyStats, RelationType,
-    Relationship, RelationshipFilter,
+    DeletionStrategy, DocumentRef, Entity, EntityFilter, EntityType, EntityUpdate, OntologyStats,
+    RelationType, Relationship, RelationshipFilter, UnlinkResult,
 };
 
 // ============================================================================
@@ -136,6 +136,53 @@ pub trait OntologyStore: Send + Sync {
 
     /// Delete all entities and relationships from a source document.
     async fn delete_by_document(&self, document_id: &str) -> Result<usize>;
+
+    // ========================================================================
+    // Source Reference Management
+    // ========================================================================
+
+    /// Find relationships that reference a specific document.
+    async fn find_relationships_by_document(&self, document_id: &str) -> Result<Vec<Relationship>>;
+
+    /// Remove source references from entities for a specific document.
+    ///
+    /// Returns a tuple of (updated entity IDs, orphaned entity IDs).
+    /// Updated entities had refs removed but still have other refs.
+    /// Orphaned entities have no remaining source refs after removal.
+    async fn remove_entity_source_refs(
+        &self,
+        document_id: &str,
+    ) -> Result<(Vec<String>, Vec<String>)>;
+
+    /// Remove source references from relationships for a specific document.
+    ///
+    /// Returns a tuple of (updated relationship IDs, orphaned relationship IDs).
+    /// Updated relationships had refs removed but still have other refs.
+    /// Orphaned relationships have no remaining source refs after removal.
+    async fn remove_relationship_source_refs(
+        &self,
+        document_id: &str,
+    ) -> Result<(Vec<String>, Vec<String>)>;
+
+    /// Unlink a single document from the knowledge graph.
+    ///
+    /// This removes document references from entities and relationships,
+    /// optionally deleting orphaned items based on the deletion strategy.
+    async fn unlink_document(
+        &self,
+        document_id: &str,
+        strategy: DeletionStrategy,
+    ) -> Result<UnlinkResult>;
+
+    /// Unlink multiple documents from the knowledge graph.
+    ///
+    /// This is more efficient than calling unlink_document multiple times
+    /// as it batches the operations.
+    async fn unlink_documents(
+        &self,
+        document_ids: &[String],
+        strategy: DeletionStrategy,
+    ) -> Result<UnlinkResult>;
 
     // ========================================================================
     // Deduplication and Merging
@@ -930,6 +977,219 @@ impl OntologyStore for EmbeddedOntologyStore {
     }
 
     // ========================================================================
+    // Source Reference Management
+    // ========================================================================
+
+    async fn find_relationships_by_document(&self, document_id: &str) -> Result<Vec<Relationship>> {
+        let data = self.data.read().await;
+
+        let rel_ids = data
+            .relationships_by_doc
+            .get(document_id)
+            .cloned()
+            .unwrap_or_default();
+
+        Ok(rel_ids
+            .iter()
+            .filter_map(|id| data.relationships.get(id).cloned())
+            .collect())
+    }
+
+    async fn remove_entity_source_refs(
+        &self,
+        document_id: &str,
+    ) -> Result<(Vec<String>, Vec<String>)> {
+        let mut data = self.data.write().await;
+
+        let entity_ids = data
+            .entities_by_doc
+            .get(document_id)
+            .cloned()
+            .unwrap_or_default();
+
+        let mut updated_ids = Vec::new();
+        let mut orphaned_ids = Vec::new();
+
+        for entity_id in entity_ids {
+            if let Some(entity) = data.entities.get_mut(&entity_id) {
+                // Remove source refs for this document
+                let initial_count = entity.source_refs.len();
+                entity
+                    .source_refs
+                    .retain(|r| r.document_id != document_id);
+
+                if entity.source_refs.len() < initial_count {
+                    entity.updated_at = chrono::Utc::now();
+
+                    if entity.source_refs.is_empty() {
+                        orphaned_ids.push(entity_id.clone());
+                    } else {
+                        updated_ids.push(entity_id.clone());
+                    }
+                }
+            }
+        }
+
+        // Update the entities_by_doc index - remove this document's entry
+        data.entities_by_doc.remove(document_id);
+
+        drop(data);
+        self.persist().await?;
+
+        Ok((updated_ids, orphaned_ids))
+    }
+
+    async fn remove_relationship_source_refs(
+        &self,
+        document_id: &str,
+    ) -> Result<(Vec<String>, Vec<String>)> {
+        let mut data = self.data.write().await;
+
+        let rel_ids = data
+            .relationships_by_doc
+            .get(document_id)
+            .cloned()
+            .unwrap_or_default();
+
+        let mut updated_ids = Vec::new();
+        let mut orphaned_ids = Vec::new();
+
+        for rel_id in rel_ids {
+            if let Some(rel) = data.relationships.get_mut(&rel_id) {
+                // Remove source refs for this document
+                let initial_count = rel.source_refs.len();
+                rel.source_refs.retain(|r| r.document_id != document_id);
+
+                if rel.source_refs.len() < initial_count {
+                    if rel.source_refs.is_empty() {
+                        orphaned_ids.push(rel_id.clone());
+                    } else {
+                        updated_ids.push(rel_id.clone());
+                    }
+                }
+            }
+        }
+
+        // Update the relationships_by_doc index - remove this document's entry
+        data.relationships_by_doc.remove(document_id);
+
+        drop(data);
+        self.persist().await?;
+
+        Ok((updated_ids, orphaned_ids))
+    }
+
+    async fn unlink_document(
+        &self,
+        document_id: &str,
+        strategy: DeletionStrategy,
+    ) -> Result<UnlinkResult> {
+        match strategy {
+            DeletionStrategy::DeleteAffected => {
+                // Delete ALL entities and relationships that reference this document
+                let mut result = UnlinkResult::default();
+
+                // Get entity IDs before deletion
+                let entity_ids: Vec<String> = {
+                    let data = self.data.read().await;
+                    data.entities_by_doc
+                        .get(document_id)
+                        .cloned()
+                        .unwrap_or_default()
+                };
+
+                // Get relationship IDs before deletion
+                let rel_ids: Vec<String> = {
+                    let data = self.data.read().await;
+                    data.relationships_by_doc
+                        .get(document_id)
+                        .cloned()
+                        .unwrap_or_default()
+                };
+
+                // Delete relationships first (to avoid cascade from entity deletion)
+                for rel_id in rel_ids {
+                    if self.delete_relationship(&rel_id).await? {
+                        result.relationships_deleted += 1;
+                    }
+                }
+
+                // Delete entities
+                for entity_id in entity_ids {
+                    if self.delete_entity(&entity_id).await? {
+                        result.entities_deleted += 1;
+                    }
+                }
+
+                Ok(result)
+            }
+            DeletionStrategy::RemoveSourceRefs => {
+                // Remove refs, delete orphans
+                let mut result = UnlinkResult::default();
+
+                // Remove entity source refs and collect orphans
+                let (updated_entity_ids, orphaned_entity_ids) =
+                    self.remove_entity_source_refs(document_id).await?;
+                result.entities_updated = updated_entity_ids.len();
+
+                // Delete orphaned entities
+                for entity_id in orphaned_entity_ids {
+                    if self.delete_entity(&entity_id).await? {
+                        result.entities_deleted += 1;
+                    }
+                }
+
+                // Remove relationship source refs and collect orphans
+                let (updated_rel_ids, orphaned_rel_ids) =
+                    self.remove_relationship_source_refs(document_id).await?;
+                result.relationships_updated = updated_rel_ids.len();
+
+                // Delete orphaned relationships
+                for rel_id in orphaned_rel_ids {
+                    if self.delete_relationship(&rel_id).await? {
+                        result.relationships_deleted += 1;
+                    }
+                }
+
+                Ok(result)
+            }
+            DeletionStrategy::PreserveKnowledge => {
+                // Remove refs only, track orphans but don't delete
+                let mut result = UnlinkResult::default();
+
+                // Remove entity source refs
+                let (updated_entity_ids, orphaned_entity_ids) =
+                    self.remove_entity_source_refs(document_id).await?;
+                result.entities_updated = updated_entity_ids.len();
+                result.orphaned_entity_ids = orphaned_entity_ids;
+
+                // Remove relationship source refs
+                let (updated_rel_ids, orphaned_rel_ids) =
+                    self.remove_relationship_source_refs(document_id).await?;
+                result.relationships_updated = updated_rel_ids.len();
+                result.orphaned_relationship_ids = orphaned_rel_ids;
+
+                Ok(result)
+            }
+        }
+    }
+
+    async fn unlink_documents(
+        &self,
+        document_ids: &[String],
+        strategy: DeletionStrategy,
+    ) -> Result<UnlinkResult> {
+        let mut combined_result = UnlinkResult::default();
+
+        for doc_id in document_ids {
+            let result = self.unlink_document(doc_id, strategy).await?;
+            combined_result.merge(result);
+        }
+
+        Ok(combined_result)
+    }
+
+    // ========================================================================
     // Deduplication and Merging
     // ========================================================================
 
@@ -1540,5 +1800,287 @@ mod tests {
         assert_eq!(results[0].0.name, "Machine Learning"); // Exact match first
         assert_eq!(results[1].0.name, "Deep Learning"); // Similar second
         assert!(results[0].1 > results[1].1); // Higher similarity
+    }
+
+    // ========================================================================
+    // Source Reference Management Tests
+    // ========================================================================
+
+    #[tokio::test]
+    async fn test_find_relationships_by_document() {
+        let store = create_test_store().await;
+
+        // Create entities
+        let e1 = store
+            .create_entity(Entity::new(EntityType::Person, "John"))
+            .await
+            .unwrap();
+        let e2 = store
+            .create_entity(Entity::new(EntityType::Organization, "Acme"))
+            .await
+            .unwrap();
+
+        // Create relationship with source_ref
+        let doc_ref = DocumentRef::new("doc1").with_text("John works at Acme");
+        let rel = Relationship::new(&e1.id, RelationType::WorksFor, &e2.id).with_source_ref(doc_ref);
+        store.create_relationship(rel).await.unwrap();
+
+        // Find relationships by document
+        let rels = store.find_relationships_by_document("doc1").await.unwrap();
+        assert_eq!(rels.len(), 1);
+        assert_eq!(rels[0].source_entity_id, e1.id);
+        assert_eq!(rels[0].target_entity_id, e2.id);
+
+        // Non-existent document should return empty
+        let rels = store
+            .find_relationships_by_document("nonexistent")
+            .await
+            .unwrap();
+        assert!(rels.is_empty());
+    }
+
+    #[tokio::test]
+    async fn test_remove_entity_source_refs() {
+        let store = create_test_store().await;
+
+        // Create entity with multiple source refs
+        let entity = Entity::new(EntityType::Person, "John")
+            .with_source_ref(DocumentRef::new("doc1"))
+            .with_source_ref(DocumentRef::new("doc2"));
+        let created = store.create_entity(entity).await.unwrap();
+
+        // Verify initial state
+        let e = store.get_entity(&created.id).await.unwrap().unwrap();
+        assert_eq!(e.source_refs.len(), 2);
+
+        // Remove refs for doc1
+        let (updated, orphaned) = store.remove_entity_source_refs("doc1").await.unwrap();
+        assert_eq!(updated.len(), 1); // Still has doc2 ref
+        assert!(orphaned.is_empty()); // Not orphaned
+
+        // Check entity was updated
+        let e = store.get_entity(&created.id).await.unwrap().unwrap();
+        assert_eq!(e.source_refs.len(), 1);
+        assert_eq!(e.source_refs[0].document_id, "doc2");
+    }
+
+    #[tokio::test]
+    async fn test_remove_entity_source_refs_creates_orphan() {
+        let store = create_test_store().await;
+
+        // Create entity with single source ref
+        let entity =
+            Entity::new(EntityType::Person, "John").with_source_ref(DocumentRef::new("doc1"));
+        let created = store.create_entity(entity).await.unwrap();
+
+        // Remove refs for doc1 - should create orphan
+        let (updated, orphaned) = store.remove_entity_source_refs("doc1").await.unwrap();
+        assert!(updated.is_empty());
+        assert_eq!(orphaned.len(), 1);
+        assert_eq!(orphaned[0], created.id);
+
+        // Entity still exists but is orphaned
+        let e = store.get_entity(&created.id).await.unwrap().unwrap();
+        assert!(e.source_refs.is_empty());
+    }
+
+    #[tokio::test]
+    async fn test_remove_relationship_source_refs() {
+        let store = create_test_store().await;
+
+        // Create entities
+        let e1 = store
+            .create_entity(Entity::new(EntityType::Person, "John"))
+            .await
+            .unwrap();
+        let e2 = store
+            .create_entity(Entity::new(EntityType::Organization, "Acme"))
+            .await
+            .unwrap();
+
+        // Create relationship with multiple source refs
+        let rel = Relationship::new(&e1.id, RelationType::WorksFor, &e2.id)
+            .with_source_ref(DocumentRef::new("doc1"))
+            .with_source_ref(DocumentRef::new("doc2"));
+        let created_rel = store.create_relationship(rel).await.unwrap();
+
+        // Remove refs for doc1
+        let (updated, orphaned) = store
+            .remove_relationship_source_refs("doc1")
+            .await
+            .unwrap();
+        assert_eq!(updated.len(), 1);
+        assert!(orphaned.is_empty());
+
+        // Check relationship was updated
+        let r = store
+            .get_relationship(&created_rel.id)
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(r.source_refs.len(), 1);
+        assert_eq!(r.source_refs[0].document_id, "doc2");
+    }
+
+    #[tokio::test]
+    async fn test_unlink_document_delete_affected() {
+        let store = create_test_store().await;
+
+        // Create entity referencing doc1
+        let entity =
+            Entity::new(EntityType::Person, "John").with_source_ref(DocumentRef::new("doc1"));
+        let created = store.create_entity(entity).await.unwrap();
+
+        // Create another entity also referencing doc1
+        let entity2 = Entity::new(EntityType::Organization, "Acme")
+            .with_source_ref(DocumentRef::new("doc1"))
+            .with_source_ref(DocumentRef::new("doc2")); // Also refs doc2
+        let created2 = store.create_entity(entity2).await.unwrap();
+
+        // Create relationship referencing doc1
+        let rel = Relationship::new(&created.id, RelationType::WorksFor, &created2.id)
+            .with_source_ref(DocumentRef::new("doc1"));
+        store.create_relationship(rel).await.unwrap();
+
+        // Unlink with DeleteAffected strategy
+        let result = store
+            .unlink_document("doc1", DeletionStrategy::DeleteAffected)
+            .await
+            .unwrap();
+
+        // Both entities and the relationship should be deleted
+        assert_eq!(result.entities_deleted, 2);
+        assert_eq!(result.relationships_deleted, 1);
+
+        // Verify entities are gone
+        assert!(store.get_entity(&created.id).await.unwrap().is_none());
+        assert!(store.get_entity(&created2.id).await.unwrap().is_none());
+    }
+
+    #[tokio::test]
+    async fn test_unlink_document_remove_source_refs() {
+        let store = create_test_store().await;
+
+        // Create entity with only doc1 ref (will become orphan -> deleted)
+        let entity1 =
+            Entity::new(EntityType::Person, "John").with_source_ref(DocumentRef::new("doc1"));
+        let e1 = store.create_entity(entity1).await.unwrap();
+
+        // Create entity with doc1 AND doc2 refs (will be updated)
+        let entity2 = Entity::new(EntityType::Organization, "Acme")
+            .with_source_ref(DocumentRef::new("doc1"))
+            .with_source_ref(DocumentRef::new("doc2"));
+        let e2 = store.create_entity(entity2).await.unwrap();
+
+        // Unlink with RemoveSourceRefs (default)
+        let result = store
+            .unlink_document("doc1", DeletionStrategy::RemoveSourceRefs)
+            .await
+            .unwrap();
+
+        // Entity 1 should be deleted (orphaned), Entity 2 updated
+        assert_eq!(result.entities_deleted, 1);
+        assert_eq!(result.entities_updated, 1);
+
+        // Verify e1 is gone
+        assert!(store.get_entity(&e1.id).await.unwrap().is_none());
+
+        // Verify e2 still exists but only has doc2 ref
+        let e2_updated = store.get_entity(&e2.id).await.unwrap().unwrap();
+        assert_eq!(e2_updated.source_refs.len(), 1);
+        assert_eq!(e2_updated.source_refs[0].document_id, "doc2");
+    }
+
+    #[tokio::test]
+    async fn test_unlink_document_preserve_knowledge() {
+        let store = create_test_store().await;
+
+        // Create entity with only doc1 ref
+        let entity =
+            Entity::new(EntityType::Person, "John").with_source_ref(DocumentRef::new("doc1"));
+        let e1 = store.create_entity(entity).await.unwrap();
+
+        // Unlink with PreserveKnowledge
+        let result = store
+            .unlink_document("doc1", DeletionStrategy::PreserveKnowledge)
+            .await
+            .unwrap();
+
+        // Entity should NOT be deleted, but tracked as orphan
+        assert_eq!(result.entities_deleted, 0);
+        assert_eq!(result.orphaned_entity_ids.len(), 1);
+        assert_eq!(result.orphaned_entity_ids[0], e1.id);
+
+        // Entity still exists but is orphaned
+        let e = store.get_entity(&e1.id).await.unwrap().unwrap();
+        assert!(e.source_refs.is_empty());
+    }
+
+    #[tokio::test]
+    async fn test_unlink_documents_batch() {
+        let store = create_test_store().await;
+
+        // Create entities for different docs
+        let e1 = store
+            .create_entity(
+                Entity::new(EntityType::Person, "John")
+                    .with_source_ref(DocumentRef::new("doc1")),
+            )
+            .await
+            .unwrap();
+
+        let e2 = store
+            .create_entity(
+                Entity::new(EntityType::Person, "Jane")
+                    .with_source_ref(DocumentRef::new("doc2")),
+            )
+            .await
+            .unwrap();
+
+        // Unlink multiple documents at once
+        let result = store
+            .unlink_documents(
+                &["doc1".to_string(), "doc2".to_string()],
+                DeletionStrategy::RemoveSourceRefs,
+            )
+            .await
+            .unwrap();
+
+        // Both orphaned entities should be deleted
+        assert_eq!(result.entities_deleted, 2);
+
+        // Verify both are gone
+        assert!(store.get_entity(&e1.id).await.unwrap().is_none());
+        assert!(store.get_entity(&e2.id).await.unwrap().is_none());
+    }
+
+    #[tokio::test]
+    async fn test_unlink_with_multi_doc_entity() {
+        let store = create_test_store().await;
+
+        // Create entity referenced by 3 documents
+        let entity = Entity::new(EntityType::Topic, "Machine Learning")
+            .with_source_ref(DocumentRef::new("doc1"))
+            .with_source_ref(DocumentRef::new("doc2"))
+            .with_source_ref(DocumentRef::new("doc3"));
+        let e = store.create_entity(entity).await.unwrap();
+
+        // Unlink doc1 and doc2 - entity should survive with doc3
+        let result = store
+            .unlink_documents(
+                &["doc1".to_string(), "doc2".to_string()],
+                DeletionStrategy::RemoveSourceRefs,
+            )
+            .await
+            .unwrap();
+
+        // Entity should be updated twice but not deleted
+        assert_eq!(result.entities_updated, 2);
+        assert_eq!(result.entities_deleted, 0);
+
+        // Entity still exists with only doc3 ref
+        let e_updated = store.get_entity(&e.id).await.unwrap().unwrap();
+        assert_eq!(e_updated.source_refs.len(), 1);
+        assert_eq!(e_updated.source_refs[0].document_id, "doc3");
     }
 }
