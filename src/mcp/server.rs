@@ -28,7 +28,7 @@ use crate::mcp::tools::{
     ClearDeduplicationResponse, ClusterDocumentInfo, ClusterDocumentsResponse, ClusterInfo,
     ClusterMetrics, ClusterOutlineInfo, ClusterVisualizationResponse, ConfigureResponse,
     CreateBackupResponse, DeduplicationStatsResponse, DeleteDocumentAclResponse,
-    DeleteSourceAclResponse, DiffStatsInfo, DiffVersionsResponse, DocumentDetails,
+    DeleteSourceAclResponse, DiffStatsInfo, DiffVersionsResponse, DocumentAddResponse, DocumentDetails,
     ExportDocumentsResponse, FindSimilarClusterResponse, GetAclStatsResponse,
     GetCacheStatsResponse, GetClusterDocumentsResponse, GetDocumentAclResponse,
     GetDocumentHistoryResponse, GetMetricsResponse, GetSourceAclResponse,
