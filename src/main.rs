@@ -869,6 +869,13 @@ async fn run_mcp_server(
     https: bool,
     json_logs: bool,
 ) -> anyhow::Result<()> {
+    // Install rustls crypto provider for HTTPS support
+    if https {
+        rustls::crypto::aws_lc_rs::default_provider()
+            .install_default()
+            .expect("Failed to install rustls crypto provider");
+    }
+
     // Initialize tracing for server mode
     let filter = EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info"));
 
