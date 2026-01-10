@@ -27,7 +27,9 @@ use crate::ontology::extraction::{
     EntityExtractionProcessor, EntityExtractionProcessorConfig,
     ExtractionConfig as PipelineExtractionConfig,
 };
-use crate::ontology::{EmbeddedOntologyStore, OntologyStore};
+use crate::ontology::{
+    DeletionStrategy, EmbeddedOntologyStore, OntologyStore, SourceRemovalResult,
+};
 use crate::processing::{
     CompositeDeduplicator, DeduplicationResult, Deduplicator, ProcessorRegistry, TextChunk,
 };
@@ -1114,24 +1116,136 @@ impl IndexCoordinator {
 
     /// Remove a source and all its documents.
     /// Returns `Ok(Some(count))` if source was found and removed, `Ok(None)` if not found.
+    ///
+    /// This is a backwards-compatible wrapper that uses the default deletion strategy
+    /// (`RemoveSourceRefs`). For full control over knowledge graph cleanup, use
+    /// [`remove_source_with_strategy`](Self::remove_source_with_strategy).
     pub async fn remove_source(&self, source_id: &str) -> Result<Option<usize>> {
-        // Get all documents for this source and remove them
-        // For now, we'll just remove from our tracking
-        // A full implementation would query storage for all docs with this source_id
+        // Use the new method with default strategy
+        let result = self
+            .remove_source_with_strategy(source_id, DeletionStrategy::default())
+            .await?;
 
-        let result = {
-            let mut sources = self.sources.write().await;
-            sources.remove(source_id).map(|s| s.document_count)
+        Ok(result.map(|r| r.documents_removed))
+    }
+
+    /// Remove a source with a specific knowledge deletion strategy.
+    ///
+    /// This method performs cascading deletion:
+    /// 1. Gets all documents belonging to the source
+    /// 2. Unlinks documents from the knowledge graph based on the strategy
+    /// 3. Removes documents from storage
+    /// 4. Removes source metadata
+    /// 5. Invalidates relevant caches
+    ///
+    /// # Strategies
+    ///
+    /// - `RemoveSourceRefs` (default): Remove source references from entities/relationships.
+    ///   Delete only orphans (items with no remaining refs).
+    /// - `DeleteAffected`: Delete ALL entities/relationships that had ANY reference to the source.
+    /// - `PreserveKnowledge`: Only remove references, never delete knowledge.
+    ///   Allows orphaned entities to remain.
+    ///
+    /// # Returns
+    ///
+    /// Returns `Ok(Some(result))` if the source was found and removed, containing
+    /// details about documents removed and knowledge graph impact.
+    /// Returns `Ok(None)` if the source was not found.
+    pub async fn remove_source_with_strategy(
+        &self,
+        source_id: &str,
+        strategy: DeletionStrategy,
+    ) -> Result<Option<SourceRemovalResult>> {
+        // Check if source exists
+        let source_exists = {
+            let sources = self.sources.read().await;
+            sources.contains_key(source_id)
         };
 
-        // Persist sources to disk if we removed something
-        if result.is_some() {
-            if let Err(e) = self.save_sources().await {
-                warn!("Failed to persist sources after removal: {}", e);
+        if !source_exists {
+            return Ok(None);
+        }
+
+        info!(
+            "Removing source '{}' with strategy '{}'",
+            source_id, strategy
+        );
+
+        // Step 1: Get all documents for this source
+        let documents = self.storage.get_all_documents(Some(source_id)).await?;
+        let doc_ids: Vec<String> = documents.iter().map(|d| d.id.clone()).collect();
+        let documents_count = documents.len();
+
+        debug!(
+            "Found {} documents to remove for source '{}'",
+            documents_count, source_id
+        );
+
+        // Step 2: Unlink documents from knowledge graph
+        let knowledge_result = {
+            let ontology_store = self.ontology_store.write().await;
+            ontology_store.unlink_documents(&doc_ids, strategy).await?
+        };
+
+        if knowledge_result.has_changes() {
+            info!(
+                "Knowledge graph impact for source '{}': {} entities deleted, {} entities updated, {} relationships deleted, {} relationships updated",
+                source_id,
+                knowledge_result.entities_deleted,
+                knowledge_result.entities_updated,
+                knowledge_result.relationships_deleted,
+                knowledge_result.relationships_updated
+            );
+        }
+
+        // Step 3: Remove documents from storage
+        for doc in &documents {
+            if let Err(e) = self.storage.remove(&doc.id).await {
+                warn!(
+                    "Failed to remove document '{}' from storage: {}",
+                    doc.id, e
+                );
             }
         }
 
-        Ok(result)
+        // Step 4: Remove from change detector tracking
+        for doc in &documents {
+            if let Err(e) = self.change_detector.remove(&doc.path).await {
+                debug!(
+                    "Failed to remove '{}' from change detector: {}",
+                    doc.path, e
+                );
+            }
+        }
+
+        // Step 5: Remove source metadata
+        {
+            let mut sources = self.sources.write().await;
+            sources.remove(source_id);
+        }
+
+        // Step 6: Persist sources to disk
+        if let Err(e) = self.save_sources().await {
+            warn!("Failed to persist sources after removal: {}", e);
+        }
+
+        // Step 7: Invalidate cache for this source
+        self.invalidate_source_cache(source_id).await;
+
+        let result = SourceRemovalResult {
+            documents_removed: documents_count,
+            knowledge_result,
+        };
+
+        info!(
+            "Source '{}' removed: {}",
+            source_id,
+            result.knowledge_result.total_entities_affected()
+                + result.knowledge_result.total_relationships_affected()
+                + result.documents_removed
+        );
+
+        Ok(Some(result))
     }
 
     /// List all indexed sources.
