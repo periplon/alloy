@@ -1401,7 +1401,7 @@ async function removeSource(sourceId) {
     }
 
     try {
-        await api('/sources/' + sourceId, { method: 'DELETE' });
+        await api('/sources/' + encodeURIComponent(sourceId), { method: 'DELETE' });
         await loadSources();
         await loadStats();
 
