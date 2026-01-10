@@ -4998,6 +4998,345 @@ impl AlloyServer {
     }
 
     // ========================================================================
+    // Simplified Commitment Tools
+    // ========================================================================
+
+    /// Create a new commitment.
+    #[tool(description = "Create a new commitment (promise made or received). Provide description (required) and optional: commitment_type ('made' or 'received'), person, due_date, document_id.")]
+    async fn commitment_create(
+        &self,
+        Parameters(params): Parameters<crate::mcp::gtd_simple_tools::CommitmentCreateParams>,
+    ) -> Result<CallToolResult, McpError> {
+        use crate::gtd::{Commitment, CommitmentDirection, CommitmentManager, CommitmentStatus};
+        use crate::mcp::gtd_tools::GtdCommitmentsResponse;
+
+        self.ensure_coordinator().await?;
+        let state = self.state.read().await;
+        let coordinator = state.coordinator.as_ref().unwrap();
+        let ontology_store = coordinator.ontology_store();
+        let manager = CommitmentManager::new(ontology_store);
+
+        let commitment = Commitment {
+            id: uuid::Uuid::new_v4().to_string(),
+            commitment_type: params
+                .commitment_type
+                .as_ref()
+                .map(|ct| {
+                    if ct == "received" {
+                        CommitmentDirection::Received
+                    } else {
+                        CommitmentDirection::Made
+                    }
+                })
+                .unwrap_or(CommitmentDirection::Made),
+            description: params.description.clone(),
+            from_person: params.person.clone(),
+            to_person: None,
+            due_date: params.due_date,
+            status: CommitmentStatus::Pending,
+            source_document: params.document_id.clone(),
+            extracted_text: params.description,
+            confidence: 1.0,
+            project_id: None,
+            follow_up_date: None,
+            notes: None,
+            created_at: chrono::Utc::now(),
+            updated_at: chrono::Utc::now(),
+        };
+
+        let response = match manager.create(commitment).await {
+            Ok(created) => GtdCommitmentsResponse::success_single(created, "Commitment created"),
+            Err(e) => GtdCommitmentsResponse::error(format!("Failed to create: {}", e)),
+        };
+
+        Ok(CallToolResult::success(vec![Content::text(
+            serde_json::to_string_pretty(&response).unwrap(),
+        )]))
+    }
+
+    /// List commitments with optional filters.
+    #[tool(description = "List commitments with optional filters. Filter by: commitment_type ('made' or 'received'), status ('pending', 'fulfilled', 'cancelled', 'overdue'), person, limit.")]
+    async fn commitment_list(
+        &self,
+        Parameters(params): Parameters<crate::mcp::gtd_simple_tools::CommitmentListParams>,
+    ) -> Result<CallToolResult, McpError> {
+        use crate::gtd::{CommitmentDirection, CommitmentFilter, CommitmentManager, CommitmentStatus};
+        use crate::mcp::gtd_tools::GtdCommitmentsResponse;
+
+        self.ensure_coordinator().await?;
+        let state = self.state.read().await;
+        let coordinator = state.coordinator.as_ref().unwrap();
+        let ontology_store = coordinator.ontology_store();
+        let manager = CommitmentManager::new(ontology_store);
+
+        let filter = CommitmentFilter {
+            commitment_type: params.commitment_type.as_ref().and_then(|ct| match ct.as_str() {
+                "made" => Some(CommitmentDirection::Made),
+                "received" => Some(CommitmentDirection::Received),
+                _ => None,
+            }),
+            status: params.status.as_ref().and_then(|s| match s.as_str() {
+                "pending" => Some(CommitmentStatus::Pending),
+                "fulfilled" => Some(CommitmentStatus::Fulfilled),
+                "cancelled" => Some(CommitmentStatus::Cancelled),
+                "overdue" => Some(CommitmentStatus::Overdue),
+                _ => None,
+            }),
+            person: params.person.clone(),
+            project_id: None,
+            overdue_only: false,
+            needs_follow_up: false,
+            limit: params.limit.unwrap_or(100),
+        };
+
+        let response = match manager.list(filter).await {
+            Ok(commitments) => GtdCommitmentsResponse::success_list(
+                commitments.clone(),
+                format!("Found {} commitments", commitments.len()),
+            ),
+            Err(e) => GtdCommitmentsResponse::error(format!("Failed to list: {}", e)),
+        };
+
+        Ok(CallToolResult::success(vec![Content::text(
+            serde_json::to_string_pretty(&response).unwrap(),
+        )]))
+    }
+
+    /// Get a commitment by ID.
+    #[tool(description = "Get a single commitment by its ID.")]
+    async fn commitment_get(
+        &self,
+        Parameters(params): Parameters<crate::mcp::gtd_simple_tools::CommitmentGetParams>,
+    ) -> Result<CallToolResult, McpError> {
+        use crate::gtd::CommitmentManager;
+        use crate::mcp::gtd_tools::GtdCommitmentsResponse;
+
+        self.ensure_coordinator().await?;
+        let state = self.state.read().await;
+        let coordinator = state.coordinator.as_ref().unwrap();
+        let ontology_store = coordinator.ontology_store();
+        let manager = CommitmentManager::new(ontology_store);
+
+        let response = match manager.get(&params.commitment_id).await {
+            Ok(Some(commitment)) => {
+                GtdCommitmentsResponse::success_single(commitment, "Commitment retrieved")
+            }
+            Ok(None) => GtdCommitmentsResponse::error(format!(
+                "Commitment not found: {}",
+                params.commitment_id
+            )),
+            Err(e) => GtdCommitmentsResponse::error(format!("Failed to get: {}", e)),
+        };
+
+        Ok(CallToolResult::success(vec![Content::text(
+            serde_json::to_string_pretty(&response).unwrap(),
+        )]))
+    }
+
+    /// Mark a commitment as fulfilled.
+    #[tool(description = "Mark a commitment as fulfilled (completed).")]
+    async fn commitment_fulfill(
+        &self,
+        Parameters(params): Parameters<crate::mcp::gtd_simple_tools::CommitmentFulfillParams>,
+    ) -> Result<CallToolResult, McpError> {
+        use crate::gtd::CommitmentManager;
+        use crate::mcp::gtd_tools::GtdCommitmentsResponse;
+
+        self.ensure_coordinator().await?;
+        let state = self.state.read().await;
+        let coordinator = state.coordinator.as_ref().unwrap();
+        let ontology_store = coordinator.ontology_store();
+        let manager = CommitmentManager::new(ontology_store);
+
+        let response = match manager.fulfill(&params.commitment_id).await {
+            Ok(()) => GtdCommitmentsResponse {
+                success: true,
+                commitment: None,
+                commitments: None,
+                extraction: None,
+                summary: None,
+                message: "Commitment marked as fulfilled".to_string(),
+            },
+            Err(e) => GtdCommitmentsResponse::error(format!("Failed to fulfill: {}", e)),
+        };
+
+        Ok(CallToolResult::success(vec![Content::text(
+            serde_json::to_string_pretty(&response).unwrap(),
+        )]))
+    }
+
+    /// Cancel a commitment.
+    #[tool(description = "Cancel a commitment (mark as not going to be fulfilled).")]
+    async fn commitment_cancel(
+        &self,
+        Parameters(params): Parameters<crate::mcp::gtd_simple_tools::CommitmentCancelParams>,
+    ) -> Result<CallToolResult, McpError> {
+        use crate::gtd::CommitmentManager;
+        use crate::mcp::gtd_tools::GtdCommitmentsResponse;
+
+        self.ensure_coordinator().await?;
+        let state = self.state.read().await;
+        let coordinator = state.coordinator.as_ref().unwrap();
+        let ontology_store = coordinator.ontology_store();
+        let manager = CommitmentManager::new(ontology_store);
+
+        let response = match manager.cancel(&params.commitment_id).await {
+            Ok(()) => GtdCommitmentsResponse {
+                success: true,
+                commitment: None,
+                commitments: None,
+                extraction: None,
+                summary: None,
+                message: "Commitment cancelled".to_string(),
+            },
+            Err(e) => GtdCommitmentsResponse::error(format!("Failed to cancel: {}", e)),
+        };
+
+        Ok(CallToolResult::success(vec![Content::text(
+            serde_json::to_string_pretty(&response).unwrap(),
+        )]))
+    }
+
+    /// Extract commitments from text.
+    #[tool(description = "Extract commitments (promises made or received) from text. Analyzes text for implicit and explicit commitments.")]
+    async fn commitment_extract(
+        &self,
+        Parameters(params): Parameters<crate::mcp::gtd_simple_tools::CommitmentExtractParams>,
+    ) -> Result<CallToolResult, McpError> {
+        use crate::gtd::CommitmentManager;
+        use crate::mcp::gtd_tools::GtdCommitmentsResponse;
+
+        self.ensure_coordinator().await?;
+        let state = self.state.read().await;
+        let coordinator = state.coordinator.as_ref().unwrap();
+        let ontology_store = coordinator.ontology_store();
+        let manager = CommitmentManager::new(ontology_store);
+
+        let result = manager.extract_from_text(&params.text, params.document_id.as_deref());
+        let response = GtdCommitmentsResponse::success_extraction(
+            result.clone(),
+            format!("Extracted {} commitments", result.total_found),
+        );
+
+        Ok(CallToolResult::success(vec![Content::text(
+            serde_json::to_string_pretty(&response).unwrap(),
+        )]))
+    }
+
+    /// Get a summary of all commitments.
+    #[tool(description = "Get a summary of all commitments including counts by status, type, and overdue items.")]
+    async fn commitment_summary(
+        &self,
+    ) -> Result<CallToolResult, McpError> {
+        use crate::gtd::CommitmentManager;
+        use crate::mcp::gtd_tools::GtdCommitmentsResponse;
+
+        self.ensure_coordinator().await?;
+        let state = self.state.read().await;
+        let coordinator = state.coordinator.as_ref().unwrap();
+        let ontology_store = coordinator.ontology_store();
+        let manager = CommitmentManager::new(ontology_store);
+
+        let response = match manager.summary().await {
+            Ok(summary) => {
+                GtdCommitmentsResponse::success_summary(summary, "Commitment summary generated")
+            }
+            Err(e) => GtdCommitmentsResponse::error(format!("Failed to generate summary: {}", e)),
+        };
+
+        Ok(CallToolResult::success(vec![Content::text(
+            serde_json::to_string_pretty(&response).unwrap(),
+        )]))
+    }
+
+    /// Get overdue commitments.
+    #[tool(description = "Get all overdue commitments (past their due date).")]
+    async fn commitment_overdue(
+        &self,
+    ) -> Result<CallToolResult, McpError> {
+        use crate::gtd::CommitmentManager;
+        use crate::mcp::gtd_tools::GtdCommitmentsResponse;
+
+        self.ensure_coordinator().await?;
+        let state = self.state.read().await;
+        let coordinator = state.coordinator.as_ref().unwrap();
+        let ontology_store = coordinator.ontology_store();
+        let manager = CommitmentManager::new(ontology_store);
+
+        let response = match manager.get_overdue().await {
+            Ok(commitments) => GtdCommitmentsResponse::success_list(
+                commitments.clone(),
+                format!("{} overdue commitments", commitments.len()),
+            ),
+            Err(e) => GtdCommitmentsResponse::error(format!("Failed to get overdue: {}", e)),
+        };
+
+        Ok(CallToolResult::success(vec![Content::text(
+            serde_json::to_string_pretty(&response).unwrap(),
+        )]))
+    }
+
+    /// Get commitments made to a specific person.
+    #[tool(description = "Get all commitments made to a specific person (promises I made to them).")]
+    async fn commitment_made_to(
+        &self,
+        Parameters(params): Parameters<crate::mcp::gtd_simple_tools::CommitmentMadeToParams>,
+    ) -> Result<CallToolResult, McpError> {
+        use crate::gtd::CommitmentManager;
+        use crate::mcp::gtd_tools::GtdCommitmentsResponse;
+
+        self.ensure_coordinator().await?;
+        let state = self.state.read().await;
+        let coordinator = state.coordinator.as_ref().unwrap();
+        let ontology_store = coordinator.ontology_store();
+        let manager = CommitmentManager::new(ontology_store);
+
+        let response = match manager.get_made_to(&params.person).await {
+            Ok(commitments) => GtdCommitmentsResponse::success_list(
+                commitments.clone(),
+                format!("{} commitments made to {}", commitments.len(), params.person),
+            ),
+            Err(e) => GtdCommitmentsResponse::error(format!("Failed to get: {}", e)),
+        };
+
+        Ok(CallToolResult::success(vec![Content::text(
+            serde_json::to_string_pretty(&response).unwrap(),
+        )]))
+    }
+
+    /// Get commitments received from a specific person.
+    #[tool(description = "Get all commitments received from a specific person (promises they made to me).")]
+    async fn commitment_received_from(
+        &self,
+        Parameters(params): Parameters<crate::mcp::gtd_simple_tools::CommitmentReceivedFromParams>,
+    ) -> Result<CallToolResult, McpError> {
+        use crate::gtd::CommitmentManager;
+        use crate::mcp::gtd_tools::GtdCommitmentsResponse;
+
+        self.ensure_coordinator().await?;
+        let state = self.state.read().await;
+        let coordinator = state.coordinator.as_ref().unwrap();
+        let ontology_store = coordinator.ontology_store();
+        let manager = CommitmentManager::new(ontology_store);
+
+        let response = match manager.get_received_from(&params.person).await {
+            Ok(commitments) => GtdCommitmentsResponse::success_list(
+                commitments.clone(),
+                format!(
+                    "{} commitments received from {}",
+                    commitments.len(),
+                    params.person
+                ),
+            ),
+            Err(e) => GtdCommitmentsResponse::error(format!("Failed to get: {}", e)),
+        };
+
+        Ok(CallToolResult::success(vec![Content::text(
+            serde_json::to_string_pretty(&response).unwrap(),
+        )]))
+    }
+
+    // ========================================================================
     // Knowledge Graph Tools
     // ========================================================================
 

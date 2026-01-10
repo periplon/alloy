@@ -438,3 +438,88 @@ pub struct CalendarFindFreeTimeParams {
     #[serde(default)]
     pub limit: Option<usize>,
 }
+
+// ============================================================================
+// Commitment Tools - Simplified
+// ============================================================================
+
+/// Parameters for creating a commitment.
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+pub struct CommitmentCreateParams {
+    /// Description of the commitment (required).
+    pub description: String,
+    /// Type of commitment: "made" (I committed to someone) or "received" (someone committed to me). Default: "made".
+    #[serde(default)]
+    pub commitment_type: Option<String>,
+    /// Person involved (who you made the commitment to, or who made it to you).
+    #[serde(default)]
+    pub person: Option<String>,
+    /// Due date in ISO 8601 format.
+    #[serde(default)]
+    pub due_date: Option<DateTime<Utc>>,
+    /// Related document ID (if extracted from a document).
+    #[serde(default)]
+    pub document_id: Option<String>,
+}
+
+/// Parameters for listing commitments.
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+pub struct CommitmentListParams {
+    /// Filter by type: "made" or "received".
+    #[serde(default)]
+    pub commitment_type: Option<String>,
+    /// Filter by status: "pending", "fulfilled", "cancelled", or "overdue".
+    #[serde(default)]
+    pub status: Option<String>,
+    /// Filter by person involved.
+    #[serde(default)]
+    pub person: Option<String>,
+    /// Maximum number of results (default: 100).
+    #[serde(default)]
+    pub limit: Option<usize>,
+}
+
+/// Parameters for getting a commitment by ID.
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+pub struct CommitmentGetParams {
+    /// The commitment ID (required).
+    pub commitment_id: String,
+}
+
+/// Parameters for fulfilling a commitment.
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+pub struct CommitmentFulfillParams {
+    /// The commitment ID to mark as fulfilled (required).
+    pub commitment_id: String,
+}
+
+/// Parameters for cancelling a commitment.
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+pub struct CommitmentCancelParams {
+    /// The commitment ID to cancel (required).
+    pub commitment_id: String,
+}
+
+/// Parameters for extracting commitments from text.
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+pub struct CommitmentExtractParams {
+    /// Text to extract commitments from (required).
+    pub text: String,
+    /// Source document ID (optional).
+    #[serde(default)]
+    pub document_id: Option<String>,
+}
+
+/// Parameters for getting commitments made to a person.
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+pub struct CommitmentMadeToParams {
+    /// The person to get commitments made to (required).
+    pub person: String,
+}
+
+/// Parameters for getting commitments received from a person.
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+pub struct CommitmentReceivedFromParams {
+    /// The person to get commitments received from (required).
+    pub person: String,
+}
