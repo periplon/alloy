@@ -51,9 +51,9 @@ pub fn create_rest_router(coordinator: Arc<IndexCoordinator>, config: &RestApiCo
     let api_routes = Router::new()
         .route("/index", post(index_handler))
         .route("/search", get(search_handler))
-        .route("/documents/:id", get(get_document_handler))
+        .route("/documents/{id}", get(get_document_handler))
         .route("/sources", get(list_sources_handler))
-        .route("/sources/:id", delete(remove_source_handler))
+        .route("/sources/{id}", delete(remove_source_handler))
         .route("/stats", get(stats_handler))
         .with_state(state);
 
