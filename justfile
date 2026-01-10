@@ -79,10 +79,14 @@ qa: fmt lint test
 
 # Build optimized release binary
 release:
+    @# Touch static files to ensure UI changes are included
+    @touch src/web/static_files.rs
     cargo build --release
 
 # Install binary to cargo bin
 install:
+    @# Touch static files to ensure UI changes are included
+    @touch src/web/static_files.rs
     cargo install --path .
 
 # Clean build artifacts
