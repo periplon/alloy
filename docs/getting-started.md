@@ -73,7 +73,9 @@ alloy serve --transport http --port 8080
 
 ### 4. Configure Your MCP Client
 
-For Claude Desktop, add to your MCP configuration:
+#### Stdio Transport (Local)
+
+For local use with Claude Desktop via stdio:
 
 ```json
 {
@@ -85,6 +87,79 @@ For Claude Desktop, add to your MCP configuration:
   }
 }
 ```
+
+#### HTTPS Transport (Required for Claude Desktop Remote)
+
+Claude Desktop requires HTTPS for remote MCP servers. Alloy supports HTTPS with auto-generated certificates:
+
+```bash
+alloy serve --https --port 8081
+```
+
+However, Claude Desktop uses Node.js internally which doesn't trust the auto-generated CA certificate. There are two solutions:
+
+**Option A: Cloudflare Tunnel (Recommended)**
+
+Cloudflare Tunnel provides a free, secure HTTPS URL with a valid certificate:
+
+```bash
+# Install cloudflared
+brew install cloudflared  # macOS
+# or: sudo apt install cloudflared  # Debian/Ubuntu
+
+# Start alloy without HTTPS (tunnel provides it)
+alloy serve --transport http --port 8081
+
+# In another terminal, create the tunnel
+cloudflared tunnel --url http://localhost:8081
+```
+
+Cloudflared will output a URL like `https://random-name.trycloudflare.com`. Use this in Claude Desktop:
+
+```json
+{
+  "mcpServers": {
+    "alloy": {
+      "url": "https://random-name.trycloudflare.com/mcp",
+      "transport": "streamable-http"
+    }
+  }
+}
+```
+
+For a persistent URL, set up a named tunnel with `cloudflared tunnel create`.
+
+**Option B: ngrok**
+
+```bash
+# Install ngrok
+brew install ngrok  # macOS
+
+# Start alloy
+alloy serve --transport http --port 8081
+
+# Create tunnel
+ngrok http 8081
+```
+
+Use the ngrok HTTPS URL in your Claude Desktop configuration.
+
+**Option C: Trust the CA Certificate Manually**
+
+If you want to use alloy's auto-generated certificates directly:
+
+1. Start alloy with `--https` to generate the CA
+2. The CA is stored at `~/.local/share/alloy/certs/alloy-ca.pem` (or `~/Library/Application Support/alloy/certs/` on macOS)
+3. Add the CA to your system trust store with SSL trust
+4. Set the `NODE_EXTRA_CA_CERTS` environment variable for Claude Desktop
+
+On macOS:
+```bash
+# Add CA to system keychain with SSL trust
+sudo security add-trusted-cert -d -r trustRoot -k /Library/Keychains/System.keychain ~/.local/share/alloy/certs/alloy-ca.pem
+```
+
+Note: Even with system trust, Claude Desktop may require `NODE_EXTRA_CA_CERTS` since it uses Node.js internally.
 
 ## First Index
 

@@ -66,25 +66,28 @@ impl TrustStore {
 
         info!("Installing CA to macOS keychain: {}", keychain);
 
-        // First, check if already installed by trying to find it
+        // Check if already trusted by verifying trust settings (not just certificate existence)
         let check_output = Command::new("security")
-            .args(["find-certificate", "-c", "Alloy Local Development CA"])
-            .arg(&keychain)
+            .args(["dump-trust-settings", "-d"])
             .output();
 
         if let Ok(output) = check_output {
-            if output.status.success() {
-                debug!("CA certificate already exists in keychain");
+            let stdout = String::from_utf8_lossy(&output.stdout);
+            if stdout.contains("Alloy Local Development CA") {
+                debug!("CA certificate already trusted in keychain");
                 return TrustResult::AlreadyInstalled;
             }
         }
 
-        // Install the certificate
+        // Install the certificate with trust settings
+        // Use -p ssl to specifically trust for SSL/TLS
         let output = Command::new("security")
             .args([
                 "add-trusted-cert",
                 "-r",
                 "trustRoot",
+                "-p",
+                "ssl",
                 "-k",
                 &keychain,
             ])
