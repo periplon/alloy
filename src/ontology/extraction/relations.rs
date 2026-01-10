@@ -8,6 +8,7 @@
 use serde::{Deserialize, Serialize};
 
 use crate::ontology::{Entity, RelationType};
+use crate::utils::safe_slice;
 
 // ============================================================================
 // Types
@@ -260,12 +261,17 @@ impl RelationExtractor {
                     if let Some((relation_type, confidence)) =
                         self.infer_relation_from_types(entity_a, entity_b, distance)
                     {
-                        // Extract text between entities for context
+                        // Extract text between entities for context (using safe UTF-8 slicing)
                         let context_start = (*end_a).min(*end_b);
                         let context_end = (*start_a).max(*start_b);
                         let source_text =
                             if context_end > context_start && context_end <= text.len() {
-                                Some(text[context_start..context_end].to_string())
+                                let sliced = safe_slice(text, context_start, context_end);
+                                if sliced.is_empty() {
+                                    None
+                                } else {
+                                    Some(sliced.to_string())
+                                }
                             } else {
                                 None
                             };

@@ -786,11 +786,15 @@ impl AlloyServer {
                             highlights: r
                                 .highlights
                                 .iter()
-                                .map(|(start, end)| {
-                                    if *end <= r.text.len() {
-                                        r.text[*start..*end].to_string()
+                                .filter_map(|(start, end)| {
+                                    // Ensure positions are valid UTF-8 char boundaries
+                                    if *end <= r.text.len()
+                                        && r.text.is_char_boundary(*start)
+                                        && r.text.is_char_boundary(*end)
+                                    {
+                                        Some(r.text[*start..*end].to_string())
                                     } else {
-                                        String::new()
+                                        None
                                     }
                                 })
                                 .collect(),

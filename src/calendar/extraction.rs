@@ -7,6 +7,7 @@ use chrono::{DateTime, Duration, NaiveDate, NaiveDateTime, Utc};
 use regex::Regex;
 
 use crate::ontology::extraction::{DateType, TemporalExtraction, TemporalParser};
+use crate::utils::safe_slice;
 
 use super::types::{CalendarEvent, EventRecurrence, EventType};
 
@@ -162,10 +163,10 @@ impl CalendarExtractor {
         // Need at least a date
         let date = group.date?;
 
-        // Get context around the temporal expression
+        // Get context around the temporal expression (using safe UTF-8 slicing)
         let context_start = group.context_start.saturating_sub(100);
         let context_end = (group.context_end + 100).min(text.len());
-        let context = &text[context_start..context_end];
+        let context = safe_slice(text, context_start, context_end);
 
         // Extract event title from context
         let title =
@@ -196,10 +197,10 @@ impl CalendarExtractor {
             event = event.with_source(doc_id);
         }
 
-        // Extract the relevant text snippet
+        // Extract the relevant text snippet (using safe UTF-8 slicing)
         let snippet_start = group.context_start.saturating_sub(50);
         let snippet_end = (group.context_end + 50).min(text.len());
-        let snippet = text[snippet_start..snippet_end].trim().to_string();
+        let snippet = safe_slice(text, snippet_start, snippet_end).trim().to_string();
         event = event.with_extracted_text(snippet);
 
         // Set default duration for deadlines vs meetings
@@ -279,9 +280,9 @@ impl CalendarExtractor {
             cleaned = first.to_uppercase().to_string() + &cleaned[first.len_utf8()..];
         }
 
-        // Truncate if too long
+        // Truncate if too long (using safe UTF-8 slicing)
         if cleaned.len() > 80 {
-            cleaned = cleaned[..77].to_string() + "...";
+            cleaned = crate::utils::truncate_str(&cleaned, 77).to_string() + "...";
         }
 
         cleaned

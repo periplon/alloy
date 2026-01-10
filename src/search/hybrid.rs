@@ -398,18 +398,36 @@ impl HybridSearchOrchestrator {
     }
 
     /// Extract highlights from text based on query terms.
+    /// Returns byte positions that are safe to use with the original text.
     fn extract_highlights(text: &str, query: &str) -> Vec<(usize, usize)> {
         let mut highlights = Vec::new();
-        let text_lower = text.to_lowercase();
         let query_lower = query.to_lowercase();
         let query_terms: Vec<&str> = query_lower.split_whitespace().collect();
 
+        // Use char indices to map between lowercased and original positions
         for term in query_terms {
-            let mut start = 0;
-            while let Some(pos) = text_lower[start..].find(term) {
-                let abs_pos = start + pos;
-                highlights.push((abs_pos, abs_pos + term.len()));
-                start = abs_pos + term.len();
+            let term_chars: Vec<char> = term.chars().collect();
+            if term_chars.is_empty() {
+                continue;
+            }
+
+            for (i, c) in text.char_indices() {
+                let c_lower = c.to_lowercase().next().unwrap_or(c);
+
+                // Check if this position starts a match
+                if c_lower == term_chars[0] {
+                    // Try to match the full term
+                    let remaining: String = text[i..].chars().take(term_chars.len()).collect();
+                    if remaining.to_lowercase() == term {
+                        // Found a match - calculate end position
+                        let end_byte_idx = text[i..]
+                            .char_indices()
+                            .nth(term_chars.len())
+                            .map(|(idx, _)| i + idx)
+                            .unwrap_or(text.len());
+                        highlights.push((i, end_byte_idx));
+                    }
+                }
             }
         }
 

@@ -230,6 +230,18 @@ impl TantivyBackend {
         escaped
     }
 
+    /// Find the nearest valid UTF-8 char boundary at or before the given byte index.
+    fn floor_char_boundary(s: &str, index: usize) -> usize {
+        if index >= s.len() {
+            return s.len();
+        }
+        let mut i = index;
+        while i > 0 && !s.is_char_boundary(i) {
+            i -= 1;
+        }
+        i
+    }
+
     /// Create a snippet from content around query terms.
     fn create_snippet(content: &str, query: &str, max_len: usize) -> String {
         let content_lower = content.to_lowercase();
@@ -249,11 +261,11 @@ impl TantivyBackend {
 
         match best_pos {
             Some(pos) => {
-                // Start a bit before the match
-                let start = pos.saturating_sub(50);
-                let end = (start + max_len).min(content.len());
+                // Start a bit before the match, ensuring valid char boundary
+                let start = Self::floor_char_boundary(content, pos.saturating_sub(50));
+                let end = Self::floor_char_boundary(content, (start + max_len).min(content.len()));
 
-                // Find word boundaries
+                // Find word boundaries (space positions are always valid char boundaries)
                 let actual_start = content[..start].rfind(' ').map(|p| p + 1).unwrap_or(start);
                 let actual_end = content[end..].find(' ').map(|p| end + p).unwrap_or(end);
 
@@ -272,7 +284,8 @@ impl TantivyBackend {
                 if content.len() <= max_len {
                     content.to_string()
                 } else {
-                    let end = content[..max_len].rfind(' ').unwrap_or(max_len);
+                    let safe_max = Self::floor_char_boundary(content, max_len);
+                    let end = content[..safe_max].rfind(' ').unwrap_or(safe_max);
                     format!("{}...", &content[..end])
                 }
             }

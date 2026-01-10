@@ -9,6 +9,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::error::Result;
 use crate::ontology::extraction::LlmExtractionConfig;
+use crate::utils::truncate_str;
 
 // ============================================================================
 // Types
@@ -529,13 +530,9 @@ impl LlmNerExtractor {
 
     /// Extract named entities using LLM.
     pub async fn extract(&self, text: &str) -> Result<Vec<NamedEntity>> {
-        // Truncate text if too long
+        // Truncate text if too long (using safe UTF-8 slicing)
         let max_chars = self.config.max_tokens * 4; // Rough estimate of chars per token
-        let text = if text.len() > max_chars {
-            &text[..max_chars]
-        } else {
-            text
-        };
+        let text = truncate_str(text, max_chars);
 
         let prompt = format!(
             r#"Extract named entities from the following text. Return a JSON array of objects with these fields:

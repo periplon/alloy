@@ -7,6 +7,7 @@ use alloy::mcp::{
     IndexPathResponse, IndexStats, ListBackupsResponse, ListSourcesResponse, RemoveSourceResponse,
     RestoreBackupResponse, SearchResponse,
 };
+use alloy::utils::truncate_str;
 
 /// Print index result.
 pub fn print_index_result(result: &IndexPathResponse, json: bool) {
@@ -36,7 +37,7 @@ pub fn print_search_results(result: &SearchResponse, json: bool) {
         for (i, r) in result.results.iter().enumerate() {
             println!("{}. [{:.3}] {}", i + 1, r.score, r.path);
             let preview = if r.content.len() > 100 {
-                format!("{}...", &r.content[..100].replace('\n', " "))
+                format!("{}...", truncate_str(&r.content, 100).replace('\n', " "))
             } else {
                 r.content.replace('\n', " ")
             };
@@ -67,7 +68,7 @@ pub fn print_document(result: &Option<DocumentDetails>, json: bool) {
             println!("\n--- Content ---");
             // Limit content preview to first 1000 chars
             if content.len() > 1000 {
-                println!("{}...", &content[..1000]);
+                println!("{}...", truncate_str(content, 1000));
                 println!("\n[Content truncated, {} total bytes]", content.len());
             } else {
                 println!("{}", content);
@@ -96,13 +97,16 @@ pub fn print_sources(result: &ListSourcesResponse, json: bool) {
 
         for source in &result.sources {
             let id_display = if source.source_id.len() > 38 {
-                format!("{}...", &source.source_id[..35])
+                format!("{}...", truncate_str(&source.source_id, 35))
             } else {
                 source.source_id.clone()
             };
 
             let path_display = if source.path.len() > 40 {
-                format!("...{}", &source.path[source.path.len() - 37..])
+                // Take last ~37 chars safely
+                let skip = source.path.len().saturating_sub(37);
+                let safe_skip = alloy::utils::ceil_char_boundary(&source.path, skip);
+                format!("...{}", &source.path[safe_skip..])
             } else {
                 source.path.clone()
             };
@@ -341,7 +345,7 @@ use super::types::{CalendarResult, GtdResult, KnowledgeResult, OntologyResult, Q
 /// Truncate a string to a maximum length with ellipsis.
 fn truncate(s: &str, max_len: usize) -> String {
     if s.len() > max_len {
-        format!("{}...", &s[..max_len.saturating_sub(3)])
+        format!("{}...", alloy::utils::truncate_str(s, max_len.saturating_sub(3)))
     } else {
         s.to_string()
     }
@@ -350,8 +354,8 @@ fn truncate(s: &str, max_len: usize) -> String {
 /// Format a date-time value from JSON.
 fn format_datetime_value(value: &serde_json::Value) -> String {
     if let Some(s) = value.as_str() {
-        // Try to extract just the date and time portion
-        if s.len() >= 16 {
+        // Try to extract just the date and time portion (ISO format is ASCII, safe to slice)
+        if s.len() >= 16 && s.is_char_boundary(16) {
             s[..16].replace('T', " ")
         } else {
             s.to_string()

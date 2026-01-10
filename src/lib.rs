@@ -23,6 +23,7 @@ pub mod query;
 pub mod search;
 pub mod sources;
 pub mod storage;
+pub mod utils;
 pub mod versioning;
 pub mod web;
 pub mod webhooks;
