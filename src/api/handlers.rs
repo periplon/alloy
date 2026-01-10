@@ -422,31 +422,26 @@ pub async fn remove_source_handler(
     Path(source_id): Path<String>,
 ) -> impl IntoResponse {
     match state.coordinator.remove_source(&source_id).await {
-        Ok(docs_removed) => {
-            if docs_removed > 0 {
-                (
-                    StatusCode::OK,
-                    Json(RemoveSourceResponse {
-                        success: true,
-                        documents_removed: docs_removed,
-                        message: format!(
-                            "Source {} removed with {} documents",
-                            source_id, docs_removed
-                        ),
-                    }),
-                )
-                    .into_response()
-            } else {
-                (
-                    StatusCode::NOT_FOUND,
-                    Json(ErrorResponse {
-                        error: format!("Source not found: {}", source_id),
-                        code: "not_found".to_string(),
-                    }),
-                )
-                    .into_response()
-            }
-        }
+        Ok(Some(docs_removed)) => (
+            StatusCode::OK,
+            Json(RemoveSourceResponse {
+                success: true,
+                documents_removed: docs_removed,
+                message: format!(
+                    "Source {} removed with {} documents",
+                    source_id, docs_removed
+                ),
+            }),
+        )
+            .into_response(),
+        Ok(None) => (
+            StatusCode::NOT_FOUND,
+            Json(ErrorResponse {
+                error: format!("Source not found: {}", source_id),
+                code: "not_found".to_string(),
+            }),
+        )
+            .into_response(),
         Err(e) => (
             StatusCode::INTERNAL_SERVER_ERROR,
             Json(ErrorResponse {

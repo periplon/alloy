@@ -123,12 +123,12 @@ enum Command {
     Backups,
     /// Run as MCP server (default behavior)
     Serve {
-        /// Transport type (stdio or http)
-        #[arg(short, long, default_value = "stdio")]
-        transport: String,
-        /// HTTP port (when using http transport)
-        #[arg(short, long, default_value = "8080")]
-        port: u16,
+        /// Transport type (stdio or http). If not specified, uses config file value.
+        #[arg(short, long)]
+        transport: Option<String>,
+        /// HTTP port (when using http transport). If not specified, uses config file value.
+        #[arg(short, long)]
+        port: Option<u16>,
         /// Enable JSON logging format
         #[arg(long)]
         json_logs: bool,
@@ -830,7 +830,7 @@ async fn main() -> anyhow::Result<()> {
             transport,
             port,
             json_logs,
-        }) => run_mcp_server(&args.config, &transport, port, json_logs).await,
+        }) => run_mcp_server(&args.config, transport, port, json_logs).await,
 
         // GTD commands
         Some(Command::Gtd { action }) => cli::run_gtd(mode, action, args.json).await,
@@ -851,8 +851,8 @@ async fn main() -> anyhow::Result<()> {
         Some(Command::Ontology { action }) => cli::run_ontology(mode, action, args.json).await,
 
         None => {
-            // Default: run as MCP server with stdio
-            run_mcp_server(&args.config, "stdio", 8080, false).await
+            // Default: run as MCP server using config file settings
+            run_mcp_server(&args.config, None, None, false).await
         }
     }
 }
@@ -860,8 +860,8 @@ async fn main() -> anyhow::Result<()> {
 /// Run the MCP server (extracted from original main)
 async fn run_mcp_server(
     config_path: &Option<String>,
-    transport: &str,
-    port: u16,
+    transport: Option<String>,
+    port: Option<u16>,
     json_logs: bool,
 ) -> anyhow::Result<()> {
     // Initialize tracing for server mode
@@ -888,12 +888,16 @@ async fn run_mcp_server(
         Config::load()?
     };
 
-    // Override transport from CLI args
-    config.server.transport = match transport {
-        "http" => alloy::config::TransportType::Http,
-        _ => alloy::config::TransportType::Stdio,
-    };
-    config.server.http_port = port;
+    // Override transport from CLI args only if explicitly provided
+    if let Some(ref t) = transport {
+        config.server.transport = match t.as_str() {
+            "http" => alloy::config::TransportType::Http,
+            _ => alloy::config::TransportType::Stdio,
+        };
+    }
+    if let Some(p) = port {
+        config.server.http_port = p;
+    }
 
     tracing::info!(
         transport = ?config.server.transport,

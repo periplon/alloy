@@ -998,9 +998,9 @@ impl AlloyServer {
         }
 
         match coordinator.remove_source(&params.source_id).await {
-            Ok(docs_removed) => {
+            Ok(Some(docs_removed)) => {
                 // Dispatch source.removed webhook if enabled
-                if state.config.integration.webhooks.enabled && docs_removed > 0 {
+                if state.config.integration.webhooks.enabled {
                     let webhook_data = SourceRemovedData {
                         source_id: params.source_id.clone(),
                         documents_removed: docs_removed,
@@ -1012,16 +1012,23 @@ impl AlloyServer {
                 }
 
                 let response = RemoveSourceResponse {
-                    success: docs_removed > 0,
+                    success: true,
                     documents_removed: docs_removed,
-                    message: if docs_removed > 0 {
-                        format!(
-                            "Removed source {} with {} documents",
-                            params.source_id, docs_removed
-                        )
-                    } else {
-                        format!("Source not found: {}", params.source_id)
-                    },
+                    message: format!(
+                        "Removed source {} with {} documents",
+                        params.source_id, docs_removed
+                    ),
+                };
+
+                Ok(CallToolResult::success(vec![Content::text(
+                    serde_json::to_string_pretty(&response).unwrap(),
+                )]))
+            }
+            Ok(None) => {
+                let response = RemoveSourceResponse {
+                    success: false,
+                    documents_removed: 0,
+                    message: format!("Source not found: {}", params.source_id),
                 };
 
                 Ok(CallToolResult::success(vec![Content::text(

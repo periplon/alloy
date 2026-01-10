@@ -177,17 +177,20 @@ pub async fn list_sources(config: Config) -> Result<ListSourcesResponse> {
 /// Remove an indexed source.
 pub async fn remove_source(config: Config, source_id: String) -> Result<RemoveSourceResponse> {
     let coordinator = IndexCoordinator::new(config).await?;
-    let removed = coordinator.remove_source(&source_id).await?;
+    let result = coordinator.remove_source(&source_id).await?;
 
-    Ok(RemoveSourceResponse {
-        success: removed > 0,
-        documents_removed: removed,
-        message: if removed > 0 {
-            format!("Removed {} documents from source {}", removed, source_id)
-        } else {
-            format!("Source {} not found", source_id)
-        },
-    })
+    match result {
+        Some(docs_removed) => Ok(RemoveSourceResponse {
+            success: true,
+            documents_removed: docs_removed,
+            message: format!("Removed {} documents from source {}", docs_removed, source_id),
+        }),
+        None => Ok(RemoveSourceResponse {
+            success: false,
+            documents_removed: 0,
+            message: format!("Source {} not found", source_id),
+        }),
+    }
 }
 
 /// Get index statistics.

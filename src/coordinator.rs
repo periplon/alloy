@@ -621,12 +621,21 @@ impl IndexCoordinator {
         path: &str,
         watch: bool,
     ) -> Result<IndexedSource> {
-        let source_id = path.to_string();
+        // Canonicalize local paths to match what LocalSource::new() does
+        // This ensures the source_id returned here matches the actual stored ID
+        let source_id = if source_type == "local" && !path.starts_with("s3://") {
+            std::path::Path::new(path)
+                .canonicalize()
+                .map(|p| p.to_string_lossy().to_string())
+                .unwrap_or_else(|_| path.to_string())
+        } else {
+            path.to_string()
+        };
 
         let pending_source = IndexedSource {
             id: source_id.clone(),
             source_type: source_type.to_string(),
-            path: path.to_string(),
+            path: source_id.clone(), // Use canonical path for consistency
             document_count: 0,
             watching: watch,
             last_scan: Utc::now(),
@@ -1089,7 +1098,8 @@ impl IndexCoordinator {
     }
 
     /// Remove a source and all its documents.
-    pub async fn remove_source(&self, source_id: &str) -> Result<usize> {
+    /// Returns `Ok(Some(count))` if source was found and removed, `Ok(None)` if not found.
+    pub async fn remove_source(&self, source_id: &str) -> Result<Option<usize>> {
         // Get all documents for this source and remove them
         // For now, we'll just remove from our tracking
         // A full implementation would query storage for all docs with this source_id
@@ -1106,7 +1116,7 @@ impl IndexCoordinator {
             }
         }
 
-        Ok(result.unwrap_or(0))
+        Ok(result)
     }
 
     /// List all indexed sources.
