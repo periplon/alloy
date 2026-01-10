@@ -60,31 +60,34 @@ pub async fn run_http(config: Config, port: u16) -> Result<()> {
         info!("Authentication disabled");
     }
 
-    // Create shared coordinator for REST API (if enabled)
-    let coordinator = if config.integration.rest_api.enabled {
-        match IndexCoordinator::new(config.clone()).await {
-            Ok(c) => {
-                info!("REST API enabled at {}", config.integration.rest_api.prefix);
-                Some(Arc::new(c))
-            }
-            Err(e) => {
-                tracing::warn!("Failed to create coordinator for REST API: {}", e);
-                None
-            }
+    // Create shared coordinator for both REST API and MCP sessions
+    let coordinator = match IndexCoordinator::new(config.clone()).await {
+        Ok(c) => {
+            info!("Index coordinator initialized");
+            Arc::new(c)
         }
-    } else {
-        None
+        Err(e) => {
+            return Err(anyhow::anyhow!("Failed to create coordinator: {}", e));
+        }
     };
 
-    // We need to clone config for the factory closure
+    if config.integration.rest_api.enabled {
+        info!("REST API enabled at {}", config.integration.rest_api.prefix);
+    }
+
+    // Clone for the factory closure - shared across all MCP sessions
     let config_for_factory = config.clone();
+    let coordinator_for_factory = coordinator.clone();
 
     // Build the streamable HTTP service with a factory function
     let http_config = StreamableHttpServerConfig::default();
     let http_service = StreamableHttpService::new(
         move || {
-            // Factory creates a new server for each connection
-            Ok(AlloyServer::new(config_for_factory.clone()))
+            // Factory creates a new server for each connection, sharing the coordinator
+            Ok(AlloyServer::with_shared_coordinator(
+                config_for_factory.clone(),
+                coordinator_for_factory.clone(),
+            ))
         },
         session_manager,
         http_config,
@@ -98,14 +101,14 @@ pub async fn run_http(config: Config, port: u16) -> Result<()> {
         .route("/", axum::routing::get(root_handler))
         .route("/auth/status", axum::routing::get(auth_status_handler));
 
-    // Add REST API routes if enabled and coordinator is available
-    if let Some(coord) = coordinator {
+    // Add REST API routes if enabled
+    if config.integration.rest_api.enabled {
         let rest_config = RestApiConfig {
             enable_cors: config.integration.rest_api.enable_cors,
             cors_origins: config.integration.rest_api.cors_origins.clone(),
             prefix: config.integration.rest_api.prefix.clone(),
         };
-        let rest_router = create_rest_router(coord, &rest_config);
+        let rest_router = create_rest_router(coordinator, &rest_config);
         app = app.merge(rest_router);
     }
 

@@ -52,8 +52,8 @@ pub struct AlloyState {
     pub config: Config,
     /// Start time for uptime calculation
     pub start_time: Instant,
-    /// Index coordinator (lazily initialized)
-    pub coordinator: Option<IndexCoordinator>,
+    /// Index coordinator (shared across sessions)
+    pub coordinator: Option<Arc<IndexCoordinator>>,
     /// Progress events log (recent events)
     pub progress_log: Vec<IndexProgress>,
     /// ACL storage backend
@@ -66,6 +66,10 @@ pub struct AlloyState {
 
 impl AlloyState {
     pub fn new(config: Config) -> Self {
+        Self::with_coordinator(config, None)
+    }
+
+    pub fn with_coordinator(config: Config, coordinator: Option<Arc<IndexCoordinator>>) -> Self {
         let acl_storage: Arc<dyn AclStorage> = Arc::new(MemoryAclStorage::new());
         let acl_resolver = Arc::new(AclResolver::new(
             acl_storage.clone(),
@@ -96,7 +100,7 @@ impl AlloyState {
         Self {
             config,
             start_time: Instant::now(),
-            coordinator: None,
+            coordinator,
             progress_log: Vec::new(),
             acl_storage,
             acl_resolver,
@@ -117,6 +121,17 @@ impl AlloyServer {
     pub fn new(config: Config) -> Self {
         Self {
             state: Arc::new(RwLock::new(AlloyState::new(config))),
+            tool_router: Self::tool_router(),
+        }
+    }
+
+    /// Create a new Alloy server with a shared coordinator.
+    pub fn with_shared_coordinator(config: Config, coordinator: Arc<IndexCoordinator>) -> Self {
+        Self {
+            state: Arc::new(RwLock::new(AlloyState::with_coordinator(
+                config,
+                Some(coordinator),
+            ))),
             tool_router: Self::tool_router(),
         }
     }
@@ -153,7 +168,7 @@ impl AlloyServer {
                 });
             }
 
-            state.coordinator = Some(coordinator);
+            state.coordinator = Some(Arc::new(coordinator));
         }
         Ok(())
     }
