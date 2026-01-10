@@ -4768,6 +4768,236 @@ impl AlloyServer {
     }
 
     // ========================================================================
+    // Simplified Calendar Tools
+    // ========================================================================
+
+    /// Create a new calendar event.
+    #[tool(description = "Create a new calendar event. Requires title and start (ISO 8601 datetime). Optional: description, event_type (event/meeting/deadline/reminder/blocked_time), end (ISO 8601), duration_minutes, all_day, location, participants (array), project_id.")]
+    async fn calendar_create(
+        &self,
+        Parameters(params): Parameters<crate::mcp::gtd_simple_tools::CalendarCreateParams>,
+    ) -> Result<CallToolResult, McpError> {
+        use chrono::Duration;
+        use crate::calendar::{CalendarEvent, CalendarManager, EventType};
+        use crate::mcp::calendar_tools::{CalendarEventInfo, CalendarManageResponse};
+
+        self.ensure_coordinator().await?;
+        let state = self.state.read().await;
+        let coordinator = state.coordinator.as_ref().unwrap();
+        let ontology_store = coordinator.ontology_store();
+        let manager = CalendarManager::new(ontology_store);
+
+        let mut event = CalendarEvent::new(&params.title, params.start);
+        if let Some(desc) = params.description {
+            event = event.with_description(&desc);
+        }
+        if let Some(type_str) = params.event_type {
+            let event_type = match type_str.to_lowercase().as_str() {
+                "meeting" => EventType::Meeting,
+                "deadline" => EventType::Deadline,
+                "reminder" => EventType::Reminder,
+                "blocked_time" => EventType::BlockedTime,
+                "milestone" => EventType::Milestone,
+                "appointment" => EventType::Appointment,
+                "travel" => EventType::Travel,
+                "call" => EventType::Call,
+                "standup" => EventType::Standup,
+                _ => EventType::Event,
+            };
+            event = event.with_type(event_type);
+        }
+        if let Some(end) = params.end {
+            event = event.with_end(end);
+        } else if let Some(minutes) = params.duration_minutes {
+            event = event.with_duration(Duration::minutes(minutes));
+        }
+        if params.all_day == Some(true) {
+            event = event.all_day_event();
+        }
+        if let Some(location) = params.location {
+            event = event.with_location(&location);
+        }
+        if let Some(participants) = params.participants {
+            event = event.with_participants(participants);
+        }
+        if let Some(project_id) = params.project_id {
+            event = event.with_project(&project_id);
+        }
+
+        let response = match manager.create(event).await {
+            Ok(created) => CalendarManageResponse {
+                success: true,
+                event: Some(CalendarEventInfo::from(created)),
+                events: None,
+                stats: None,
+                message: "Event created successfully".to_string(),
+            },
+            Err(e) => CalendarManageResponse {
+                success: false,
+                event: None,
+                events: None,
+                stats: None,
+                message: format!("Failed to create event: {}", e),
+            },
+        };
+
+        Ok(CallToolResult::success(vec![Content::text(
+            serde_json::to_string_pretty(&response).unwrap(),
+        )]))
+    }
+
+    /// List calendar events.
+    #[tool(description = "List calendar events. Optional: query_type (upcoming/today/this_week/next_week/date_range), start_date (ISO 8601), end_date (ISO 8601), days, limit.")]
+    async fn calendar_list(
+        &self,
+        Parameters(params): Parameters<crate::mcp::gtd_simple_tools::CalendarListParams>,
+    ) -> Result<CallToolResult, McpError> {
+        use chrono::{Duration, Utc};
+        use crate::calendar::{CalendarFilter, CalendarQueryType, CalendarManager};
+        use crate::mcp::calendar_tools::{CalendarEventInfo, CalendarManageResponse};
+
+        self.ensure_coordinator().await?;
+        let state = self.state.read().await;
+        let coordinator = state.coordinator.as_ref().unwrap();
+        let ontology_store = coordinator.ontology_store();
+        let manager = CalendarManager::new(ontology_store);
+
+        let query_type = params.query_type.as_deref().map(|s| match s.to_lowercase().as_str() {
+            "today" => CalendarQueryType::Today,
+            "this_week" => CalendarQueryType::ThisWeek,
+            "next_week" => CalendarQueryType::NextWeek,
+            "date_range" => CalendarQueryType::DateRange,
+            _ => CalendarQueryType::Upcoming,
+        }).unwrap_or(CalendarQueryType::Upcoming);
+
+        let now = Utc::now();
+        let filter = CalendarFilter {
+            query_type,
+            start_date: params.start_date.or(Some(now)),
+            end_date: params.end_date.or(Some(now + Duration::days(params.days.unwrap_or(7)))),
+            event_types: vec![],
+            project_id: None,
+            participant: None,
+            search_query: None,
+            limit: params.limit.unwrap_or(100),
+            ..Default::default()
+        };
+
+        let response = match manager.list(&filter).await {
+            Ok(events) => {
+                let event_infos: Vec<CalendarEventInfo> = events.into_iter().map(CalendarEventInfo::from).collect();
+                let count = event_infos.len();
+                CalendarManageResponse {
+                    success: true,
+                    event: None,
+                    events: Some(event_infos),
+                    stats: None,
+                    message: format!("Found {} events", count),
+                }
+            }
+            Err(e) => CalendarManageResponse {
+                success: false,
+                event: None,
+                events: None,
+                stats: None,
+                message: format!("Failed to list events: {}", e),
+            },
+        };
+
+        Ok(CallToolResult::success(vec![Content::text(
+            serde_json::to_string_pretty(&response).unwrap(),
+        )]))
+    }
+
+    /// Get a calendar event by ID.
+    #[tool(description = "Get a specific calendar event by its ID.")]
+    async fn calendar_get(
+        &self,
+        Parameters(params): Parameters<crate::mcp::gtd_simple_tools::CalendarGetParams>,
+    ) -> Result<CallToolResult, McpError> {
+        use crate::calendar::CalendarManager;
+        use crate::mcp::calendar_tools::{CalendarEventInfo, CalendarManageResponse};
+
+        self.ensure_coordinator().await?;
+        let state = self.state.read().await;
+        let coordinator = state.coordinator.as_ref().unwrap();
+        let ontology_store = coordinator.ontology_store();
+        let manager = CalendarManager::new(ontology_store);
+
+        let response = match manager.get(&params.event_id).await {
+            Ok(Some(event)) => CalendarManageResponse {
+                success: true,
+                event: Some(CalendarEventInfo::from(event)),
+                events: None,
+                stats: None,
+                message: "Event retrieved".to_string(),
+            },
+            Ok(None) => CalendarManageResponse {
+                success: false,
+                event: None,
+                events: None,
+                stats: None,
+                message: format!("Event not found: {}", params.event_id),
+            },
+            Err(e) => CalendarManageResponse {
+                success: false,
+                event: None,
+                events: None,
+                stats: None,
+                message: format!("Failed to get event: {}", e),
+            },
+        };
+
+        Ok(CallToolResult::success(vec![Content::text(
+            serde_json::to_string_pretty(&response).unwrap(),
+        )]))
+    }
+
+    /// Delete a calendar event.
+    #[tool(description = "Delete a calendar event by its ID.")]
+    async fn calendar_delete(
+        &self,
+        Parameters(params): Parameters<crate::mcp::gtd_simple_tools::CalendarDeleteParams>,
+    ) -> Result<CallToolResult, McpError> {
+        use crate::calendar::CalendarManager;
+        use crate::mcp::calendar_tools::CalendarManageResponse;
+
+        self.ensure_coordinator().await?;
+        let state = self.state.read().await;
+        let coordinator = state.coordinator.as_ref().unwrap();
+        let ontology_store = coordinator.ontology_store();
+        let manager = CalendarManager::new(ontology_store);
+
+        let response = match manager.delete(&params.event_id).await {
+            Ok(true) => CalendarManageResponse {
+                success: true,
+                event: None,
+                events: None,
+                stats: None,
+                message: "Event deleted".to_string(),
+            },
+            Ok(false) => CalendarManageResponse {
+                success: false,
+                event: None,
+                events: None,
+                stats: None,
+                message: format!("Event not found: {}", params.event_id),
+            },
+            Err(e) => CalendarManageResponse {
+                success: false,
+                event: None,
+                events: None,
+                stats: None,
+                message: format!("Failed to delete event: {}", e),
+            },
+        };
+
+        Ok(CallToolResult::success(vec![Content::text(
+            serde_json::to_string_pretty(&response).unwrap(),
+        )]))
+    }
+
+    // ========================================================================
     // Knowledge Graph Tools
     // ========================================================================
 
