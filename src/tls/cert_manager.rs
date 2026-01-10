@@ -197,8 +197,11 @@ impl CertManager {
 
         debug!("Generated localhost certificate");
 
+        // Include full certificate chain (leaf + CA) for proper TLS verification
+        let full_chain = format!("{}{}", cert.pem(), self.ca_cert_pem);
+
         Ok(GeneratedCerts {
-            cert_pem: cert.pem(),
+            cert_pem: full_chain,
             key_pem: key_pair.serialize_pem(),
         })
     }
