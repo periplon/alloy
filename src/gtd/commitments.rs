@@ -389,6 +389,7 @@ impl CommitmentManager {
                 remove_aliases: Vec::new(),
                 embedding: None,
                 add_source_refs: Vec::new(),
+                remove_source_refs: Vec::new(),
                 set_metadata: metadata_map,
                 remove_metadata_keys: Vec::new(),
                 confidence: None,

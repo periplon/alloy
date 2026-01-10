@@ -345,7 +345,10 @@ use super::types::{CalendarResult, GtdResult, KnowledgeResult, OntologyResult, Q
 /// Truncate a string to a maximum length with ellipsis.
 fn truncate(s: &str, max_len: usize) -> String {
     if s.len() > max_len {
-        format!("{}...", alloy::utils::truncate_str(s, max_len.saturating_sub(3)))
+        format!(
+            "{}...",
+            alloy::utils::truncate_str(s, max_len.saturating_sub(3))
+        )
     } else {
         s.to_string()
     }
@@ -1105,7 +1108,10 @@ pub fn print_ontology_result(result: &OntologyResult, json: bool) {
 
     // Check for stats
     if data.get("entity_count").is_some() {
-        let entities = data.get("entity_count").and_then(|v| v.as_u64()).unwrap_or(0);
+        let entities = data
+            .get("entity_count")
+            .and_then(|v| v.as_u64())
+            .unwrap_or(0);
         let rels = data
             .get("relationship_count")
             .and_then(|v| v.as_u64())

@@ -462,6 +462,195 @@ impl std::fmt::Display for RelationType {
 }
 
 // ============================================================================
+// Deletion Strategy Types
+// ============================================================================
+
+/// Strategy for handling knowledge (entities/relationships) when removing a source.
+///
+/// This determines what happens to entities and relationships that reference
+/// documents from a source being removed.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum DeletionStrategy {
+    /// Remove source references from entities/relationships.
+    /// Delete only orphans (entities with no remaining source refs).
+    /// This is the safest default that preserves knowledge with other sources.
+    #[default]
+    RemoveSourceRefs,
+    /// Delete ALL entities/relationships that had ANY reference to the deleted source.
+    /// Use this for complete cleanup when you want to remove all traces of a source.
+    DeleteAffected,
+    /// Only remove source references, never delete knowledge.
+    /// Allows orphaned entities/relationships to remain in the store.
+    /// Use this to preserve knowledge even if sources are removed.
+    PreserveKnowledge,
+}
+
+impl DeletionStrategy {
+    /// Get a human-readable description of the strategy.
+    pub fn description(&self) -> &'static str {
+        match self {
+            DeletionStrategy::RemoveSourceRefs => {
+                "Remove source references; delete only orphaned entities"
+            }
+            DeletionStrategy::DeleteAffected => {
+                "Delete all entities/relationships referencing the source"
+            }
+            DeletionStrategy::PreserveKnowledge => "Remove references only; preserve all knowledge",
+        }
+    }
+}
+
+impl std::str::FromStr for DeletionStrategy {
+    type Err = String;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s.to_lowercase().as_str() {
+            "remove_source_refs" | "removesourcerefs" | "default" => {
+                Ok(DeletionStrategy::RemoveSourceRefs)
+            }
+            "delete_affected" | "deleteaffected" | "delete" => {
+                Ok(DeletionStrategy::DeleteAffected)
+            }
+            "preserve_knowledge" | "preserveknowledge" | "preserve" => {
+                Ok(DeletionStrategy::PreserveKnowledge)
+            }
+            _ => Err(format!(
+                "Invalid deletion strategy: '{}'. Valid options: remove_source_refs, delete_affected, preserve_knowledge",
+                s
+            )),
+        }
+    }
+}
+
+impl std::fmt::Display for DeletionStrategy {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            DeletionStrategy::RemoveSourceRefs => write!(f, "remove_source_refs"),
+            DeletionStrategy::DeleteAffected => write!(f, "delete_affected"),
+            DeletionStrategy::PreserveKnowledge => write!(f, "preserve_knowledge"),
+        }
+    }
+}
+
+/// Result of unlinking documents from knowledge (entities/relationships).
+///
+/// This captures the impact of removing document references from the ontology store.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct UnlinkResult {
+    /// Number of entities that had source refs removed (but were not deleted).
+    pub entities_updated: usize,
+    /// Number of entities that were deleted (orphaned or affected).
+    pub entities_deleted: usize,
+    /// Number of relationships that had source refs removed (but were not deleted).
+    pub relationships_updated: usize,
+    /// Number of relationships that were deleted (orphaned or affected).
+    pub relationships_deleted: usize,
+    /// IDs of entities that became orphaned (only populated with PreserveKnowledge strategy).
+    #[serde(default)]
+    pub orphaned_entity_ids: Vec<String>,
+    /// IDs of relationships that became orphaned (only populated with PreserveKnowledge strategy).
+    #[serde(default)]
+    pub orphaned_relationship_ids: Vec<String>,
+}
+
+impl UnlinkResult {
+    /// Check if any changes were made.
+    pub fn has_changes(&self) -> bool {
+        self.entities_updated > 0
+            || self.entities_deleted > 0
+            || self.relationships_updated > 0
+            || self.relationships_deleted > 0
+    }
+
+    /// Get total number of entities affected (updated + deleted).
+    pub fn total_entities_affected(&self) -> usize {
+        self.entities_updated + self.entities_deleted
+    }
+
+    /// Get total number of relationships affected (updated + deleted).
+    pub fn total_relationships_affected(&self) -> usize {
+        self.relationships_updated + self.relationships_deleted
+    }
+
+    /// Merge another UnlinkResult into this one.
+    pub fn merge(&mut self, other: UnlinkResult) {
+        self.entities_updated += other.entities_updated;
+        self.entities_deleted += other.entities_deleted;
+        self.relationships_updated += other.relationships_updated;
+        self.relationships_deleted += other.relationships_deleted;
+        self.orphaned_entity_ids.extend(other.orphaned_entity_ids);
+        self.orphaned_relationship_ids
+            .extend(other.orphaned_relationship_ids);
+    }
+}
+
+/// Result of removing a source with cascading deletion.
+///
+/// This captures the full impact of source removal on documents and knowledge.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct SourceRemovalResult {
+    /// Number of documents removed from storage.
+    pub documents_removed: usize,
+    /// Result of unlinking documents from the knowledge graph.
+    pub knowledge_result: UnlinkResult,
+}
+
+impl SourceRemovalResult {
+    /// Check if any changes were made.
+    pub fn has_changes(&self) -> bool {
+        self.documents_removed > 0 || self.knowledge_result.has_changes()
+    }
+
+    /// Create a summary message describing the removal.
+    pub fn summary(&self) -> String {
+        let mut parts = Vec::new();
+
+        if self.documents_removed > 0 {
+            parts.push(format!("{} documents removed", self.documents_removed));
+        }
+
+        let kr = &self.knowledge_result;
+        if kr.entities_deleted > 0 {
+            parts.push(format!("{} entities deleted", kr.entities_deleted));
+        }
+        if kr.entities_updated > 0 {
+            parts.push(format!("{} entities updated", kr.entities_updated));
+        }
+        if kr.relationships_deleted > 0 {
+            parts.push(format!(
+                "{} relationships deleted",
+                kr.relationships_deleted
+            ));
+        }
+        if kr.relationships_updated > 0 {
+            parts.push(format!(
+                "{} relationships updated",
+                kr.relationships_updated
+            ));
+        }
+        if !kr.orphaned_entity_ids.is_empty() {
+            parts.push(format!(
+                "{} orphaned entities",
+                kr.orphaned_entity_ids.len()
+            ));
+        }
+        if !kr.orphaned_relationship_ids.is_empty() {
+            parts.push(format!(
+                "{} orphaned relationships",
+                kr.orphaned_relationship_ids.len()
+            ));
+        }
+
+        if parts.is_empty() {
+            "No changes made".to_string()
+        } else {
+            parts.join(", ")
+        }
+    }
+}
+
+// ============================================================================
 // Supporting Types
 // ============================================================================
 
@@ -824,6 +1013,10 @@ pub struct EntityUpdate {
     /// Source refs to add.
     #[serde(default)]
     pub add_source_refs: Vec<DocumentRef>,
+    /// Document IDs to remove from source_refs.
+    /// All source refs matching these document IDs will be removed.
+    #[serde(default)]
+    pub remove_source_refs: Vec<String>,
     /// Metadata to set (overwrites existing keys).
     #[serde(default)]
     pub set_metadata: HashMap<String, serde_json::Value>,
@@ -884,6 +1077,12 @@ impl EntityUpdate {
         for source_ref in &self.add_source_refs {
             entity.source_refs.push(source_ref.clone());
         }
+        // Remove source refs by document ID
+        if !self.remove_source_refs.is_empty() {
+            entity
+                .source_refs
+                .retain(|r| !self.remove_source_refs.contains(&r.document_id));
+        }
         for (key, value) in &self.set_metadata {
             entity.metadata.insert(key.clone(), value.clone());
         }
@@ -894,6 +1093,18 @@ impl EntityUpdate {
             entity.confidence = confidence.clamp(0.0, 1.0);
         }
         entity.updated_at = Utc::now();
+    }
+
+    /// Create an update that removes source refs by document ID.
+    pub fn remove_source_ref(mut self, document_id: impl Into<String>) -> Self {
+        self.remove_source_refs.push(document_id.into());
+        self
+    }
+
+    /// Create an update that removes multiple source refs by document IDs.
+    pub fn remove_source_refs_by_ids(mut self, document_ids: Vec<String>) -> Self {
+        self.remove_source_refs.extend(document_ids);
+        self
     }
 }
 
@@ -1011,5 +1222,218 @@ mod tests {
         assert_eq!(doc_ref.document_id, "doc123");
         assert_eq!(doc_ref.chunk_id, Some("chunk456".to_string()));
         assert_eq!(doc_ref.confidence, 0.9);
+    }
+
+    #[test]
+    fn test_deletion_strategy_default() {
+        let strategy = DeletionStrategy::default();
+        assert_eq!(strategy, DeletionStrategy::RemoveSourceRefs);
+    }
+
+    #[test]
+    fn test_deletion_strategy_from_str() {
+        assert_eq!(
+            "remove_source_refs".parse::<DeletionStrategy>().unwrap(),
+            DeletionStrategy::RemoveSourceRefs
+        );
+        assert_eq!(
+            "delete_affected".parse::<DeletionStrategy>().unwrap(),
+            DeletionStrategy::DeleteAffected
+        );
+        assert_eq!(
+            "preserve_knowledge".parse::<DeletionStrategy>().unwrap(),
+            DeletionStrategy::PreserveKnowledge
+        );
+        assert_eq!(
+            "default".parse::<DeletionStrategy>().unwrap(),
+            DeletionStrategy::RemoveSourceRefs
+        );
+        assert_eq!(
+            "DELETE".parse::<DeletionStrategy>().unwrap(),
+            DeletionStrategy::DeleteAffected
+        );
+        assert_eq!(
+            "PRESERVE".parse::<DeletionStrategy>().unwrap(),
+            DeletionStrategy::PreserveKnowledge
+        );
+        assert!("invalid".parse::<DeletionStrategy>().is_err());
+    }
+
+    #[test]
+    fn test_deletion_strategy_display() {
+        assert_eq!(
+            format!("{}", DeletionStrategy::RemoveSourceRefs),
+            "remove_source_refs"
+        );
+        assert_eq!(
+            format!("{}", DeletionStrategy::DeleteAffected),
+            "delete_affected"
+        );
+        assert_eq!(
+            format!("{}", DeletionStrategy::PreserveKnowledge),
+            "preserve_knowledge"
+        );
+    }
+
+    #[test]
+    fn test_unlink_result_has_changes() {
+        let empty = UnlinkResult::default();
+        assert!(!empty.has_changes());
+
+        let with_updates = UnlinkResult {
+            entities_updated: 1,
+            ..Default::default()
+        };
+        assert!(with_updates.has_changes());
+
+        let with_deletes = UnlinkResult {
+            entities_deleted: 1,
+            ..Default::default()
+        };
+        assert!(with_deletes.has_changes());
+    }
+
+    #[test]
+    fn test_unlink_result_totals() {
+        let result = UnlinkResult {
+            entities_updated: 2,
+            entities_deleted: 3,
+            relationships_updated: 4,
+            relationships_deleted: 5,
+            ..Default::default()
+        };
+
+        assert_eq!(result.total_entities_affected(), 5);
+        assert_eq!(result.total_relationships_affected(), 9);
+    }
+
+    #[test]
+    fn test_unlink_result_merge() {
+        let mut result1 = UnlinkResult {
+            entities_updated: 1,
+            entities_deleted: 2,
+            relationships_updated: 3,
+            relationships_deleted: 4,
+            orphaned_entity_ids: vec!["e1".to_string()],
+            orphaned_relationship_ids: vec!["r1".to_string()],
+        };
+
+        let result2 = UnlinkResult {
+            entities_updated: 10,
+            entities_deleted: 20,
+            relationships_updated: 30,
+            relationships_deleted: 40,
+            orphaned_entity_ids: vec!["e2".to_string()],
+            orphaned_relationship_ids: vec!["r2".to_string()],
+        };
+
+        result1.merge(result2);
+
+        assert_eq!(result1.entities_updated, 11);
+        assert_eq!(result1.entities_deleted, 22);
+        assert_eq!(result1.relationships_updated, 33);
+        assert_eq!(result1.relationships_deleted, 44);
+        assert_eq!(result1.orphaned_entity_ids.len(), 2);
+        assert_eq!(result1.orphaned_relationship_ids.len(), 2);
+    }
+
+    #[test]
+    fn test_source_removal_result_has_changes() {
+        let empty = SourceRemovalResult::default();
+        assert!(!empty.has_changes());
+
+        let with_docs = SourceRemovalResult {
+            documents_removed: 1,
+            ..Default::default()
+        };
+        assert!(with_docs.has_changes());
+
+        let with_knowledge = SourceRemovalResult {
+            documents_removed: 0,
+            knowledge_result: UnlinkResult {
+                entities_deleted: 1,
+                ..Default::default()
+            },
+        };
+        assert!(with_knowledge.has_changes());
+    }
+
+    #[test]
+    fn test_source_removal_result_summary() {
+        let empty = SourceRemovalResult::default();
+        assert_eq!(empty.summary(), "No changes made");
+
+        let full = SourceRemovalResult {
+            documents_removed: 5,
+            knowledge_result: UnlinkResult {
+                entities_updated: 2,
+                entities_deleted: 3,
+                relationships_updated: 4,
+                relationships_deleted: 1,
+                orphaned_entity_ids: vec!["e1".to_string()],
+                orphaned_relationship_ids: vec!["r1".to_string(), "r2".to_string()],
+            },
+        };
+
+        let summary = full.summary();
+        assert!(summary.contains("5 documents removed"));
+        assert!(summary.contains("3 entities deleted"));
+        assert!(summary.contains("2 entities updated"));
+        assert!(summary.contains("1 relationships deleted"));
+        assert!(summary.contains("4 relationships updated"));
+        assert!(summary.contains("1 orphaned entities"));
+        assert!(summary.contains("2 orphaned relationships"));
+    }
+
+    #[test]
+    fn test_entity_update_remove_source_refs() {
+        let mut entity = Entity::new(EntityType::Person, "John")
+            .with_source_ref(DocumentRef::new("doc1"))
+            .with_source_ref(DocumentRef::new("doc2"))
+            .with_source_ref(DocumentRef::new("doc3"));
+
+        assert_eq!(entity.source_refs.len(), 3);
+
+        let update = EntityUpdate::default()
+            .remove_source_refs_by_ids(vec!["doc1".to_string(), "doc3".to_string()]);
+
+        update.apply_to(&mut entity);
+
+        assert_eq!(entity.source_refs.len(), 1);
+        assert_eq!(entity.source_refs[0].document_id, "doc2");
+    }
+
+    #[test]
+    fn test_entity_update_remove_source_ref_single() {
+        let mut entity = Entity::new(EntityType::Person, "John")
+            .with_source_ref(DocumentRef::new("doc1"))
+            .with_source_ref(DocumentRef::new("doc2"));
+
+        let update = EntityUpdate::default().remove_source_ref("doc1");
+
+        update.apply_to(&mut entity);
+
+        assert_eq!(entity.source_refs.len(), 1);
+        assert_eq!(entity.source_refs[0].document_id, "doc2");
+    }
+
+    #[test]
+    fn test_deletion_strategy_serialization() {
+        // Test JSON serialization uses snake_case
+        let json = serde_json::to_string(&DeletionStrategy::RemoveSourceRefs).unwrap();
+        assert_eq!(json, "\"remove_source_refs\"");
+
+        let json = serde_json::to_string(&DeletionStrategy::DeleteAffected).unwrap();
+        assert_eq!(json, "\"delete_affected\"");
+
+        let json = serde_json::to_string(&DeletionStrategy::PreserveKnowledge).unwrap();
+        assert_eq!(json, "\"preserve_knowledge\"");
+
+        // Test deserialization
+        let strategy: DeletionStrategy = serde_json::from_str("\"remove_source_refs\"").unwrap();
+        assert_eq!(strategy, DeletionStrategy::RemoveSourceRefs);
+
+        let strategy: DeletionStrategy = serde_json::from_str("\"delete_affected\"").unwrap();
+        assert_eq!(strategy, DeletionStrategy::DeleteAffected);
     }
 }

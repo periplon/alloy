@@ -200,7 +200,9 @@ impl CalendarExtractor {
         // Extract the relevant text snippet (using safe UTF-8 slicing)
         let snippet_start = group.context_start.saturating_sub(50);
         let snippet_end = (group.context_end + 50).min(text.len());
-        let snippet = safe_slice(text, snippet_start, snippet_end).trim().to_string();
+        let snippet = safe_slice(text, snippet_start, snippet_end)
+            .trim()
+            .to_string();
         event = event.with_extracted_text(snippet);
 
         // Set default duration for deadlines vs meetings

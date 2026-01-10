@@ -347,7 +347,8 @@ mod tests {
 
     #[test]
     fn test_query_result_modes() {
-        let gtd_result = UnifiedQueryResult::gtd(GtdQueryResult::new("tasks", serde_json::json!([])));
+        let gtd_result =
+            UnifiedQueryResult::gtd(GtdQueryResult::new("tasks", serde_json::json!([])));
         assert_eq!(gtd_result.query_mode, "gtd");
         assert!(gtd_result.gtd_result.is_some());
         assert!(gtd_result.calendar_result.is_none());

@@ -397,64 +397,68 @@ impl IndexCoordinator {
         ));
 
         // Initialize entity extraction processor if enabled
-        let extraction_processor = if config.ontology.enabled
-            && config.ontology.extraction.extract_on_index
-        {
-            let extraction_config = &config.ontology.extraction;
+        let extraction_processor =
+            if config.ontology.enabled && config.ontology.extraction.extract_on_index {
+                let extraction_config = &config.ontology.extraction;
 
-            // Map config settings to pipeline extraction config
-            let pipeline_config = PipelineExtractionConfig {
-                enable_temporal: extraction_config.local.enable_temporal,
-                enable_actions: true, // Always enable action detection
-                enable_local_ner: extraction_config.local.enable_patterns,
-                enable_llm_ner: extraction_config.llm.enabled,
-                enable_relations: true, // Always enable relation extraction
-                confidence_threshold: extraction_config.confidence_threshold,
-                llm_config: if extraction_config.llm.enabled {
-                    Some(crate::ontology::extraction::LlmExtractionConfig {
-                        api_endpoint: if extraction_config.llm.api_endpoint.is_empty() {
-                            "https://api.openai.com/v1".to_string()
-                        } else {
-                            extraction_config.llm.api_endpoint.clone()
-                        },
-                        api_key: std::env::var("OPENAI_API_KEY").ok(),
-                        model: extraction_config.llm.model.clone(),
-                        max_tokens: extraction_config.llm.max_tokens_per_doc,
-                        rate_limit_rpm: extraction_config.llm.rate_limit_rpm,
-                    })
-                } else {
-                    None
-                },
+                // Map config settings to pipeline extraction config
+                let pipeline_config = PipelineExtractionConfig {
+                    enable_temporal: extraction_config.local.enable_temporal,
+                    enable_actions: true, // Always enable action detection
+                    enable_local_ner: extraction_config.local.enable_patterns,
+                    enable_llm_ner: extraction_config.llm.enabled,
+                    enable_relations: true, // Always enable relation extraction
+                    confidence_threshold: extraction_config.confidence_threshold,
+                    llm_config: if extraction_config.llm.enabled {
+                        Some(crate::ontology::extraction::LlmExtractionConfig {
+                            api_endpoint: if extraction_config.llm.api_endpoint.is_empty() {
+                                "https://api.openai.com/v1".to_string()
+                            } else {
+                                extraction_config.llm.api_endpoint.clone()
+                            },
+                            api_key: std::env::var("OPENAI_API_KEY").ok(),
+                            model: extraction_config.llm.model.clone(),
+                            max_tokens: extraction_config.llm.max_tokens_per_doc,
+                            rate_limit_rpm: extraction_config.llm.rate_limit_rpm,
+                        })
+                    } else {
+                        None
+                    },
+                };
+
+                let processor_config = EntityExtractionProcessorConfig {
+                    enabled: true,
+                    extraction_config: pipeline_config,
+                    extract_from_full_text: true,
+                    extract_from_chunks: false,
+                    min_confidence: extraction_config.confidence_threshold,
+                };
+
+                Some(EntityExtractionProcessor::new(processor_config))
+            } else {
+                None
             };
-
-            let processor_config = EntityExtractionProcessorConfig {
-                enabled: true,
-                extraction_config: pipeline_config,
-                extract_from_full_text: true,
-                extract_from_chunks: false,
-                min_confidence: extraction_config.confidence_threshold,
-            };
-
-            Some(EntityExtractionProcessor::new(processor_config))
-        } else {
-            None
-        };
 
         // Set up sources persistence path and load existing sources
         let sources_path = data_dir.join("sources.json");
         let sources = if sources_path.exists() {
             match std::fs::read_to_string(&sources_path) {
-                Ok(content) => match serde_json::from_str::<HashMap<String, IndexedSource>>(&content)
-                {
-                    Ok(loaded) => {
-                        info!("Loaded {} sources from {}", loaded.len(), sources_path.display());
-                        loaded
+                Ok(content) => {
+                    match serde_json::from_str::<HashMap<String, IndexedSource>>(&content) {
+                        Ok(loaded) => {
+                            info!(
+                                "Loaded {} sources from {}",
+                                loaded.len(),
+                                sources_path.display()
+                            );
+                            loaded
+                        }
+                        Err(e) => {
+                            warn!("Failed to parse sources file: {}", e);
+                            HashMap::new()
+                        }
                     }
-                    Err(e) => {
-                        warn!("Failed to parse sources file: {}", e);
-                        HashMap::new()
-                    }
-                },
+                }
                 Err(e) => {
                     warn!("Failed to read sources file: {}", e);
                     HashMap::new()
@@ -489,7 +493,11 @@ impl IndexCoordinator {
         let sources = self.sources.read().await;
         let content = serde_json::to_string_pretty(&*sources)?;
         std::fs::write(&self.sources_path, content)?;
-        debug!("Saved {} sources to {}", sources.len(), self.sources_path.display());
+        debug!(
+            "Saved {} sources to {}",
+            sources.len(),
+            self.sources_path.display()
+        );
         Ok(())
     }
 
@@ -987,10 +995,7 @@ impl IndexCoordinator {
                     let store = self.ontology_store.write().await;
                     for entity in extraction_result.entities {
                         if let Err(e) = store.create_entity(entity.clone()).await {
-                            debug!(
-                                "Failed to store extracted entity {}: {}",
-                                entity.name, e
-                            );
+                            debug!("Failed to store extracted entity {}: {}", entity.name, e);
                         }
                     }
                     for relationship in extraction_result.relationships {

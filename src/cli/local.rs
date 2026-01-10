@@ -183,7 +183,10 @@ pub async fn remove_source(config: Config, source_id: String) -> Result<RemoveSo
         Some(docs_removed) => Ok(RemoveSourceResponse {
             success: true,
             documents_removed: docs_removed,
-            message: format!("Removed {} documents from source {}", docs_removed, source_id),
+            message: format!(
+                "Removed {} documents from source {}",
+                docs_removed, source_id
+            ),
         }),
         None => Ok(RemoveSourceResponse {
             success: false,
@@ -2310,7 +2313,8 @@ pub async fn ontology(config: Config, command: OntologyCommand) -> Result<Ontolo
 
                 if show_confidence {
                     entity_obj["confidence"] = serde_json::json!(extracted.entity.confidence);
-                    entity_obj["method"] = serde_json::json!(format!("{:?}", extracted.extraction_method));
+                    entity_obj["method"] =
+                        serde_json::json!(format!("{:?}", extracted.extraction_method));
                 }
 
                 entities_summary.push(entity_obj);
