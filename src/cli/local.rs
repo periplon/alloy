@@ -2118,6 +2118,42 @@ pub async fn ontology(config: Config, command: OntologyCommand) -> Result<Ontolo
                     extra: serde_json::Map::new(),
                 })
             }
+            "update" => {
+                let entity_id = id.ok_or_else(|| anyhow::anyhow!("Entity ID required"))?;
+
+                // Build update from provided fields
+                let mut update = EntityUpdate::default();
+
+                if let Some(n) = name {
+                    update.name = Some(n);
+                }
+                if let Some(t) = set_type {
+                    if let Some(parsed) = parse_entity_type(&t) {
+                        update.entity_type = Some(parsed);
+                    }
+                }
+                if let Some(a) = aliases {
+                    // Treat as setting aliases (add them)
+                    update.add_aliases = a.split(',').map(|s| s.trim().to_string()).collect();
+                }
+                if let Some(m) = metadata {
+                    if let Ok(parsed) = serde_json::from_str::<serde_json::Value>(&m) {
+                        if let Some(obj) = parsed.as_object() {
+                            for (k, v) in obj {
+                                update.set_metadata.insert(k.clone(), v.clone());
+                            }
+                        }
+                    }
+                }
+
+                let updated = store_guard.update_entity(&entity_id, update).await?;
+                Ok(OntologyResult {
+                    success: true,
+                    message: format!("Updated entity: {}", updated.name),
+                    data: serde_json::to_value(updated)?,
+                    extra: serde_json::Map::new(),
+                })
+            }
             "delete" => {
                 let entity_id = id.ok_or_else(|| anyhow::anyhow!("Entity ID required"))?;
                 let deleted = store_guard.delete_entity(&entity_id).await?;
