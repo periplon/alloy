@@ -1197,7 +1197,7 @@ function renderSearchResults(result) {
             }${result.reranked ? ' (reranked)' : ''}</span>
         </div>
         ${results.map((r, i) => `
-            <div class="result-item" onclick="viewDocument('${escapeHtml(r.document_id)}')">
+            <div class="result-item" onclick="viewDocument('${escapeJs(r.document_id)}')">
                 <div class="result-header">
                     <span class="result-title">${escapeHtml(r.path || r.document_id)}</span>
                     <span class="result-score">${(r.score * 100).toFixed(1)}%</span>
@@ -1344,7 +1344,7 @@ function renderSourcesList(sources, compact = false) {
             : '';
 
         return `
-            <div class="source-item ${status === 'indexing' ? 'indexing' : ''}" data-id="${source.id}">
+            <div class="source-item ${status === 'indexing' ? 'indexing' : ''}" data-id="${escapeHtml(source.id)}">
                 <div class="source-info">
                     <h3>${escapeHtml(source.path)}</h3>
                     <p>${source.source_type} • Last scan: ${formatDate(source.last_scan)}</p>
@@ -1359,10 +1359,10 @@ function renderSourcesList(sources, compact = false) {
                         ${source.watching ? 'Watching' : 'Static'}
                     </span>
                     ${compact ? '' : `
-                        <button class="btn btn-secondary" onclick="refreshSource('${source.id}')" ${status === 'indexing' ? 'disabled' : ''}>
+                        <button class="btn btn-secondary" onclick="refreshSource('${escapeJs(source.id)}')" ${status === 'indexing' ? 'disabled' : ''}>
                             Refresh
                         </button>
-                        <button class="btn btn-danger" onclick="removeSource('${source.id}')">
+                        <button class="btn btn-danger" onclick="removeSource('${escapeJs(source.id)}')">
                             Remove
                         </button>
                     `}
@@ -1547,7 +1547,7 @@ function renderDocumentsList() {
     container.innerHTML = `
         <div class="documents-grid">
             ${state.documents.map(doc => `
-                <div class="document-card" onclick="viewDocument('${escapeHtml(doc.document_id)}')">
+                <div class="document-card" onclick="viewDocument('${escapeJs(doc.document_id)}')">
                     <div class="document-icon">${getFileIcon(doc.path)}</div>
                     <div class="document-info">
                         <h3>${escapeHtml(getFileName(doc.path))}</h3>
@@ -1810,6 +1810,12 @@ function escapeHtml(str) {
     const div = document.createElement('div');
     div.textContent = str;
     return div.innerHTML;
+}
+
+function escapeJs(str) {
+    if (!str) return '';
+    // Escape for use in JavaScript string literals inside HTML attributes
+    return str.replace(/\\/g, '\\\\').replace(/'/g, "\\'").replace(/"/g, '\\"');
 }
 
 function truncate(str, maxLen) {

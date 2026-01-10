@@ -145,6 +145,16 @@ pub enum SourceStatus {
     Failed,
 }
 
+impl std::fmt::Display for SourceStatus {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            SourceStatus::Indexing => write!(f, "indexing"),
+            SourceStatus::Ready => write!(f, "ready"),
+            SourceStatus::Failed => write!(f, "failed"),
+        }
+    }
+}
+
 /// Indexed source information.
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct IndexedSource {

@@ -123,6 +123,11 @@ pub struct SourceResponse {
     pub document_count: usize,
     pub watching: bool,
     pub last_scan: chrono::DateTime<chrono::Utc>,
+    /// Current status of the source (ready, indexing, failed).
+    pub status: String,
+    /// Error message if status is failed.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub error: Option<String>,
 }
 
 /// Sources list response.
@@ -402,6 +407,8 @@ pub async fn list_sources_handler(State(state): State<Arc<ApiState>>) -> impl In
             document_count: s.document_count,
             watching: s.watching,
             last_scan: s.last_scan,
+            status: s.status.to_string(),
+            error: s.error,
         })
         .collect();
 
