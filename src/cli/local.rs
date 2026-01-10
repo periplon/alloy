@@ -26,7 +26,7 @@ use alloy::{
         RelationType, Relationship, RelationshipFilter,
     },
     sources::parse_s3_uri,
-    Config, IndexCoordinator,
+    Config, ExtractionConfig, ExtractionPipeline, IndexCoordinator,
 };
 use anyhow::Result;
 use chrono::{DateTime, NaiveDate, NaiveTime, TimeZone, Utc};
@@ -2228,16 +2228,164 @@ pub async fn ontology(config: Config, command: OntologyCommand) -> Result<Ontolo
         },
 
         OntologyCommand::Extract {
-            document: _document,
-            show_confidence: _show_confidence,
-            auto_add: _auto_add,
+            document,
+            show_confidence,
+            auto_add,
         } => {
-            // Document extraction would require integration with the index coordinator
-            // For now, return a placeholder
+            // Read the document content - could be a file path or text
+            let (text, doc_id) = if std::path::Path::new(&document).exists() {
+                // It's a file path - read the file
+                let content = std::fs::read_to_string(&document).map_err(|e| {
+                    anyhow::anyhow!("Failed to read document '{}': {}", document, e)
+                })?;
+                let doc_id = std::path::Path::new(&document)
+                    .file_name()
+                    .and_then(|n| n.to_str())
+                    .unwrap_or(&document)
+                    .to_string();
+                (content, doc_id)
+            } else {
+                // Treat the argument as the text itself if it's not a file
+                (document.clone(), "cli-input".to_string())
+            };
+
+            // Create extraction pipeline with default config
+            let extraction_config = ExtractionConfig::default();
+            let pipeline = ExtractionPipeline::new(extraction_config);
+
+            // Run extraction
+            let result = pipeline.extract(&text, &doc_id).await?;
+
+            // Build extracted entities summary
+            let mut entities_summary: Vec<serde_json::Value> = Vec::new();
+            for extracted in &result.entities {
+                let mut entity_obj = serde_json::json!({
+                    "name": extracted.entity.name,
+                    "type": format!("{:?}", extracted.entity.entity_type),
+                    "source_text": extracted.source_text,
+                });
+
+                if show_confidence {
+                    entity_obj["confidence"] = serde_json::json!(extracted.entity.confidence);
+                    entity_obj["method"] = serde_json::json!(format!("{:?}", extracted.extraction_method));
+                }
+
+                entities_summary.push(entity_obj);
+            }
+
+            // Build relationships summary
+            let mut relationships_summary: Vec<serde_json::Value> = Vec::new();
+            for extracted in &result.relationships {
+                let mut rel_obj = serde_json::json!({
+                    "source": extracted.relationship.source_entity_id,
+                    "target": extracted.relationship.target_entity_id,
+                    "type": format!("{:?}", extracted.relationship.relationship_type),
+                });
+
+                if show_confidence {
+                    rel_obj["confidence"] = serde_json::json!(extracted.relationship.confidence);
+                }
+
+                relationships_summary.push(rel_obj);
+            }
+
+            // Build temporal extractions summary
+            let mut temporal_summary: Vec<serde_json::Value> = Vec::new();
+            for temporal in &result.temporal {
+                let mut temp_obj = serde_json::json!({
+                    "text": temporal.original_text,
+                    "normalized": temporal.normalized_text,
+                    "type": format!("{:?}", temporal.date_type),
+                });
+
+                if show_confidence {
+                    temp_obj["confidence"] = serde_json::json!(temporal.confidence);
+                }
+
+                temporal_summary.push(temp_obj);
+            }
+
+            // Build actions summary
+            let mut actions_summary: Vec<serde_json::Value> = Vec::new();
+            for action in &result.actions {
+                let mut action_obj = serde_json::json!({
+                    "description": action.description,
+                    "type": format!("{:?}", action.action_type),
+                    "priority": format!("{:?}", action.priority),
+                });
+
+                if show_confidence {
+                    action_obj["confidence"] = serde_json::json!(action.confidence);
+                }
+
+                actions_summary.push(action_obj);
+            }
+
+            // Auto-add entities to ontology if requested
+            let mut added_count = 0;
+            if auto_add {
+                for extracted in &result.entities {
+                    // Check if entity already exists by name
+                    let existing = store_guard
+                        .find_entities_by_name(&extracted.entity.name, 1)
+                        .await?;
+
+                    if existing.is_empty() {
+                        match store_guard.create_entity(extracted.entity.clone()).await {
+                            Ok(_) => added_count += 1,
+                            Err(e) => {
+                                // Log but continue - entity might already exist
+                                eprintln!(
+                                    "Warning: Could not add entity '{}': {}",
+                                    extracted.entity.name, e
+                                );
+                            }
+                        }
+                    }
+                }
+            }
+
+            // Build the result data
+            let mut data = serde_json::json!({
+                "document_id": doc_id,
+                "entities": entities_summary,
+                "relationships": relationships_summary,
+                "temporal": temporal_summary,
+                "actions": actions_summary,
+                "processing_ms": result.metadata.processing_ms,
+            });
+
+            if show_confidence {
+                data["overall_confidence"] = serde_json::json!(result.confidence);
+                data["used_llm"] = serde_json::json!(result.metadata.used_llm);
+            }
+
+            // Build summary message
+            let message = if auto_add {
+                format!(
+                    "Extracted {} entities ({} added), {} relationships, {} temporal expressions, {} actions from '{}'",
+                    result.entities.len(),
+                    added_count,
+                    result.relationships.len(),
+                    result.temporal.len(),
+                    result.actions.len(),
+                    doc_id
+                )
+            } else {
+                format!(
+                    "Extracted {} entities, {} relationships, {} temporal expressions, {} actions from '{}'",
+                    result.entities.len(),
+                    result.relationships.len(),
+                    result.temporal.len(),
+                    result.actions.len(),
+                    doc_id
+                )
+            };
+
             Ok(OntologyResult {
-                success: false,
-                message: "Document extraction not yet implemented in CLI".to_string(),
-                data: serde_json::Value::Null,
+                success: true,
+                message,
+                data,
                 extra: serde_json::Map::new(),
             })
         }

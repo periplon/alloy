@@ -560,6 +560,14 @@ mod tests {
 
         // Low confidence events should be filtered out
         // This depends on the confidence assigned during extraction
+        // All remaining events should have confidence >= 0.9
+        for event in &events {
+            assert!(
+                event.confidence >= 0.9,
+                "Event should have confidence >= 0.9, got {}",
+                event.confidence
+            );
+        }
     }
 
     #[test]
