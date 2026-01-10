@@ -182,6 +182,8 @@ struct OntologyData {
     rel_by_target: HashMap<String, Vec<String>>,
     /// Index: document_id -> entity IDs.
     entities_by_doc: HashMap<String, Vec<String>>,
+    /// Index: document_id -> relationship IDs.
+    relationships_by_doc: HashMap<String, Vec<String>>,
     /// Index: entity_type -> entity IDs.
     entities_by_type: HashMap<EntityType, Vec<String>>,
 }
@@ -219,6 +221,23 @@ impl OntologyData {
         }
     }
 
+    /// Add relationship to document index.
+    fn index_relationship_doc(&mut self, rel_id: &str, doc_refs: &[DocumentRef]) {
+        for doc_ref in doc_refs {
+            self.relationships_by_doc
+                .entry(doc_ref.document_id.clone())
+                .or_default()
+                .push(rel_id.to_string());
+        }
+    }
+
+    /// Remove relationship from document index.
+    fn unindex_relationship_doc(&mut self, rel_id: &str) {
+        for ids in self.relationships_by_doc.values_mut() {
+            ids.retain(|id| id != rel_id);
+        }
+    }
+
     /// Add relationship to indices.
     fn index_relationship(&mut self, rel: &Relationship) {
         self.rel_by_source
@@ -230,6 +249,9 @@ impl OntologyData {
             .entry(rel.target_entity_id.clone())
             .or_default()
             .push(rel.id.clone());
+
+        // Index by document
+        self.index_relationship_doc(&rel.id, &rel.source_refs);
     }
 
     /// Remove relationship from indices.
@@ -240,6 +262,9 @@ impl OntologyData {
         if let Some(ids) = self.rel_by_target.get_mut(&rel.target_entity_id) {
             ids.retain(|id| id != &rel.id);
         }
+
+        // Remove from document index
+        self.unindex_relationship_doc(&rel.id);
     }
 }
 
