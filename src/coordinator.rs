@@ -25,7 +25,7 @@ use crate::error::Result;
 use crate::metrics::{get_metrics, Metrics};
 use crate::ontology::extraction::{
     EntityExtractionProcessor, EntityExtractionProcessorConfig,
-    ExtractionConfig as PipelineExtractionConfig,
+    ExtractionConfig as PipelineExtractionConfig, DocumentExtractionResult,
 };
 use crate::ontology::{
     DeletionStrategy, EmbeddedOntologyStore, OntologyStore, SourceRemovalResult,

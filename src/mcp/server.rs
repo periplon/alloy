@@ -11,6 +11,8 @@ use rmcp::{
 };
 use serde::{Deserialize, Serialize};
 use tokio::sync::RwLock;
+use base64::Engine;
+use bytes::Bytes;
 
 use crate::acl::{
     AclEntry, AclResolver, AclStorage, DocumentAcl, MemoryAclStorage, Permission, Principal,
@@ -321,6 +323,45 @@ pub struct GetDocumentParams {
     /// Include full document content
     #[serde(default)]
     pub include_content: Option<bool>,
+}
+
+// Parameters for document_add tool
+#[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema)]
+pub struct DocumentAddParams {
+    /// The document content (required). Either raw text or base64-encoded binary.
+    pub content: String,
+
+    /// How to interpret content: "text" (default) or "base64" for binary files.
+    #[serde(default = "default_content_type")]
+    pub content_type: String,
+
+    /// MIME type for processing (e.g., "text/plain", "application/pdf"). Default: "text/plain"
+    #[serde(default = "default_mime_type")]
+    pub mime_type: String,
+
+    /// Document title/name for metadata.
+    #[serde(default)]
+    pub title: Option<String>,
+
+    /// Source ID for grouping. Default: "direct-add"
+    #[serde(default)]
+    pub source_id: Option<String>,
+
+    /// Extract entities and relationships. Default: false
+    #[serde(default)]
+    pub extract_ontology: Option<bool>,
+
+    /// Additional metadata as JSON.
+    #[serde(default)]
+    pub metadata: Option<serde_json::Value>,
+}
+
+fn default_content_type() -> String {
+    "text".to_string()
+}
+
+fn default_mime_type() -> String {
+    "text/plain".to_string()
 }
 
 // Parameters for remove_source tool

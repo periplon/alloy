@@ -38,6 +38,32 @@ pub struct IndexPathResponse {
     pub message: String,
 }
 
+/// Response from adding a document directly.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DocumentAddResponse {
+    /// Whether the operation was successful
+    pub success: bool,
+    /// Unique document ID
+    pub document_id: String,
+    /// Source ID the document belongs to
+    pub source_id: String,
+    /// Number of chunks created from the document
+    pub chunks_created: usize,
+    /// Number of entities extracted (if ontology extraction was enabled)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub entities_extracted: Option<usize>,
+    /// Number of relationships extracted (if ontology extraction was enabled)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub relationships_extracted: Option<usize>,
+    /// Names of extracted entities (if ontology extraction was enabled)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub entity_names: Option<Vec<String>>,
+    /// Processing time in milliseconds
+    pub processing_ms: u64,
+    /// Status message
+    pub message: String,
+}
+
 /// Search request.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SearchRequest {
