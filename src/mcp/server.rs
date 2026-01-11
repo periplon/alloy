@@ -4,6 +4,8 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Instant;
 
+use base64::Engine;
+use bytes::Bytes;
 use rmcp::{
     handler::server::{router::tool::ToolRouter, wrapper::Parameters},
     model::*,
@@ -11,8 +13,6 @@ use rmcp::{
 };
 use serde::{Deserialize, Serialize};
 use tokio::sync::RwLock;
-use base64::Engine;
-use bytes::Bytes;
 
 use crate::acl::{
     AclEntry, AclResolver, AclStorage, DocumentAcl, MemoryAclStorage, Permission, Principal,
@@ -28,9 +28,9 @@ use crate::mcp::tools::{
     ClearDeduplicationResponse, ClusterDocumentInfo, ClusterDocumentsResponse, ClusterInfo,
     ClusterMetrics, ClusterOutlineInfo, ClusterVisualizationResponse, ConfigureResponse,
     CreateBackupResponse, DeduplicationStatsResponse, DeleteDocumentAclResponse,
-    DeleteSourceAclResponse, DiffStatsInfo, DiffVersionsResponse, DocumentAddResponse, DocumentDetails,
-    ExportDocumentsResponse, FindSimilarClusterResponse, GetAclStatsResponse,
-    GetCacheStatsResponse, GetClusterDocumentsResponse, GetDocumentAclResponse,
+    DeleteSourceAclResponse, DiffStatsInfo, DiffVersionsResponse, DocumentAddResponse,
+    DocumentDetails, DocumentUpdateResponse, ExportDocumentsResponse, FindSimilarClusterResponse,
+    GetAclStatsResponse, GetCacheStatsResponse, GetClusterDocumentsResponse, GetDocumentAclResponse,
     GetDocumentHistoryResponse, GetMetricsResponse, GetSourceAclResponse,
     GetVersionContentResponse, GetWebhookStatsResponse, ImportDocumentsResponse, IndexPathResponse,
     IndexStats, ListBackupsResponse, ListSourcesResponse, ListWebhooksResponse,
@@ -424,13 +424,33 @@ pub struct DocumentAddParams {
     #[serde(default = "default_mime_type")]
     pub mime_type: String,
 
-    /// Document title/name for metadata.
+    /// Document title/name for metadata. Also used as the base filename when writing to disk.
     #[serde(default)]
     pub title: Option<String>,
 
-    /// Source ID for grouping. Default: "direct-add"
+    /// Optional filename for the document when writing to disk. If not provided, derived from title or generated.
     #[serde(default)]
-    pub source_id: Option<String>,
+    pub filename: Option<String>,
+
+    /// Source ID where the document will be placed. This can be:
+    /// - An existing local path source (e.g., "/path/to/indexed/dir") - writes file to disk
+    /// - An existing S3 source (e.g., "s3://bucket/prefix") - uploads to S3
+    /// - A custom identifier for virtual-only storage
+    /// - If omitted, defaults to "direct-add" (virtual only)
+    ///
+    /// Use `list_sources` to see available sources.
+    #[serde(default)]
+    pub source: Option<String>,
+
+    /// Require the source to already exist. If true and the source doesn't exist, returns an error.
+    /// If false (default), creates a new virtual source if needed.
+    #[serde(default)]
+    pub require_existing_source: Option<bool>,
+
+    /// If true, only add to index without writing to disk/S3. Default: false
+    /// When false and source is a local path or S3 URI, the document is written to that location.
+    #[serde(default)]
+    pub virtual_only: Option<bool>,
 
     /// Extract entities and relationships. Default: false
     #[serde(default)]
@@ -441,12 +461,92 @@ pub struct DocumentAddParams {
     pub metadata: Option<serde_json::Value>,
 }
 
+// Parameters for document_update tool
+#[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema)]
+pub struct DocumentUpdateParams {
+    /// Document ID to update (required). Use search or list to find document IDs.
+    pub document_id: String,
+
+    /// New document content. Either raw text or base64-encoded binary.
+    pub content: String,
+
+    /// How to interpret content: "text" (default) or "base64" for binary files.
+    #[serde(default = "default_content_type")]
+    pub content_type: String,
+
+    /// MIME type for processing (e.g., "text/plain", "application/pdf"). If not provided, uses existing document's MIME type.
+    #[serde(default)]
+    pub mime_type: Option<String>,
+
+    /// New document title. If not provided, keeps existing title.
+    #[serde(default)]
+    pub title: Option<String>,
+
+    /// If true, only update index without writing to disk/S3. Default: false
+    #[serde(default)]
+    pub virtual_only: Option<bool>,
+
+    /// Re-extract entities and relationships. Default: false
+    #[serde(default)]
+    pub extract_ontology: Option<bool>,
+
+    /// Additional metadata to merge with existing. Existing keys are overwritten.
+    #[serde(default)]
+    pub metadata: Option<serde_json::Value>,
+}
+
 fn default_content_type() -> String {
     "text".to_string()
 }
 
 fn default_mime_type() -> String {
     "text/plain".to_string()
+}
+
+/// Convert MIME type to file extension
+fn mime_to_extension(mime_type: &str) -> &'static str {
+    match mime_type {
+        "text/plain" => "txt",
+        "text/markdown" => "md",
+        "text/html" => "html",
+        "application/pdf" => "pdf",
+        "application/json" => "json",
+        "application/xml" | "text/xml" => "xml",
+        "text/csv" => "csv",
+        "application/vnd.openxmlformats-officedocument.wordprocessingml.document" => "docx",
+        "application/msword" => "doc",
+        "image/png" => "png",
+        "image/jpeg" => "jpg",
+        "image/gif" => "gif",
+        _ => "txt",
+    }
+}
+
+/// Sanitize a string for use as a filename
+fn sanitize_filename(title: &str, extension: &str) -> String {
+    // Replace problematic characters with underscores
+    let sanitized: String = title
+        .chars()
+        .map(|c| match c {
+            '/' | '\\' | ':' | '*' | '?' | '"' | '<' | '>' | '|' => '_',
+            _ => c,
+        })
+        .collect();
+
+    // Trim whitespace and limit length
+    let trimmed = sanitized.trim();
+    let limited = if trimmed.len() > 200 {
+        &trimmed[..200]
+    } else {
+        trimmed
+    };
+
+    // Add extension if not already present
+    if limited.ends_with(&format!(".{}", extension)) {
+        limited.to_string()
+    } else {
+        format!("{}.{}", limited, extension)
+    }
 }
 
 // Parameters for remove_source tool
@@ -809,7 +909,10 @@ impl AlloyServer {
             let path = PathBuf::from(&params.path);
             if !path.exists() && !create_if_missing {
                 return Err(McpError::invalid_params(
-                    format!("Path does not exist: {}. Use create_if_missing: true to create it.", params.path),
+                    format!(
+                        "Path does not exist: {}. Use create_if_missing: true to create it.",
+                        params.path
+                    ),
                     None,
                 ));
             }
@@ -1161,13 +1264,171 @@ impl AlloyServer {
         }
     }
 
-    /// Add a document directly to the store from text or base64-encoded content. Supports text, markdown, PDF, and other formats. Optionally extracts entities, relationships, and temporal information.
+    /// Add a document directly to a source from text or base64-encoded content. Writes to disk/S3 for local/S3 sources by default.
     #[tool(
-        description = "Add a document directly to the store from text or base64-encoded content. Supports text, markdown, PDF, and other formats. Optionally extracts entities, relationships, and temporal information."
+        description = "Add a document to a source. By default writes to disk (local sources) or S3. Use 'source' to specify destination (use list_sources to see available sources). Set virtual_only=true to skip writing to disk. Supports text, markdown, PDF, and other formats."
     )]
     async fn document_add(
         &self,
         Parameters(params): Parameters<DocumentAddParams>,
+    ) -> Result<CallToolResult, McpError> {
+        // Ensure coordinator is initialized
+        self.ensure_coordinator().await?;
+
+        // Decode content
+        let content_bytes = if params.content_type == "base64" {
+            base64::engine::general_purpose::STANDARD
+                .decode(&params.content)
+                .map_err(|e| {
+                    McpError::invalid_params(
+                        format!("Failed to decode base64 content: {}", e),
+                        None,
+                    )
+                })?
+        } else {
+            params.content.as_bytes().to_vec()
+        };
+
+        let state = self.state.read().await;
+        let coordinator = state.coordinator.as_ref().unwrap();
+
+        let source_id = params.source.as_deref().unwrap_or("direct-add");
+        let require_existing = params.require_existing_source.unwrap_or(false);
+        let virtual_only = params.virtual_only.unwrap_or(false);
+        let extract_ontology = params.extract_ontology.unwrap_or(false);
+
+        // Check if source exists and get its type
+        let sources = coordinator.list_sources().await;
+        let existing_source = sources.iter().find(|s| s.id == source_id);
+
+        // Validate source exists if required
+        if require_existing && existing_source.is_none() {
+            return Ok(CallToolResult::success(vec![Content::text(format!(
+                "Source '{}' does not exist. Use list_sources to see available sources, or set require_existing_source=false to create a new source.",
+                source_id
+            ))]));
+        }
+
+        let start_time = Instant::now();
+
+        // Determine if we should write to disk/S3
+        let should_write = !virtual_only
+            && existing_source
+                .map(|s| s.source_type == "local" || s.source_type == "s3")
+                .unwrap_or(false);
+        let mut written_path: Option<String> = None;
+
+        if should_write {
+            let source = existing_source.unwrap();
+
+            // Generate filename
+            let extension = mime_to_extension(&params.mime_type);
+            let filename = params.filename.clone().unwrap_or_else(|| {
+                params
+                    .title
+                    .clone()
+                    .map(|t| sanitize_filename(&t, extension))
+                    .unwrap_or_else(|| format!("{}.{}", uuid::Uuid::new_v4(), extension))
+            });
+
+            if source.source_type == "local" {
+                // Write to local filesystem
+                let file_path = PathBuf::from(&source.path).join(&filename);
+
+                if let Err(e) = tokio::fs::write(&file_path, &content_bytes).await {
+                    return Ok(CallToolResult::success(vec![Content::text(format!(
+                        "Failed to write file to {}: {}",
+                        file_path.display(),
+                        e
+                    ))]));
+                }
+                written_path = Some(file_path.to_string_lossy().to_string());
+            } else if source.source_type == "s3" {
+                // Write to S3
+                if let Ok((bucket, prefix)) = parse_s3_uri(&source.path) {
+                    let s3_key = if prefix.is_empty() {
+                        filename.clone()
+                    } else {
+                        format!("{}/{}", prefix.trim_end_matches('/'), filename)
+                    };
+
+                    // Upload to S3 via coordinator
+                    match coordinator
+                        .upload_to_s3(&bucket, &s3_key, content_bytes.clone())
+                        .await
+                    {
+                        Ok(_) => {
+                            written_path = Some(format!("s3://{}/{}", bucket, s3_key));
+                        }
+                        Err(e) => {
+                            return Ok(CallToolResult::success(vec![Content::text(format!(
+                                "Failed to upload to S3: {}",
+                                e
+                            ))]));
+                        }
+                    }
+                }
+            }
+        }
+
+        // Now index the document
+        match coordinator
+            .add_document_direct(
+                Bytes::from(content_bytes),
+                &params.mime_type,
+                source_id,
+                params.title.clone(),
+                params.metadata.clone(),
+                extract_ontology,
+            )
+            .await
+        {
+            Ok((doc, chunk_count, extraction)) => {
+                let source_name = doc.source_id.clone();
+                let message = if let Some(ref path) = written_path {
+                    format!(
+                        "Document written to '{}' and indexed in source '{}'",
+                        path, source_name
+                    )
+                } else {
+                    format!(
+                        "Document added to index in source '{}' (virtual only)",
+                        source_name
+                    )
+                };
+
+                let response = DocumentAddResponse {
+                    success: true,
+                    document_id: doc.id,
+                    source_id: doc.source_id,
+                    path: written_path,
+                    chunks_created: chunk_count,
+                    entities_extracted: extraction.as_ref().map(|e| e.entities.len()),
+                    relationships_extracted: extraction.as_ref().map(|e| e.relationships.len()),
+                    entity_names: extraction
+                        .map(|e| e.entities.into_iter().map(|ent| ent.name).collect()),
+                    processing_ms: start_time.elapsed().as_millis() as u64,
+                    message,
+                };
+
+                Ok(CallToolResult::success(vec![Content::text(
+                    serde_json::to_string_pretty(&response).unwrap(),
+                )]))
+            }
+            Err(e) => Ok(CallToolResult::success(vec![Content::text(format!(
+                "Failed to add document: {}",
+                e
+            ))])),
+        }
+    }
+
+    /// Update an existing document with new content. Writes to disk/S3 for local/S3 sources by default.
+    #[tool(
+        description = "Update an existing document with new content. By default writes to disk (local sources) or S3. Use 'virtual_only=true' to skip writing to disk. The document retains its original source and path."
+    )]
+    async fn document_update(
+        &self,
+        Parameters(params): Parameters<DocumentUpdateParams>,
     ) -> Result<CallToolResult, McpError> {
         // Ensure coordinator is initialized
         self.ensure_coordinator().await?;
@@ -1186,15 +1447,78 @@ impl AlloyServer {
         let state = self.state.read().await;
         let coordinator = state.coordinator.as_ref().unwrap();
 
-        let source_id = params.source_id.as_deref().unwrap_or("direct-add");
+        // Get the existing document to find its source and path
+        let existing = match coordinator.get_document(&params.document_id).await {
+            Ok(Some(doc)) => doc,
+            Ok(None) => {
+                return Ok(CallToolResult::success(vec![Content::text(format!(
+                    "Document '{}' not found",
+                    params.document_id
+                ))]));
+            }
+            Err(e) => {
+                return Ok(CallToolResult::success(vec![Content::text(format!(
+                    "Failed to get document: {}",
+                    e
+                ))]));
+            }
+        };
+
+        let virtual_only = params.virtual_only.unwrap_or(false);
         let extract_ontology = params.extract_ontology.unwrap_or(false);
+        let mime_type = params.mime_type.as_deref().unwrap_or(&existing.mime_type);
+
+        // Check if we should write to disk/S3
+        let sources = coordinator.list_sources().await;
+        let source = sources.iter().find(|s| s.id == existing.source_id);
+        let should_write = !virtual_only
+            && source
+                .map(|s| s.source_type == "local" || s.source_type == "s3")
+                .unwrap_or(false);
+
+        let mut written_path: Option<String> = None;
+
+        if should_write {
+            let source = source.unwrap();
+
+            // For local sources, write to the existing file path
+            if source.source_type == "local" && !existing.path.starts_with("direct://") {
+                let file_path = PathBuf::from(&existing.path);
+
+                if let Err(e) = tokio::fs::write(&file_path, &content_bytes).await {
+                    return Ok(CallToolResult::success(vec![Content::text(format!(
+                        "Failed to write file to {}: {}",
+                        file_path.display(),
+                        e
+                    ))]));
+                }
+                written_path = Some(file_path.to_string_lossy().to_string());
+            } else if source.source_type == "s3" && existing.path.starts_with("s3://") {
+                // For S3 sources, upload to the existing S3 path
+                if let Ok((bucket, key)) = parse_s3_uri(&existing.path) {
+                    match coordinator.upload_to_s3(&bucket, &key, content_bytes.clone()).await {
+                        Ok(_) => {
+                            written_path = Some(existing.path.clone());
+                        }
+                        Err(e) => {
+                            return Ok(CallToolResult::success(vec![Content::text(format!(
+                                "Failed to upload to S3: {}",
+                                e
+                            ))]));
+                        }
+                    }
+                }
+            }
+        }
 
         let start_time = Instant::now();
+
+        // Update the document in the index
         match coordinator
-            .add_document_direct(
+            .update_document(
+                &params.document_id,
                 Bytes::from(content_bytes),
-                &params.mime_type,
-                source_id,
+                Some(mime_type),
                 params.title.clone(),
                 params.metadata.clone(),
                 extract_ontology,
@@ -1202,17 +1526,24 @@ impl AlloyServer {
             .await
         {
             Ok((doc, chunk_count, extraction)) => {
-                let response = DocumentAddResponse {
+                let message = if let Some(ref path) = written_path {
+                    format!("Document updated and written to '{}'", path)
+                } else {
+                    "Document updated in index (virtual only)".to_string()
+                };
+
+                let response = DocumentUpdateResponse {
                     success: true,
                     document_id: doc.id,
                     source_id: doc.source_id,
+                    path: written_path,
                     chunks_created: chunk_count,
                     entities_extracted: extraction.as_ref().map(|e| e.entities.len()),
                     relationships_extracted: extraction.as_ref().map(|e| e.relationships.len()),
                     entity_names: extraction
                         .map(|e| e.entities.into_iter().map(|ent| ent.name).collect()),
                     processing_ms: start_time.elapsed().as_millis() as u64,
-                    message: "Document added successfully".to_string(),
+                    message,
                 };
 
                 Ok(CallToolResult::success(vec![Content::text(
@@ -1220,7 +1551,7 @@ impl AlloyServer {
                 )]))
             }
             Err(e) => Ok(CallToolResult::success(vec![Content::text(format!(
-                "Failed to add document: {}",
+                "Failed to update document: {}",
                 e
             ))])),
         }
@@ -3506,600 +3837,8 @@ impl AlloyServer {
     // GTD Tools
     // ========================================================================
 
-    /// Manage GTD projects - list, create, update, archive, and check health.
-    #[tool(
-        description = "Manage GTD projects. Actions: list, get, create, update, archive, complete, health. Projects are multi-step outcomes with next actions."
-    )]
-    async fn gtd_projects(
-        &self,
-        Parameters(params): Parameters<crate::mcp::gtd_tools::GtdProjectsParams>,
-    ) -> Result<CallToolResult, McpError> {
-        use crate::gtd::{Project, ProjectFilter, ProjectManager};
-        use crate::mcp::gtd_tools::{GtdProjectsResponse, ProjectAction};
-
-        // Get ontology store from coordinator
-        self.ensure_coordinator().await?;
-        let state = self.state.read().await;
-        let coordinator = state.coordinator.as_ref().unwrap();
-        let ontology_store = coordinator.ontology_store();
-
-        let manager = ProjectManager::new(ontology_store);
-
-        let response = match params.action {
-            ProjectAction::List => {
-                let filter = ProjectFilter {
-                    status: params.status,
-                    area: params.area.clone(),
-                    has_next_action: params.has_next_action,
-                    stalled_days: params.stalled_days,
-                    limit: params.limit.unwrap_or(100),
-                    offset: 0,
-                };
-                match manager.list(filter).await {
-                    Ok(projects) => GtdProjectsResponse::success_list(
-                        projects.clone(),
-                        format!("Found {} projects", projects.len()),
-                    ),
-                    Err(e) => GtdProjectsResponse::error(format!("Failed to list projects: {}", e)),
-                }
-            }
-            ProjectAction::Get => {
-                let project_id = params.project_id.ok_or_else(|| {
-                    McpError::invalid_params("project_id is required for 'get' action", None)
-                })?;
-                match manager.get(&project_id).await {
-                    Ok(Some(project)) => {
-                        GtdProjectsResponse::success_single(project, "Project retrieved")
-                    }
-                    Ok(None) => {
-                        GtdProjectsResponse::error(format!("Project not found: {}", project_id))
-                    }
-                    Err(e) => GtdProjectsResponse::error(format!("Failed to get project: {}", e)),
-                }
-            }
-            ProjectAction::Create => {
-                let name = params.name.ok_or_else(|| {
-                    McpError::invalid_params("name is required for 'create' action", None)
-                })?;
-                let mut project = Project::new(name);
-                if let Some(outcome) = params.outcome {
-                    project = project.with_outcome(outcome);
-                }
-                if let Some(area) = params.area {
-                    project = project.with_area(area);
-                }
-                if let Some(goal) = params.goal {
-                    project = project.with_goal(goal);
-                }
-                match manager.create(project).await {
-                    Ok(created) => {
-                        GtdProjectsResponse::success_single(created, "Project created successfully")
-                    }
-                    Err(e) => {
-                        GtdProjectsResponse::error(format!("Failed to create project: {}", e))
-                    }
-                }
-            }
-            ProjectAction::Update => {
-                let project_id = params.project_id.ok_or_else(|| {
-                    McpError::invalid_params("project_id is required for 'update' action", None)
-                })?;
-                match manager.get(&project_id).await {
-                    Ok(Some(mut project)) => {
-                        if let Some(name) = params.name {
-                            project.name = name;
-                        }
-                        if let Some(outcome) = params.outcome {
-                            project.outcome = Some(outcome);
-                        }
-                        if let Some(area) = params.area {
-                            project.area = Some(area);
-                        }
-                        if let Some(goal) = params.goal {
-                            project.supporting_goal = Some(goal);
-                        }
-                        if let Some(status) = params.status {
-                            project.status = status;
-                        }
-                        match manager.update(&project_id, project).await {
-                            Ok(updated) => {
-                                GtdProjectsResponse::success_single(updated, "Project updated")
-                            }
-                            Err(e) => {
-                                GtdProjectsResponse::error(format!("Failed to update: {}", e))
-                            }
-                        }
-                    }
-                    Ok(None) => {
-                        GtdProjectsResponse::error(format!("Project not found: {}", project_id))
-                    }
-                    Err(e) => GtdProjectsResponse::error(format!("Failed to get project: {}", e)),
-                }
-            }
-            ProjectAction::Archive => {
-                let project_id = params.project_id.ok_or_else(|| {
-                    McpError::invalid_params("project_id is required for 'archive' action", None)
-                })?;
-                match manager.archive(&project_id).await {
-                    Ok(Some(project)) => {
-                        GtdProjectsResponse::success_single(project, "Project archived")
-                    }
-                    Ok(None) => {
-                        GtdProjectsResponse::error(format!("Project not found: {}", project_id))
-                    }
-                    Err(e) => GtdProjectsResponse::error(format!("Failed to archive: {}", e)),
-                }
-            }
-            ProjectAction::Complete => {
-                let project_id = params.project_id.ok_or_else(|| {
-                    McpError::invalid_params("project_id is required for 'complete' action", None)
-                })?;
-                match manager.complete(&project_id).await {
-                    Ok(Some(project)) => {
-                        GtdProjectsResponse::success_single(project, "Project completed")
-                    }
-                    Ok(None) => {
-                        GtdProjectsResponse::error(format!("Project not found: {}", project_id))
-                    }
-                    Err(e) => GtdProjectsResponse::error(format!("Failed to complete: {}", e)),
-                }
-            }
-            ProjectAction::Health => {
-                let project_id = params.project_id.ok_or_else(|| {
-                    McpError::invalid_params("project_id is required for 'health' action", None)
-                })?;
-                match manager.get_health(&project_id).await {
-                    Ok(Some(health)) => {
-                        GtdProjectsResponse::success_health(health, "Project health calculated")
-                    }
-                    Ok(None) => {
-                        GtdProjectsResponse::error(format!("Project not found: {}", project_id))
-                    }
-                    Err(e) => {
-                        GtdProjectsResponse::error(format!("Failed to calculate health: {}", e))
-                    }
-                }
-            }
-        };
-
-        Ok(CallToolResult::success(vec![Content::text(
-            serde_json::to_string_pretty(&response).unwrap(),
-        )]))
-    }
-
-    /// Manage GTD tasks - list, create, complete, and get smart recommendations.
-    #[tool(
-        description = "Manage GTD tasks. Actions: list, get, create, update, complete, delete, recommend, quick_wins, overdue. Supports context-aware recommendations."
-    )]
-    async fn gtd_tasks(
-        &self,
-        Parameters(params): Parameters<crate::mcp::gtd_tools::GtdTasksParams>,
-    ) -> Result<CallToolResult, McpError> {
-        use crate::gtd::{RecommendParams, Task, TaskFilter, TaskManager};
-        use crate::mcp::gtd_tools::{GtdTasksResponse, TaskAction};
-
-        // Get ontology store from coordinator
-        self.ensure_coordinator().await?;
-        let state = self.state.read().await;
-        let coordinator = state.coordinator.as_ref().unwrap();
-        let ontology_store = coordinator.ontology_store();
-
-        let manager = TaskManager::new(ontology_store);
-
-        let response = match params.action {
-            TaskAction::List => {
-                let filter = TaskFilter {
-                    contexts: params.contexts.unwrap_or_default(),
-                    project_id: params.project_id.clone(),
-                    status: params.status,
-                    energy_level: params.energy_level,
-                    time_available: params.time_available,
-                    due_before: params.due_date,
-                    priority: params.priority,
-                    description_contains: params.description_contains.clone(),
-                    limit: params.limit.unwrap_or(100),
-                    offset: 0,
-                };
-                match manager.list(filter).await {
-                    Ok(tasks) => GtdTasksResponse::success_list(
-                        tasks.clone(),
-                        format!("Found {} tasks", tasks.len()),
-                    ),
-                    Err(e) => GtdTasksResponse::error(format!("Failed to list tasks: {}", e)),
-                }
-            }
-            TaskAction::Get => {
-                let task_id = params.task_id.ok_or_else(|| {
-                    McpError::invalid_params("task_id is required for 'get' action", None)
-                })?;
-                match manager.get(&task_id).await {
-                    Ok(Some(task)) => GtdTasksResponse::success_single(task, "Task retrieved"),
-                    Ok(None) => GtdTasksResponse::error(format!("Task not found: {}", task_id)),
-                    Err(e) => GtdTasksResponse::error(format!("Failed to get task: {}", e)),
-                }
-            }
-            TaskAction::Create => {
-                let description = params.description.ok_or_else(|| {
-                    McpError::invalid_params("description is required for 'create' action", None)
-                })?;
-                let mut task = Task::new(description);
-                if let Some(project_id) = params.project_id {
-                    task = task.with_project(project_id);
-                }
-                if let Some(contexts) = params.contexts {
-                    task = task.with_contexts(contexts);
-                }
-                if let Some(energy) = params.energy_level {
-                    task = task.with_energy(energy);
-                }
-                if let Some(duration) = params.estimated_minutes {
-                    task = task.with_duration(duration);
-                }
-                if let Some(due) = params.due_date {
-                    task = task.with_due_date(due);
-                }
-                if let Some(priority) = params.priority {
-                    task = task.with_priority(priority);
-                }
-                match manager.create(task).await {
-                    Ok(created) => GtdTasksResponse::success_single(created, "Task created"),
-                    Err(e) => GtdTasksResponse::error(format!("Failed to create task: {}", e)),
-                }
-            }
-            TaskAction::Update => {
-                let task_id = params.task_id.ok_or_else(|| {
-                    McpError::invalid_params("task_id is required for 'update' action", None)
-                })?;
-                match manager.get(&task_id).await {
-                    Ok(Some(mut task)) => {
-                        if let Some(desc) = params.description {
-                            task.description = desc;
-                        }
-                        if let Some(project_id) = params.project_id {
-                            task.project_id = Some(project_id);
-                        }
-                        if let Some(contexts) = params.contexts {
-                            task.contexts = contexts;
-                        }
-                        if let Some(status) = params.status {
-                            task.status = status;
-                        }
-                        if let Some(energy) = params.energy_level {
-                            task.energy_level = energy;
-                        }
-                        if let Some(duration) = params.estimated_minutes {
-                            task.estimated_minutes = Some(duration);
-                        }
-                        if let Some(due) = params.due_date {
-                            task.due_date = Some(due);
-                        }
-                        if let Some(priority) = params.priority {
-                            task.priority = priority;
-                        }
-                        match manager.update(&task_id, task).await {
-                            Ok(updated) => {
-                                GtdTasksResponse::success_single(updated, "Task updated")
-                            }
-                            Err(e) => GtdTasksResponse::error(format!("Failed to update: {}", e)),
-                        }
-                    }
-                    Ok(None) => GtdTasksResponse::error(format!("Task not found: {}", task_id)),
-                    Err(e) => GtdTasksResponse::error(format!("Failed to get task: {}", e)),
-                }
-            }
-            TaskAction::Complete => {
-                let task_id = params.task_id.ok_or_else(|| {
-                    McpError::invalid_params("task_id is required for 'complete' action", None)
-                })?;
-                match manager.complete(&task_id).await {
-                    Ok(Some(task)) => GtdTasksResponse::success_single(task, "Task completed"),
-                    Ok(None) => GtdTasksResponse::error(format!("Task not found: {}", task_id)),
-                    Err(e) => GtdTasksResponse::error(format!("Failed to complete: {}", e)),
-                }
-            }
-            TaskAction::Delete => {
-                let task_id = params.task_id.ok_or_else(|| {
-                    McpError::invalid_params("task_id is required for 'delete' action", None)
-                })?;
-                match manager.delete(&task_id).await {
-                    Ok(true) => GtdTasksResponse {
-                        success: true,
-                        task: None,
-                        tasks: None,
-                        recommendations: None,
-                        message: "Task deleted".to_string(),
-                    },
-                    Ok(false) => GtdTasksResponse::error(format!("Task not found: {}", task_id)),
-                    Err(e) => GtdTasksResponse::error(format!("Failed to delete: {}", e)),
-                }
-            }
-            TaskAction::Recommend => {
-                let rec_params = RecommendParams {
-                    current_context: params.current_context,
-                    energy_level: params.energy_level,
-                    time_available: params.time_available,
-                    focus_area: None,
-                    limit: params.limit.unwrap_or(5),
-                };
-                match manager.recommend(rec_params).await {
-                    Ok(recs) => GtdTasksResponse::success_recommendations(
-                        recs.clone(),
-                        format!("{} recommendations", recs.len()),
-                    ),
-                    Err(e) => {
-                        GtdTasksResponse::error(format!("Failed to get recommendations: {}", e))
-                    }
-                }
-            }
-            TaskAction::QuickWins => match manager.get_quick_wins().await {
-                Ok(tasks) => GtdTasksResponse::success_list(
-                    tasks.clone(),
-                    format!("{} quick wins (≤2 min)", tasks.len()),
-                ),
-                Err(e) => GtdTasksResponse::error(format!("Failed to get quick wins: {}", e)),
-            },
-            TaskAction::Overdue => match manager.get_overdue().await {
-                Ok(tasks) => GtdTasksResponse::success_list(
-                    tasks.clone(),
-                    format!("{} overdue tasks", tasks.len()),
-                ),
-                Err(e) => GtdTasksResponse::error(format!("Failed to get overdue: {}", e)),
-            },
-        };
-
-        Ok(CallToolResult::success(vec![Content::text(
-            serde_json::to_string_pretty(&response).unwrap(),
-        )]))
-    }
-
-    /// Track items you're waiting on from others.
-    #[tool(
-        description = "Track waiting-for items. Actions: list, get, add, follow_up, resolve, overdue. Manage delegated items and follow-ups."
-    )]
-    async fn gtd_waiting(
-        &self,
-        Parameters(params): Parameters<crate::mcp::gtd_tools::GtdWaitingParams>,
-    ) -> Result<CallToolResult, McpError> {
-        use crate::gtd::{WaitingFilter, WaitingFor, WaitingManager};
-        use crate::mcp::gtd_tools::{GtdWaitingResponse, WaitingAction};
-
-        // Get ontology store from coordinator
-        self.ensure_coordinator().await?;
-        let state = self.state.read().await;
-        let coordinator = state.coordinator.as_ref().unwrap();
-        let ontology_store = coordinator.ontology_store();
-
-        let manager = WaitingManager::new(ontology_store);
-
-        let response = match params.action {
-            WaitingAction::List => {
-                let filter = WaitingFilter {
-                    delegated_to: params.delegated_to.clone(),
-                    project_id: params.project_id.clone(),
-                    status: params.status,
-                    overdue_only: false,
-                    limit: params.limit.unwrap_or(100),
-                    offset: 0,
-                };
-                match manager.list(filter).await {
-                    Ok(items) => GtdWaitingResponse::success_list(
-                        items.clone(),
-                        format!("Found {} waiting items", items.len()),
-                    ),
-                    Err(e) => GtdWaitingResponse::error(format!("Failed to list: {}", e)),
-                }
-            }
-            WaitingAction::Get => {
-                let item_id = params.item_id.ok_or_else(|| {
-                    McpError::invalid_params("item_id is required for 'get' action", None)
-                })?;
-                match manager.get(&item_id).await {
-                    Ok(Some(item)) => GtdWaitingResponse::success_single(item, "Item retrieved"),
-                    Ok(None) => GtdWaitingResponse::error(format!("Item not found: {}", item_id)),
-                    Err(e) => GtdWaitingResponse::error(format!("Failed to get: {}", e)),
-                }
-            }
-            WaitingAction::Add => {
-                let description = params.description.ok_or_else(|| {
-                    McpError::invalid_params("description is required for 'add' action", None)
-                })?;
-                let delegated_to = params.delegated_to.ok_or_else(|| {
-                    McpError::invalid_params("delegated_to is required for 'add' action", None)
-                })?;
-                let mut item = WaitingFor::new(description, delegated_to);
-                if let Some(project_id) = params.project_id {
-                    item = item.with_project(project_id);
-                }
-                if let Some(expected) = params.expected_by {
-                    item = item.with_expected_by(expected);
-                }
-                match manager.create(item).await {
-                    Ok(created) => {
-                        GtdWaitingResponse::success_single(created, "Waiting item added")
-                    }
-                    Err(e) => GtdWaitingResponse::error(format!("Failed to add: {}", e)),
-                }
-            }
-            WaitingAction::FollowUp => {
-                let item_id = params.item_id.ok_or_else(|| {
-                    McpError::invalid_params("item_id is required for 'follow_up' action", None)
-                })?;
-                match manager.record_follow_up(&item_id).await {
-                    Ok(Some(item)) => {
-                        GtdWaitingResponse::success_single(item, "Follow-up recorded")
-                    }
-                    Ok(None) => GtdWaitingResponse::error(format!("Item not found: {}", item_id)),
-                    Err(e) => GtdWaitingResponse::error(format!("Failed to record: {}", e)),
-                }
-            }
-            WaitingAction::Resolve => {
-                let item_id = params.item_id.ok_or_else(|| {
-                    McpError::invalid_params("item_id is required for 'resolve' action", None)
-                })?;
-                let resolution = params.resolution.unwrap_or_else(|| "Resolved".to_string());
-                match manager.resolve(&item_id, &resolution).await {
-                    Ok(Some(item)) => GtdWaitingResponse::success_single(item, "Item resolved"),
-                    Ok(None) => GtdWaitingResponse::error(format!("Item not found: {}", item_id)),
-                    Err(e) => GtdWaitingResponse::error(format!("Failed to resolve: {}", e)),
-                }
-            }
-            WaitingAction::Overdue => match manager.get_overdue().await {
-                Ok(items) => GtdWaitingResponse::success_list(
-                    items.clone(),
-                    format!("{} overdue items", items.len()),
-                ),
-                Err(e) => GtdWaitingResponse::error(format!("Failed to get overdue: {}", e)),
-            },
-        };
-
-        Ok(CallToolResult::success(vec![Content::text(
-            serde_json::to_string_pretty(&response).unwrap(),
-        )]))
-    }
-
-    /// Manage someday/maybe items for future consideration.
-    #[tool(
-        description = "Manage someday/maybe items. Actions: list, get, add, update, activate, archive, categories, due_for_review. Track deferred ideas and projects."
-    )]
-    async fn gtd_someday(
-        &self,
-        Parameters(params): Parameters<crate::mcp::gtd_tools::GtdSomedayParams>,
-    ) -> Result<CallToolResult, McpError> {
-        use crate::gtd::{SomedayFilter, SomedayItem, SomedayManager};
-        use crate::mcp::gtd_tools::{GtdSomedayResponse, SomedayAction};
-
-        // Get ontology store from coordinator
-        self.ensure_coordinator().await?;
-        let state = self.state.read().await;
-        let coordinator = state.coordinator.as_ref().unwrap();
-        let ontology_store = coordinator.ontology_store();
-
-        let manager = SomedayManager::new(ontology_store);
-
-        let response = match params.action {
-            SomedayAction::List => {
-                let filter = SomedayFilter {
-                    category: params.category.clone(),
-                    due_for_review: false,
-                    limit: params.limit.unwrap_or(100),
-                    offset: 0,
-                };
-                match manager.list(filter).await {
-                    Ok(items) => GtdSomedayResponse::success_list(
-                        items.clone(),
-                        format!("Found {} someday/maybe items", items.len()),
-                    ),
-                    Err(e) => GtdSomedayResponse::error(format!("Failed to list: {}", e)),
-                }
-            }
-            SomedayAction::Get => {
-                let item_id = params.item_id.ok_or_else(|| {
-                    McpError::invalid_params("item_id is required for 'get' action", None)
-                })?;
-                match manager.get(&item_id).await {
-                    Ok(Some(item)) => GtdSomedayResponse::success_single(item, "Item retrieved"),
-                    Ok(None) => GtdSomedayResponse::error(format!("Item not found: {}", item_id)),
-                    Err(e) => GtdSomedayResponse::error(format!("Failed to get: {}", e)),
-                }
-            }
-            SomedayAction::Add => {
-                let description = params.description.ok_or_else(|| {
-                    McpError::invalid_params("description is required for 'add' action", None)
-                })?;
-                let mut item = SomedayItem::new(description);
-                if let Some(category) = params.category {
-                    item = item.with_category(category);
-                }
-                if let Some(trigger) = params.trigger {
-                    item = item.with_trigger(trigger);
-                }
-                if let Some(review) = params.review_date {
-                    item = item.with_review_date(review);
-                }
-                match manager.create(item).await {
-                    Ok(created) => GtdSomedayResponse::success_single(created, "Item added"),
-                    Err(e) => GtdSomedayResponse::error(format!("Failed to add: {}", e)),
-                }
-            }
-            SomedayAction::Update => {
-                let item_id = params.item_id.ok_or_else(|| {
-                    McpError::invalid_params("item_id is required for 'update' action", None)
-                })?;
-                match manager.get(&item_id).await {
-                    Ok(Some(mut item)) => {
-                        if let Some(desc) = params.description {
-                            item.description = desc;
-                        }
-                        if let Some(category) = params.category {
-                            item.category = Some(category);
-                        }
-                        if let Some(trigger) = params.trigger {
-                            item.trigger = Some(trigger);
-                        }
-                        if let Some(review) = params.review_date {
-                            item.review_date = Some(review);
-                        }
-                        match manager.update(&item_id, item).await {
-                            Ok(updated) => {
-                                GtdSomedayResponse::success_single(updated, "Item updated")
-                            }
-                            Err(e) => GtdSomedayResponse::error(format!("Failed to update: {}", e)),
-                        }
-                    }
-                    Ok(None) => GtdSomedayResponse::error(format!("Item not found: {}", item_id)),
-                    Err(e) => GtdSomedayResponse::error(format!("Failed to get: {}", e)),
-                }
-            }
-            SomedayAction::Activate => {
-                let item_id = params.item_id.ok_or_else(|| {
-                    McpError::invalid_params("item_id is required for 'activate' action", None)
-                })?;
-                match manager.activate(&item_id).await {
-                    Ok(Some(task)) => GtdSomedayResponse::success_activated(
-                        task,
-                        "Item activated - converted to task",
-                    ),
-                    Ok(None) => GtdSomedayResponse::error(format!("Item not found: {}", item_id)),
-                    Err(e) => GtdSomedayResponse::error(format!("Failed to activate: {}", e)),
-                }
-            }
-            SomedayAction::Archive => {
-                let item_id = params.item_id.ok_or_else(|| {
-                    McpError::invalid_params("item_id is required for 'archive' action", None)
-                })?;
-                match manager.delete(&item_id).await {
-                    Ok(true) => GtdSomedayResponse {
-                        success: true,
-                        item: None,
-                        items: None,
-                        task: None,
-                        categories: None,
-                        message: "Item archived/deleted".to_string(),
-                    },
-                    Ok(false) => GtdSomedayResponse::error(format!("Item not found: {}", item_id)),
-                    Err(e) => GtdSomedayResponse::error(format!("Failed to archive: {}", e)),
-                }
-            }
-            SomedayAction::Categories => match manager.get_categories().await {
-                Ok(cats) => GtdSomedayResponse::success_categories(
-                    cats.clone(),
-                    format!("{} categories", cats.len()),
-                ),
-                Err(e) => GtdSomedayResponse::error(format!("Failed to get categories: {}", e)),
-            },
-            SomedayAction::DueForReview => match manager.get_due_for_review().await {
-                Ok(items) => GtdSomedayResponse::success_list(
-                    items.clone(),
-                    format!("{} items due for review", items.len()),
-                ),
-                Err(e) => GtdSomedayResponse::error(format!("Failed to get: {}", e)),
-            },
-        };
-
-        Ok(CallToolResult::success(vec![Content::text(
-            serde_json::to_string_pretty(&response).unwrap(),
-        )]))
-    }
+    // Note: Simple per-action tools (task_*, project_*, waiting_*, someday_*, commitment_*)
+    // are preferred over the action-enum based tools. See "Simplified GTD Tools" section below.
 
     // ========================================================================
     // GTD Advanced Features (Phase 8)
@@ -4155,198 +3894,6 @@ impl AlloyServer {
                 GtdAttentionResponse::success(metrics, summary)
             }
             Err(e) => GtdAttentionResponse::error(format!("Failed to analyze attention: {}", e)),
-        };
-
-        Ok(CallToolResult::success(vec![Content::text(
-            serde_json::to_string_pretty(&response).unwrap(),
-        )]))
-    }
-
-    /// Track and manage commitments made and received.
-    #[tool(
-        description = "Track commitments - promises made and received. Actions: list, get, extract (from text), create, fulfill, cancel, summary, overdue, made_to (person), received_from (person). Use for tracking promises and accountability."
-    )]
-    async fn gtd_commitments(
-        &self,
-        Parameters(params): Parameters<crate::mcp::gtd_tools::GtdCommitmentsParams>,
-    ) -> Result<CallToolResult, McpError> {
-        use crate::gtd::{
-            Commitment, CommitmentDirection, CommitmentFilter, CommitmentManager, CommitmentStatus,
-        };
-        use crate::mcp::gtd_tools::{CommitmentAction, GtdCommitmentsResponse};
-
-        // Get ontology store from coordinator
-        self.ensure_coordinator().await?;
-        let state = self.state.read().await;
-        let coordinator = state.coordinator.as_ref().unwrap();
-        let ontology_store = coordinator.ontology_store();
-
-        let manager = CommitmentManager::new(ontology_store);
-
-        let response = match params.action {
-            CommitmentAction::List => {
-                let filter = CommitmentFilter {
-                    commitment_type: params.commitment_type.as_ref().and_then(|ct| {
-                        match ct.as_str() {
-                            "made" => Some(CommitmentDirection::Made),
-                            "received" => Some(CommitmentDirection::Received),
-                            _ => None,
-                        }
-                    }),
-                    status: params.status.as_ref().and_then(|s| match s.as_str() {
-                        "pending" => Some(CommitmentStatus::Pending),
-                        "fulfilled" => Some(CommitmentStatus::Fulfilled),
-                        "cancelled" => Some(CommitmentStatus::Cancelled),
-                        "overdue" => Some(CommitmentStatus::Overdue),
-                        _ => None,
-                    }),
-                    person: params.person.clone(),
-                    project_id: None,
-                    overdue_only: false,
-                    needs_follow_up: false,
-                    limit: params.limit,
-                };
-                match manager.list(filter).await {
-                    Ok(commitments) => GtdCommitmentsResponse::success_list(
-                        commitments.clone(),
-                        format!("Found {} commitments", commitments.len()),
-                    ),
-                    Err(e) => GtdCommitmentsResponse::error(format!("Failed to list: {}", e)),
-                }
-            }
-            CommitmentAction::Get => {
-                let id = params.commitment_id.ok_or_else(|| {
-                    McpError::invalid_params("commitment_id is required for 'get' action", None)
-                })?;
-                match manager.get(&id).await {
-                    Ok(Some(commitment)) => {
-                        GtdCommitmentsResponse::success_single(commitment, "Commitment retrieved")
-                    }
-                    Ok(None) => {
-                        GtdCommitmentsResponse::error(format!("Commitment not found: {}", id))
-                    }
-                    Err(e) => GtdCommitmentsResponse::error(format!("Failed to get: {}", e)),
-                }
-            }
-            CommitmentAction::Extract => {
-                let text = params.text.ok_or_else(|| {
-                    McpError::invalid_params("text is required for 'extract' action", None)
-                })?;
-                let result = manager.extract_from_text(&text, params.document_id.as_deref());
-                GtdCommitmentsResponse::success_extraction(
-                    result.clone(),
-                    format!("Extracted {} commitments", result.total_found),
-                )
-            }
-            CommitmentAction::Create => {
-                let description = params.description.ok_or_else(|| {
-                    McpError::invalid_params("description is required for 'create' action", None)
-                })?;
-                let commitment = Commitment {
-                    id: uuid::Uuid::new_v4().to_string(),
-                    commitment_type: params
-                        .commitment_type
-                        .as_ref()
-                        .map(|ct| {
-                            if ct == "made" {
-                                CommitmentDirection::Made
-                            } else {
-                                CommitmentDirection::Received
-                            }
-                        })
-                        .unwrap_or(CommitmentDirection::Made),
-                    description: description.clone(),
-                    from_person: params.person.clone(),
-                    to_person: None,
-                    due_date: None,
-                    status: CommitmentStatus::Pending,
-                    source_document: params.document_id.clone(),
-                    extracted_text: description,
-                    confidence: 1.0,
-                    project_id: None,
-                    follow_up_date: None,
-                    notes: None,
-                    created_at: chrono::Utc::now(),
-                    updated_at: chrono::Utc::now(),
-                };
-                match manager.create(commitment).await {
-                    Ok(created) => {
-                        GtdCommitmentsResponse::success_single(created, "Commitment created")
-                    }
-                    Err(e) => GtdCommitmentsResponse::error(format!("Failed to create: {}", e)),
-                }
-            }
-            CommitmentAction::Fulfill => {
-                let id = params.commitment_id.ok_or_else(|| {
-                    McpError::invalid_params("commitment_id is required for 'fulfill' action", None)
-                })?;
-                match manager.fulfill(&id).await {
-                    Ok(()) => GtdCommitmentsResponse {
-                        success: true,
-                        commitment: None,
-                        commitments: None,
-                        extraction: None,
-                        summary: None,
-                        message: "Commitment marked as fulfilled".to_string(),
-                    },
-                    Err(e) => GtdCommitmentsResponse::error(format!("Failed to fulfill: {}", e)),
-                }
-            }
-            CommitmentAction::Cancel => {
-                let id = params.commitment_id.ok_or_else(|| {
-                    McpError::invalid_params("commitment_id is required for 'cancel' action", None)
-                })?;
-                match manager.cancel(&id).await {
-                    Ok(()) => GtdCommitmentsResponse {
-                        success: true,
-                        commitment: None,
-                        commitments: None,
-                        extraction: None,
-                        summary: None,
-                        message: "Commitment cancelled".to_string(),
-                    },
-                    Err(e) => GtdCommitmentsResponse::error(format!("Failed to cancel: {}", e)),
-                }
-            }
-            CommitmentAction::Summary => match manager.summary().await {
-                Ok(summary) => {
-                    GtdCommitmentsResponse::success_summary(summary, "Commitment summary generated")
-                }
-                Err(e) => {
-                    GtdCommitmentsResponse::error(format!("Failed to generate summary: {}", e))
-                }
-            },
-            CommitmentAction::Overdue => match manager.get_overdue().await {
-                Ok(commitments) => GtdCommitmentsResponse::success_list(
-                    commitments.clone(),
-                    format!("{} overdue commitments", commitments.len()),
-                ),
-                Err(e) => GtdCommitmentsResponse::error(format!("Failed to get overdue: {}", e)),
-            },
-            CommitmentAction::MadeTo => {
-                let person = params.person.ok_or_else(|| {
-                    McpError::invalid_params("person is required for 'made_to' action", None)
-                })?;
-                match manager.get_made_to(&person).await {
-                    Ok(commitments) => GtdCommitmentsResponse::success_list(
-                        commitments.clone(),
-                        format!("{} commitments made to {}", commitments.len(), person),
-                    ),
-                    Err(e) => GtdCommitmentsResponse::error(format!("Failed to get: {}", e)),
-                }
-            }
-            CommitmentAction::ReceivedFrom => {
-                let person = params.person.ok_or_else(|| {
-                    McpError::invalid_params("person is required for 'received_from' action", None)
-                })?;
-                match manager.get_received_from(&person).await {
-                    Ok(commitments) => GtdCommitmentsResponse::success_list(
-                        commitments.clone(),
-                        format!("{} commitments received from {}", commitments.len(), person),
-                    ),
-                    Err(e) => GtdCommitmentsResponse::error(format!("Failed to get: {}", e)),
-                }
-            }
         };
 
         Ok(CallToolResult::success(vec![Content::text(
@@ -4480,7 +4027,9 @@ impl AlloyServer {
     // ========================================================================
 
     /// Create a new GTD task.
-    #[tool(description = "Create a new GTD task. Provide description (required) and optional: project_id, contexts (array like [\"@phone\", \"@computer\"]), energy_level (low/medium/high), estimated_minutes, due_date (ISO 8601), priority (low/normal/high/critical).")]
+    #[tool(
+        description = "Create a new GTD task. Provide description (required) and optional: project_id, contexts (array like [\"@phone\", \"@computer\"]), energy_level (low/medium/high), estimated_minutes, due_date (ISO 8601), priority (low/normal/high/critical)."
+    )]
     async fn task_create(
         &self,
         Parameters(params): Parameters<crate::mcp::gtd_simple_tools::TaskCreateParams>,
@@ -4525,7 +4074,9 @@ impl AlloyServer {
     }
 
     /// List GTD tasks with optional filters.
-    #[tool(description = "List GTD tasks. Optional filters: project_id, contexts, status (next/scheduled/waiting/someday/done), energy_level (low/medium/high), priority (low/normal/high/critical), description_contains, limit.")]
+    #[tool(
+        description = "List GTD tasks. Optional filters: project_id, contexts, status (next/scheduled/waiting/someday/done), energy_level (low/medium/high), priority (low/normal/high/critical), description_contains, limit."
+    )]
     async fn task_list(
         &self,
         Parameters(params): Parameters<crate::mcp::gtd_simple_tools::TaskListParams>,
@@ -4553,9 +4104,10 @@ impl AlloyServer {
         };
 
         let response = match manager.list(filter).await {
-            Ok(tasks) => {
-                GtdTasksResponse::success_list(tasks.clone(), format!("Found {} tasks", tasks.len()))
-            }
+            Ok(tasks) => GtdTasksResponse::success_list(
+                tasks.clone(),
+                format!("Found {} tasks", tasks.len()),
+            ),
             Err(e) => GtdTasksResponse::error(format!("Failed to list tasks: {}", e)),
         };
 
@@ -4649,7 +4201,9 @@ impl AlloyServer {
     }
 
     /// Update an existing GTD task.
-    #[tool(description = "Update a GTD task. Requires task_id. Optional fields to update: description, project_id, contexts, status (next/scheduled/waiting/someday/done), energy_level, estimated_minutes, due_date, priority.")]
+    #[tool(
+        description = "Update a GTD task. Requires task_id. Optional fields to update: description, project_id, contexts, status (next/scheduled/waiting/someday/done), energy_level, estimated_minutes, due_date, priority."
+    )]
     async fn task_update(
         &self,
         Parameters(params): Parameters<crate::mcp::gtd_simple_tools::TaskUpdateParams>,
@@ -4704,7 +4258,9 @@ impl AlloyServer {
     }
 
     /// Create a new GTD project.
-    #[tool(description = "Create a new GTD project. Requires name. Optional: outcome (what does done look like?), area (Work/Personal/etc.), goal.")]
+    #[tool(
+        description = "Create a new GTD project. Requires name. Optional: outcome (what does done look like?), area (Work/Personal/etc.), goal."
+    )]
     async fn project_create(
         &self,
         Parameters(params): Parameters<crate::mcp::gtd_simple_tools::ProjectCreateParams>,
@@ -4740,7 +4296,9 @@ impl AlloyServer {
     }
 
     /// List GTD projects with optional filters.
-    #[tool(description = "List GTD projects. Optional filters: status (active/on_hold/completed/archived), area, has_next_action (true/false), stalled_days, limit.")]
+    #[tool(
+        description = "List GTD projects. Optional filters: status (active/on_hold/completed/archived), area, has_next_action (true/false), stalled_days, limit."
+    )]
     async fn project_list(
         &self,
         Parameters(params): Parameters<crate::mcp::gtd_simple_tools::ProjectListParams>,
@@ -4861,7 +4419,9 @@ impl AlloyServer {
     }
 
     /// Add a waiting-for item.
-    #[tool(description = "Add a new waiting-for item. Requires description and delegated_to (person/entity you're waiting on). Optional: project_id, expected_by (ISO 8601 date).")]
+    #[tool(
+        description = "Add a new waiting-for item. Requires description and delegated_to (person/entity you're waiting on). Optional: project_id, expected_by (ISO 8601 date)."
+    )]
     async fn waiting_add(
         &self,
         Parameters(params): Parameters<crate::mcp::gtd_simple_tools::WaitingAddParams>,
@@ -4894,7 +4454,9 @@ impl AlloyServer {
     }
 
     /// List waiting-for items.
-    #[tool(description = "List waiting-for items. Optional filters: status (pending/overdue/resolved), limit.")]
+    #[tool(
+        description = "List waiting-for items. Optional filters: status (pending/overdue/resolved), limit."
+    )]
     async fn waiting_list(
         &self,
         Parameters(params): Parameters<crate::mcp::gtd_simple_tools::WaitingListParams>,
@@ -4931,7 +4493,9 @@ impl AlloyServer {
     }
 
     /// Resolve a waiting-for item.
-    #[tool(description = "Resolve/complete a waiting-for item. Requires item_id. Optional: resolution (text describing how it was resolved).")]
+    #[tool(
+        description = "Resolve/complete a waiting-for item. Requires item_id. Optional: resolution (text describing how it was resolved)."
+    )]
     async fn waiting_resolve(
         &self,
         Parameters(params): Parameters<crate::mcp::gtd_simple_tools::WaitingResolveParams>,
@@ -4960,7 +4524,9 @@ impl AlloyServer {
     }
 
     /// Add a someday/maybe item.
-    #[tool(description = "Add a new someday/maybe item for future consideration. Requires description. Optional: category, trigger (what would make this active?), review_date (ISO 8601).")]
+    #[tool(
+        description = "Add a new someday/maybe item for future consideration. Requires description. Optional: category, trigger (what would make this active?), review_date (ISO 8601)."
+    )]
     async fn someday_add(
         &self,
         Parameters(params): Parameters<crate::mcp::gtd_simple_tools::SomedayAddParams>,
@@ -4987,9 +4553,7 @@ impl AlloyServer {
 
         let response = match manager.create(item).await {
             Ok(created) => GtdSomedayResponse::success_single(created, "Someday/maybe item added"),
-            Err(e) => {
-                GtdSomedayResponse::error(format!("Failed to add someday/maybe item: {}", e))
-            }
+            Err(e) => GtdSomedayResponse::error(format!("Failed to add someday/maybe item: {}", e)),
         };
 
         Ok(CallToolResult::success(vec![Content::text(
@@ -5035,7 +4599,9 @@ impl AlloyServer {
     }
 
     /// Activate a someday/maybe item (convert to task).
-    #[tool(description = "Activate a someday/maybe item - converts it to an active task. Requires item_id.")]
+    #[tool(
+        description = "Activate a someday/maybe item - converts it to an active task. Requires item_id."
+    )]
     async fn someday_activate(
         &self,
         Parameters(params): Parameters<crate::mcp::gtd_simple_tools::SomedayActivateParams>,
@@ -5051,9 +4617,10 @@ impl AlloyServer {
 
         let response = match manager.activate(&params.item_id).await {
             Ok(Some(task)) => GtdSomedayResponse::success_activated(task, "Item activated as task"),
-            Ok(None) => {
-                GtdSomedayResponse::error(format!("Someday/maybe item not found: {}", params.item_id))
-            }
+            Ok(None) => GtdSomedayResponse::error(format!(
+                "Someday/maybe item not found: {}",
+                params.item_id
+            )),
             Err(e) => GtdSomedayResponse::error(format!("Failed to activate: {}", e)),
         };
 
@@ -5067,14 +4634,16 @@ impl AlloyServer {
     // ========================================================================
 
     /// Create a new calendar event.
-    #[tool(description = "Create a new calendar event. Requires title and start (ISO 8601 datetime). Optional: description, event_type (event/meeting/deadline/reminder/blocked_time), end (ISO 8601), duration_minutes, all_day, location, participants (array), project_id.")]
+    #[tool(
+        description = "Create a new calendar event. Requires title and start (ISO 8601 datetime). Optional: description, event_type (event/meeting/deadline/reminder/blocked_time), end (ISO 8601), duration_minutes, all_day, location, participants (array), project_id."
+    )]
     async fn calendar_create(
         &self,
         Parameters(params): Parameters<crate::mcp::gtd_simple_tools::CalendarCreateParams>,
     ) -> Result<CallToolResult, McpError> {
-        use chrono::Duration;
         use crate::calendar::{CalendarEvent, CalendarManager, EventType};
         use crate::mcp::calendar_tools::{CalendarEventInfo, CalendarManageResponse};
+        use chrono::Duration;
 
         self.ensure_coordinator().await?;
         let state = self.state.read().await;
@@ -5142,14 +4711,16 @@ impl AlloyServer {
     }
 
     /// List calendar events.
-    #[tool(description = "List calendar events. Optional: query_type (upcoming/today/this_week/next_week/date_range), start_date (ISO 8601), end_date (ISO 8601), days, limit.")]
+    #[tool(
+        description = "List calendar events. Optional: query_type (upcoming/today/this_week/next_week/date_range), start_date (ISO 8601), end_date (ISO 8601), days, limit."
+    )]
     async fn calendar_list(
         &self,
         Parameters(params): Parameters<crate::mcp::gtd_simple_tools::CalendarListParams>,
     ) -> Result<CallToolResult, McpError> {
-        use chrono::{Duration, Utc};
-        use crate::calendar::{CalendarFilter, CalendarQueryType, CalendarManager};
+        use crate::calendar::{CalendarFilter, CalendarManager, CalendarQueryType};
         use crate::mcp::calendar_tools::{CalendarEventInfo, CalendarManageResponse};
+        use chrono::{Duration, Utc};
 
         self.ensure_coordinator().await?;
         let state = self.state.read().await;
@@ -5157,19 +4728,25 @@ impl AlloyServer {
         let ontology_store = coordinator.ontology_store();
         let manager = CalendarManager::new(ontology_store);
 
-        let query_type = params.query_type.as_deref().map(|s| match s.to_lowercase().as_str() {
-            "today" => CalendarQueryType::Today,
-            "this_week" => CalendarQueryType::ThisWeek,
-            "next_week" => CalendarQueryType::NextWeek,
-            "date_range" => CalendarQueryType::DateRange,
-            _ => CalendarQueryType::Upcoming,
-        }).unwrap_or(CalendarQueryType::Upcoming);
+        let query_type = params
+            .query_type
+            .as_deref()
+            .map(|s| match s.to_lowercase().as_str() {
+                "today" => CalendarQueryType::Today,
+                "this_week" => CalendarQueryType::ThisWeek,
+                "next_week" => CalendarQueryType::NextWeek,
+                "date_range" => CalendarQueryType::DateRange,
+                _ => CalendarQueryType::Upcoming,
+            })
+            .unwrap_or(CalendarQueryType::Upcoming);
 
         let now = Utc::now();
         let filter = CalendarFilter {
             query_type,
             start_date: params.start_date.or(Some(now)),
-            end_date: params.end_date.or(Some(now + Duration::days(params.days.unwrap_or(7)))),
+            end_date: params
+                .end_date
+                .or(Some(now + Duration::days(params.days.unwrap_or(7)))),
             event_types: vec![],
             project_id: None,
             participant: None,
@@ -5180,7 +4757,8 @@ impl AlloyServer {
 
         let response = match manager.list(&filter).await {
             Ok(events) => {
-                let event_infos: Vec<CalendarEventInfo> = events.into_iter().map(CalendarEventInfo::from).collect();
+                let event_infos: Vec<CalendarEventInfo> =
+                    events.into_iter().map(CalendarEventInfo::from).collect();
                 let count = event_infos.len();
                 CalendarManageResponse {
                     success: true,
@@ -5297,7 +4875,9 @@ impl AlloyServer {
     // ========================================================================
 
     /// Create a new commitment.
-    #[tool(description = "Create a new commitment (promise made or received). Provide description (required) and optional: commitment_type ('made' or 'received'), person, due_date, document_id.")]
+    #[tool(
+        description = "Create a new commitment (promise made or received). Provide description (required) and optional: commitment_type ('made' or 'received'), person, due_date, document_id."
+    )]
     async fn commitment_create(
         &self,
         Parameters(params): Parameters<crate::mcp::gtd_simple_tools::CommitmentCreateParams>,
@@ -5350,12 +4930,16 @@ impl AlloyServer {
     }
 
     /// List commitments with optional filters.
-    #[tool(description = "List commitments with optional filters. Filter by: commitment_type ('made' or 'received'), status ('pending', 'fulfilled', 'cancelled', 'overdue'), person, limit.")]
+    #[tool(
+        description = "List commitments with optional filters. Filter by: commitment_type ('made' or 'received'), status ('pending', 'fulfilled', 'cancelled', 'overdue'), person, limit."
+    )]
     async fn commitment_list(
         &self,
         Parameters(params): Parameters<crate::mcp::gtd_simple_tools::CommitmentListParams>,
     ) -> Result<CallToolResult, McpError> {
-        use crate::gtd::{CommitmentDirection, CommitmentFilter, CommitmentManager, CommitmentStatus};
+        use crate::gtd::{
+            CommitmentDirection, CommitmentFilter, CommitmentManager, CommitmentStatus,
+        };
         use crate::mcp::gtd_tools::GtdCommitmentsResponse;
 
         self.ensure_coordinator().await?;
@@ -5365,11 +4949,14 @@ impl AlloyServer {
         let manager = CommitmentManager::new(ontology_store);
 
         let filter = CommitmentFilter {
-            commitment_type: params.commitment_type.as_ref().and_then(|ct| match ct.as_str() {
-                "made" => Some(CommitmentDirection::Made),
-                "received" => Some(CommitmentDirection::Received),
-                _ => None,
-            }),
+            commitment_type: params
+                .commitment_type
+                .as_ref()
+                .and_then(|ct| match ct.as_str() {
+                    "made" => Some(CommitmentDirection::Made),
+                    "received" => Some(CommitmentDirection::Received),
+                    _ => None,
+                }),
             status: params.status.as_ref().and_then(|s| match s.as_str() {
                 "pending" => Some(CommitmentStatus::Pending),
                 "fulfilled" => Some(CommitmentStatus::Fulfilled),
@@ -5493,7 +5080,9 @@ impl AlloyServer {
     }
 
     /// Extract commitments from text.
-    #[tool(description = "Extract commitments (promises made or received) from text. Analyzes text for implicit and explicit commitments.")]
+    #[tool(
+        description = "Extract commitments (promises made or received) from text. Analyzes text for implicit and explicit commitments."
+    )]
     async fn commitment_extract(
         &self,
         Parameters(params): Parameters<crate::mcp::gtd_simple_tools::CommitmentExtractParams>,
@@ -5519,10 +5108,10 @@ impl AlloyServer {
     }
 
     /// Get a summary of all commitments.
-    #[tool(description = "Get a summary of all commitments including counts by status, type, and overdue items.")]
-    async fn commitment_summary(
-        &self,
-    ) -> Result<CallToolResult, McpError> {
+    #[tool(
+        description = "Get a summary of all commitments including counts by status, type, and overdue items."
+    )]
+    async fn commitment_summary(&self) -> Result<CallToolResult, McpError> {
         use crate::gtd::CommitmentManager;
         use crate::mcp::gtd_tools::GtdCommitmentsResponse;
 
@@ -5546,9 +5135,7 @@ impl AlloyServer {
 
     /// Get overdue commitments.
     #[tool(description = "Get all overdue commitments (past their due date).")]
-    async fn commitment_overdue(
-        &self,
-    ) -> Result<CallToolResult, McpError> {
+    async fn commitment_overdue(&self) -> Result<CallToolResult, McpError> {
         use crate::gtd::CommitmentManager;
         use crate::mcp::gtd_tools::GtdCommitmentsResponse;
 
@@ -5572,7 +5159,9 @@ impl AlloyServer {
     }
 
     /// Get commitments made to a specific person.
-    #[tool(description = "Get all commitments made to a specific person (promises I made to them).")]
+    #[tool(
+        description = "Get all commitments made to a specific person (promises I made to them)."
+    )]
     async fn commitment_made_to(
         &self,
         Parameters(params): Parameters<crate::mcp::gtd_simple_tools::CommitmentMadeToParams>,
@@ -5589,7 +5178,11 @@ impl AlloyServer {
         let response = match manager.get_made_to(&params.person).await {
             Ok(commitments) => GtdCommitmentsResponse::success_list(
                 commitments.clone(),
-                format!("{} commitments made to {}", commitments.len(), params.person),
+                format!(
+                    "{} commitments made to {}",
+                    commitments.len(),
+                    params.person
+                ),
             ),
             Err(e) => GtdCommitmentsResponse::error(format!("Failed to get: {}", e)),
         };
@@ -5600,7 +5193,9 @@ impl AlloyServer {
     }
 
     /// Get commitments received from a specific person.
-    #[tool(description = "Get all commitments received from a specific person (promises they made to me).")]
+    #[tool(
+        description = "Get all commitments received from a specific person (promises they made to me)."
+    )]
     async fn commitment_received_from(
         &self,
         Parameters(params): Parameters<crate::mcp::gtd_simple_tools::CommitmentReceivedFromParams>,
